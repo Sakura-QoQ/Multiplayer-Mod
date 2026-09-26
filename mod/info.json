@@ -1,0 +1,9 @@
+{
+  "name": "PlayerHostedMultiplayer",
+  "description": {
+    "English": "Player-hosted multiplayer with in-game controls",
+    "SimplifiedChinese": "带游戏内控制界面的玩家房主制联机"
+  },
+  "version": "v0.3.7",
+  "author": "Local"
+}
