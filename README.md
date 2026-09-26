@@ -49,7 +49,7 @@ PlayerHostedMultiplayer
 dotnet run --project .\src\MultiplayerBridge.SmokeTest -c Release
 ```
 
-发布物：`artifacts/PlayerHostedMultiplayer-v0.4.0-win-x64.zip`
+发布物：`artifacts/PlayerHostedMultiplayer-v0.5.1-win-x64.zip`
 
 ## v0.4.0 玩家同步
 

@@ -123,6 +123,7 @@ let localProfileRevision = 0;
 let lastLocalProfileJson = "";
 const remotePlayers: Record<string, RemotePlayer> = {};
 const remoteProfiles: Record<string, PlayerProfile> = {};
+const remoteProfileRevisions: Record<string, number> = {};
 const latestPlayerStates: Record<string, PlayerStatePacket> = {};
 const peerNames: Record<string, string> = {};
 const lastRemoteSequences: Record<string, number> = {};
@@ -413,6 +414,15 @@ function activeSaveName(onlineName: string): string {
         : "";
 }
 
+function isOnlineSaveSlot(value: string): boolean {
+    // 原版不同页面传入的可能是槽位名、文件名或完整路径；统一提取文件名并忽略大小写。
+    const normalized = String(value || "").replace(/\\/g, "/");
+    const fileName = normalized.substring(normalized.lastIndexOf("/") + 1).replace(/\.save$/i, "");
+    const lowerName = fileName.toLowerCase();
+    return lowerName.startsWith(ONLINE_SAVE_PREFIX.toLowerCase()) ||
+        lowerName.startsWith(ACTIVE_SAVE_PREFIX.toLowerCase());
+}
+
 function makeOnlineSaveName(): string {
     // 时间戳只用于产生不重复的文件名；正式文件仍由桥接程序写入游戏原本的 Saves 目录。
     return ONLINE_SAVE_PREFIX + String(Date.now());
@@ -428,13 +438,31 @@ function chooseNewOnlineSave(): void {
     toast(tr("toast.newOnlineSelected"));
 }
 
-function waitForGameManager(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void, remaining = 180): void {
+function waitForGameManager(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
+    remaining = 180, settleFrames = 2): void {
     if (!isCurrentGeneration()) return;
+    // StartGame 会异步切场景；即使旧场景的 Singleton 还存在，也至少让出两帧再使用它。
+    if (settleFrames > 0) {
+        JintCoroutine.WaitForNextFrame(owner, () => waitForGameManager(owner, callback, remaining, settleFrames - 1));
+        return;
+    }
     try {
         if (GameManager.Singleton) { callback(GameManager.Singleton); return; }
     } catch (_error) { }
     if (remaining <= 0) { toast(tr("toast.onlineSaveFailed")); return; }
-    JintCoroutine.WaitForNextFrame(owner, () => waitForGameManager(owner, callback, remaining - 1));
+    JintCoroutine.WaitForNextFrame(owner, () => waitForGameManager(owner, callback, remaining - 1, 0));
+}
+
+function waitForPlayableGame(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void, remaining = 600): void {
+    if (!isCurrentGeneration()) return;
+    try {
+        if (GameManager.Singleton && GameManager.InGame && Player.LocalPlayer) {
+            callback(GameManager.Singleton);
+            return;
+        }
+    } catch (_error) { }
+    if (remaining <= 0) { toast(tr("toast.onlineSaveFailed")); return; }
+    JintCoroutine.WaitForNextFrame(owner, () => waitForPlayableGame(owner, callback, remaining - 1));
 }
 
 function enterOnlineSave(): void {
@@ -488,9 +516,11 @@ function enterOnlineSave(): void {
         if (result !== "0") { log("创建线上存档会话失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
         try {
             menu.StartGame();
-            waitForGameManager(menu, manager => {
+            waitForPlayableGame(menu, manager => {
                 GameManager.SaveName = activeName;
                 manager.SaveGame(activeName);
+                // 桥接程序把已经由游戏加密的 MPActive_ 文件再封装成 MPOnline_ 正式档。
+                JintCoroutine.WaitForSeconds(menu, 0.6, () => submitBridgeCommand("flushSave"));
                 closePanel();
                 toast(tr("toast.onlineSaveCreated"));
                 log("已从零创建线上存档: " + selectedSaveName);
@@ -581,7 +611,6 @@ function destroyRemotePlayer(ownerId: number): void {
     if (!remote) return;
     try { if (remote.root) UnityEngine.Object.Destroy(remote.root); } catch (_error) { }
     delete remotePlayers[key];
-    delete lastRemoteSequences[key];
 }
 
 function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerProfile | undefined): void {
@@ -619,6 +648,10 @@ function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerPro
 
 function clearRemotePlayers(): void {
     for (const key of Object.keys(remotePlayers)) destroyRemotePlayer(Number(key));
+    for (const key of Object.keys(lastRemoteSequences)) delete lastRemoteSequences[key];
+    for (const key of Object.keys(remoteProfiles)) delete remoteProfiles[key];
+    for (const key of Object.keys(remoteProfileRevisions)) delete remoteProfileRevisions[key];
+    for (const key of Object.keys(latestPlayerStates)) delete latestPlayerStates[key];
 }
 
 function stripRemoteNode(node: UnityEngine.Transform): void {
@@ -702,10 +735,10 @@ function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
 function applyRemotePlayerState(packet: PlayerStatePacket): void {
     if (!validPlayerState(packet) || packet.ownerId === localNetworkId) return;
     const key = String(packet.ownerId);
-    latestPlayerStates[key] = packet;
     const sequence = Math.trunc(Number(packet.sequence));
     if (lastRemoteSequences[key] !== undefined && sequence <= lastRemoteSequences[key]) return;
     lastRemoteSequences[key] = sequence;
+    latestPlayerStates[key] = packet;
     if (!GameManager.InGame || packet.scene !== String(GameManager.NowSceneName || "")) {
         destroyRemotePlayer(packet.ownerId);
         return;
@@ -737,6 +770,9 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
 function applyRemotePlayerProfile(packet: PlayerProfilePacket): void {
     if (!validPlayerProfile(packet) || packet.ownerId === localNetworkId) return;
     const key = String(packet.ownerId);
+    const revision = Math.trunc(Number(packet.revision));
+    if (remoteProfileRevisions[key] !== undefined && revision <= remoteProfileRevisions[key]) return;
+    remoteProfileRevisions[key] = revision;
     remoteProfiles[key] = packet.profile;
     // 外观节点在克隆时裁剪。资料变化后重建一次模型，确保换装和捏脸立即生效。
     if (remotePlayers[key]) destroyRemotePlayer(packet.ownerId);
@@ -895,7 +931,9 @@ function processEvent(rawEvent: string): void {
         } else if (packet.type === "playerLeft") {
             destroyRemotePlayer(Math.trunc(Number(packet.ownerId)));
             delete remoteProfiles[String(packet.ownerId)];
+            delete remoteProfileRevisions[String(packet.ownerId)];
             delete latestPlayerStates[String(packet.ownerId)];
+            delete lastRemoteSequences[String(packet.ownerId)];
         }
         return;
     }
@@ -905,6 +943,10 @@ function processEvent(rawEvent: string): void {
         if (role === "host") {
             destroyRemotePlayer(Number(event.peerId));
             delete peerNames[String(event.peerId)];
+            delete remoteProfiles[String(event.peerId)];
+            delete remoteProfileRevisions[String(event.peerId)];
+            delete latestPlayerStates[String(event.peerId)];
+            delete lastRemoteSequences[String(event.peerId)];
             send(0, { type: "playerLeft", ownerId: Number(event.peerId) });
         } else {
             localNetworkId = -1;
@@ -1503,6 +1545,9 @@ function updateBridge(player: Player | null): void {
     if (updateFrames % 120 === 0) updateStatusText();
     updateRemotePlayers();
     if (!bridgeAvailable || role === "off") return;
+    // Unity 在 timeScale=0 时仍执行 Update。联机 ESC 菜单一旦把原版 Paused 置为 true，
+    // 下一帧立即恢复世界时间，同时保留暂停菜单窗口本身。
+    try { if (GameManager.Paused) GameManager.PauseGame(false); } catch (_error) { }
     // 每帧最多处理 32 个事件，防止网络洪峰长时间占用 Unity 主线程。
     for (let index = 0; index < 32; index++) {
         try {
@@ -1568,19 +1613,6 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
         } catch (error) { log("暂停菜单 UI 初始化失败: " + error); }
     });
 });
-// 原版打开 ESC 菜单时会调用 PauseGame(true)。联机状态下拦截这一次冻结，单机行为保持不变。
-RegisterHook("System.Void GameManager::PauseGame(System.Boolean)", (pause: boolean, ctx: IHookContext) => {
-    if (isCurrentGeneration() && role !== "off" && pause) ctx.Intercept();
-});
-// 原版自动保存固定写 AutoSave；联机时改写到隔离的 MPActive_ 临时档，完全不触碰单机槽位。
-RegisterHook("System.Void GameManager::AutoSaving()", (ctx: IHookContext) => {
-    if (!isCurrentGeneration() || role === "off") return;
-    const activeName = activeSaveName(selectedSaveName);
-    if (!activeName || !GameManager.Singleton) return;
-    GameManager.SaveName = activeName;
-    GameManager.Singleton.SaveGame(activeName);
-    ctx.Intercept();
-});
 // PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
 RegisterHook("System.Void PauseWindow::<Start>b__9_3()", (_self: any, ctx: IHookContext) => {
     if (isCurrentGeneration() && !saveBeforeGameExit()) ctx.Intercept();
@@ -1616,13 +1648,27 @@ RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
 // 永远不会显示、读取或覆盖它们；联机面板只读取桥接程序提供的线上存档列表。
 RegisterHook("System.Void LoadSaveWindow::CreateLoadSlot(System.String,System.IO.FileInfo)",
     (_self: LoadSaveWindow, saveName: string, _fileInfo: any, ctx: IHookContext) => {
-        const name = String(saveName || "");
-        if (name.startsWith(ONLINE_SAVE_PREFIX) || name.startsWith(ACTIVE_SAVE_PREFIX)) ctx.Intercept();
+        if (isOnlineSaveSlot(saveName)) ctx.Intercept();
+    });
+// 第二层保护：即使其他 Mod 手动创建了联机槽位，也禁止原版单机读取窗口加载它。
+RegisterHook("System.Void LoadSaveWindow::Load(System.String)",
+    (_self: LoadSaveWindow, saveName: string, ctx: IHookContext) => {
+        if (isOnlineSaveSlot(saveName)) {
+            log("已阻止单机读取窗口加载联机存档: " + saveName);
+            ctx.Intercept();
+        }
     });
 RegisterHook("System.Void SaveTab::CreateSlotUI(System.String,System.IO.FileInfo)",
     (_self: SaveTab, saveName: string, _fileInfo: any, ctx: IHookContext) => {
-        const name = String(saveName || "");
-        if (name.startsWith(ONLINE_SAVE_PREFIX) || name.startsWith(ACTIVE_SAVE_PREFIX)) ctx.Intercept();
+        if (isOnlineSaveSlot(saveName)) ctx.Intercept();
+    });
+// 保存页同样不能覆盖联机正式档或运行期临时档。
+RegisterHook("System.Void SaveTab::ExecuteSave(System.String)",
+    (_self: SaveTab, saveName: string, ctx: IHookContext) => {
+        if (isOnlineSaveSlot(saveName)) {
+            log("已阻止单机保存页面覆盖联机存档: " + saveName);
+            ctx.Intercept();
+        }
     });
 
 // 原版 Translate 会在当前调用末尾重新写入克隆按钮的“新建游戏”文本，所以必须等到下一帧

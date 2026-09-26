@@ -11,7 +11,7 @@ $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
-$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.5.0-win-x64.zip'
+$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.5.1-win-x64.zip'
 
 function Import-VisualCppEnvironment {
     # 当前终端没有 link.exe 时，从现有 Visual Studio 安装中载入 x64 编译环境。

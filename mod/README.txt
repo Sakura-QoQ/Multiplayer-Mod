@@ -1,4 +1,4 @@
-PlayerHostedMultiplayer v0.4.0（Windows x64 开发预览版）
+PlayerHostedMultiplayer v0.5.1（Windows x64 开发预览版）
 
 安装：
 1. 把整个 PlayerHostedMultiplayer 文件夹放进游戏的 Mods 目录。
