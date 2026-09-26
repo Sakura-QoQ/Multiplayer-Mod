@@ -1,4 +1,4 @@
-PlayerHostedMultiplayer v0.3.7（Windows x64 开发预览版）
+PlayerHostedMultiplayer v0.4.0（Windows x64 开发预览版）
 
 安装：
 1. 把整个 PlayerHostedMultiplayer 文件夹放进游戏的 Mods 目录。
@@ -15,6 +15,9 @@ Visual Studio、.NET、Node.js、TypeScript 或其他开发软件。
 
 “建立主机”会让当前玩家电脑监听设置的 TCP 端口。互联网玩家仍需要房主在路由器或
 防火墙中允许该端口；同一局域网通常直接填写房主的局域网 IP 即可。
+
+v0.4.0 会同步同场景玩家的模型、位置、朝向和 Animator 动作。远端模型使用安全的
+可视层克隆，不会复制本地输入、相机、碰撞或游戏逻辑。状态以 5 Hz 发送并逐帧平滑显示。
 
 存档读取调用游戏自己的 GameManager.GetSave()。明文快照只保存在当前游戏进程内存中，
 不会自动上传、覆盖或写回存档文件。

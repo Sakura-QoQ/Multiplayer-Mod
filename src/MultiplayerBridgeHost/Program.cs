@@ -12,7 +12,7 @@ internal static class Program
     private const string RegistryPath = @"Software\DefaultCompany\FallenFlower";
     private const string CommandValueName = "MPB.IpcCommand";
     private const string SequenceValueName = "MPB.IpcCommandSequence";
-    private const int ProtocolVersion = 2;
+    private const int ProtocolVersion = 4;
     private const int MaxRetainedEvents = 128;
     private const string OnlineSavePrefix = "MPOnline_";
     private const string ActiveSavePrefix = "MPActive_";

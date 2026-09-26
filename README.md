@@ -34,7 +34,7 @@ PlayerHostedMultiplayer
   `i18n/<语言缩写>/strings.json`；英语作为缺失文本的后备语言，切换语言无需重启。
 - “选择存档”通过桥接程序枚举本机存档名称并在卡片内显示；不会读取文件内容。
 - 已加载存档的预览调用 `GameManager.GetSave()`，明文仅留在游戏进程内存，不自动上传或写回。
-- 联机卡片支持右上角关闭按钮和 `Esc` 关闭，圆角边缘为完全不透明的硬边。
+- 联机卡片使用底部“取消”按钮或 `Esc` 关闭，圆角边缘为完全不透明的硬边。
 
 ## 为什么不再使用 version.dll
 
@@ -49,7 +49,14 @@ PlayerHostedMultiplayer
 dotnet run --project .\src\MultiplayerBridge.SmokeTest -c Release
 ```
 
-发布物：`artifacts/PlayerHostedMultiplayer-v0.3.7-win-x64.zip`
+发布物：`artifacts/PlayerHostedMultiplayer-v0.4.0-win-x64.zip`
+
+## v0.4.0 玩家同步
+
+- 房主作为星型转发中心，支持房主、客户端以及客户端之间互相显示。
+- 以 5 Hz 发送场景、位置、朝向、移动、落地、动作、攻击、武器和 Animator 状态。
+- 远端模型逐帧插值；大跨度移动自动校正，断线或跨场景后自动清理。
+- 远端玩家使用本机当前角色可视模型作为安全映射模板，只保留 Animator 和渲染组件，不复制输入、相机、碰撞或游戏逻辑。
 
 ## 线上存档隔离
 

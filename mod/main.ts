@@ -11,9 +11,51 @@ type MultiplayerConfig = {
 
 type BridgeStatus = { state: string; port: number; peers: number };
 type TranslationValues = Record<string, string | number>;
+type NetworkVector3 = { x: number; y: number; z: number };
+type NetworkQuaternion = { x: number; y: number; z: number; w: number };
+type PlayerStatePacket = {
+    type: "playerState";
+    ownerId: number;
+    sequence: number;
+    playerName: string;
+    scene: string;
+    position: NetworkVector3;
+    rotation: NetworkQuaternion;
+    move: NetworkVector3;
+    grounded: boolean;
+    action: number;
+    handAction: number;
+    stateId: number;
+    attack: number;
+    weapon: number;
+    animationHash: number;
+    animationTime: number;
+};
+type PlayerProfile = {
+    cloth: string[];
+    customization: Record<string, string | number | boolean>;
+    progress: Record<string, any>;
+};
+type PlayerProfilePacket = {
+    type: "playerProfile";
+    ownerId: number;
+    playerName: string;
+    revision: number;
+    profile: PlayerProfile;
+};
+type RemotePlayer = {
+    id: number;
+    name: string;
+    root: UnityEngine.GameObject;
+    animator: UnityEngine.Animator;
+    targetPosition: UnityEngine.Vector3;
+    targetRotation: UnityEngine.Quaternion;
+    lastSeen: number;
+    animationHash: number;
+};
 
 const MOD_TAG = "[PlayerHostedMultiplayer]";
-const PROTOCOL_VERSION = 2;
+const PROTOCOL_VERSION = 4;
 const UI_ROOT_NAME = "MPB_UI_Root";
 const MENU_BUTTON_NAME = "MPB_MultiplayerButton";
 const PAUSE_BUTTON_NAME = "MPB_PauseMultiplayerButton";
@@ -24,6 +66,10 @@ const IPC_COMMAND_KEY = "MPB.IpcCommand";
 const IPC_SEQUENCE_KEY = "MPB.IpcCommandSequence";
 const GENERATION_KEY = "MPB.ScriptGeneration";
 const LANGUAGE_CODES = ["en", "ja", "zh-CN", "zh-TW", "ko", "es"];
+const PLAYER_STATE_INTERVAL = 0.2;
+const PLAYER_PROFILE_INTERVAL = 2;
+const OUTGOING_MESSAGE_INTERVAL = 0.04;
+const REMOTE_PLAYER_TIMEOUT = 10;
 // 游戏切换场景时会重新执行 Mod 脚本。代次编号可让旧回调自动失效，避免重复轮询和重复按钮事件。
 const SCRIPT_GENERATION = Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) + 1;
 UnityEngine.PlayerPrefs.SetInt(GENERATION_KEY, SCRIPT_GENERATION);
@@ -48,6 +94,8 @@ let uiPort: UnityEngine.UI.InputField | null = null;
 let uiName: UnityEngine.UI.InputField | null = null;
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
+let uiNewOnlineButton: UnityEngine.GameObject | null = null;
+let uiSelectSaveButton: UnityEngine.GameObject | null = null;
 let lastBridgeEventSequence = 0;
 let pendingBridgeEvents: string[] = [];
 let languageIndex = -1;
@@ -67,6 +115,19 @@ let roundedPanelSprite: UnityEngine.Sprite | null = null;
 let mainMenuInstance: MainMenu | null = null;
 let mainMenuTranslationRefreshPending = false;
 let exitSaveInProgress = false;
+let localNetworkId = -1;
+let localStateSequence = 0;
+let nextPlayerStateAt = 0;
+let nextPlayerProfileAt = 0;
+let localProfileRevision = 0;
+let lastLocalProfileJson = "";
+const remotePlayers: Record<string, RemotePlayer> = {};
+const remoteProfiles: Record<string, PlayerProfile> = {};
+const latestPlayerStates: Record<string, PlayerStatePacket> = {};
+const peerNames: Record<string, string> = {};
+const lastRemoteSequences: Record<string, number> = {};
+const outgoingMessages: { peerId: number; data: string }[] = [];
+let nextOutgoingMessageAt = 0;
 
 function loadLanguageFile(code: string): Record<string, string> {
     try {
@@ -175,19 +236,37 @@ function readBridgeState(): BridgeStateFile | null {
     } catch (_error) { return null; }
 }
 
-function submitBridgeCommand(command: string): string {
-    if (!bridgeAvailable) return "-1";
+function submitBridgeCommandTracked(command: string): number {
+    if (!bridgeAvailable) return -1;
     try {
         const sequence = Number(UnityEngine.PlayerPrefs.GetInt(IPC_SEQUENCE_KEY, 0)) + 1;
         // 先写命令正文，再写序号；桥接程序只把序号变化视为一条新命令。
         UnityEngine.PlayerPrefs.SetString(IPC_COMMAND_KEY, command);
         UnityEngine.PlayerPrefs.SetInt(IPC_SEQUENCE_KEY, sequence);
         UnityEngine.PlayerPrefs.Save();
-        return "0";
+        return sequence;
     } catch (error) {
         log("提交桥接命令失败: " + error);
-        return "-1";
+        return -1;
     }
+}
+
+function submitBridgeCommand(command: string): string {
+    return submitBridgeCommandTracked(command) > 0 ? "0" : "-1";
+}
+
+// PlayerPrefs 只有一个命令槽。关键操作必须等待桥接程序回写相同序号，不能依赖固定延时，
+// 否则慢硬盘或首次启动时 prepareSave 会被后续 LoadGame 抢跑。
+function waitForBridgeResponse(owner: UnityEngine.MonoBehaviour, sequence: number,
+    callback: (result: string) => void, remaining = 360): void {
+    if (!isCurrentGeneration()) return;
+    const state = readBridgeState();
+    if (state && Number(state.responseSequence || 0) >= sequence) {
+        callback(String(state.response || "-1"));
+        return;
+    }
+    if (remaining <= 0) { callback("-9"); return; }
+    JintCoroutine.WaitForNextFrame(owner, () => waitForBridgeResponse(owner, sequence, callback, remaining - 1));
 }
 
 function collectBridgeEvents(state: BridgeStateFile | null): void {
@@ -269,27 +348,32 @@ function startBridge(): void {
         return;
     }
 
+    const config = loadConfig();
+    currentPlayerName = UnityEngine.PlayerPrefs.GetString("MPB.PlayerName", config.playerName);
     // 原生网络层不会因为场景切换而卸载，因此新一代脚本应接管现有连接，而不是重新连接。
     const existing = readBridgeStatus();
     if (existing.state === "hosting") {
         role = "host";
+        localNetworkId = 0;
         log("接管场景切换前的主机连接，端口=" + existing.port);
         return;
     }
     if (existing.state === "connecting" || existing.state === "connected") {
         role = "client";
+        localNetworkId = -1;
         log("接管场景切换前的客户端连接");
+        // 场景切换会重新载入脚本；重新握手可恢复本代脚本丢失的 peerId 和玩家名映射。
+        if (existing.state === "connected") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         return;
     }
 
-    const config = loadConfig();
-    currentPlayerName = UnityEngine.PlayerPrefs.GetString("MPB.PlayerName", config.playerName);
     role = config.mode;
     if (role === "off") { log("已加载，可使用“新建游戏”上方的“联机”按钮"); return; }
     const result = role === "host"
         ? bridgeCall("host?port=" + config.port + "&max=" + config.maxPlayers)
         : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
     if (result !== "0") { log("启动网络桥接失败，错误码=" + result); role = "off"; return; }
+    localNetworkId = role === "host" ? 0 : -1;
     log(role === "host" ? "正在监听 0.0.0.0:" + config.port : "正在连接 " + config.address + ":" + config.port);
 }
 
@@ -306,16 +390,21 @@ function startHostFromUi(): void {
     const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
     if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    bridgeCall("stop");
-    const result = bridgeCall("host?port=" + port + "&max=" + config.maxPlayers);
-    if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
-    role = "host";
     UnityEngine.PlayerPrefs.SetString("MPB.Port", String(port));
     UnityEngine.PlayerPrefs.SetString("MPB.PlayerName", currentPlayerName);
     UnityEngine.PlayerPrefs.Save();
     updateStatusText(tr("status.startingHost", { port }));
-    toast(tr("toast.hostStarted", { port }));
-    enterOnlineSave();
+    // host 命令内部会安全停止旧连接，不再先发 stop，避免单槽 IPC 把 stop 覆盖掉。
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
+        role = "host";
+        localNetworkId = 0;
+        refreshOnlineUiMode();
+        toast(tr("toast.hostStarted", { port }));
+        enterOnlineSave();
+    });
 }
 
 function activeSaveName(onlineName: string): string {
@@ -356,19 +445,29 @@ function enterOnlineSave(): void {
         return;
     }
 
-    if (selectedSaveName) {
+    const state = readBridgeState();
+    const saves = state && state.saves ? state.saves : [];
+    // 建立房间时优先继续上次选择的线上档；选择失效时自动读取最近的线上档。
+    // 只有磁盘上完全没有线上档时才从零创建，避免每次建房产生一个新存档。
+    const selectedExists = selectedSaveName && saves.some(save => save.name === selectedSaveName);
+    if (!selectedExists && saves.length > 0) {
+        selectedSaveName = saves[0].name;
+        UnityEngine.PlayerPrefs.SetString("MPB.SelectedSave", selectedSaveName);
+        UnityEngine.PlayerPrefs.Save();
+    }
+
+    if (selectedSaveName && (selectedExists || saves.some(save => save.name === selectedSaveName))) {
         const activeName = activeSaveName(selectedSaveName);
         if (!activeName) { toast(tr("toast.onlineSaveFailed")); return; }
-        // 先给桥接程序时间消费上一条 host 命令，避免 PlayerPrefs 的单槽 IPC 被连续命令覆盖。
-        JintCoroutine.WaitForSeconds(menu, 0.15, () => {
-            bridgeCall("prepareSave?name=" + encodeURIComponent(selectedSaveName));
-        });
-        // 桥接程序完成外层解密后会生成仅供本次联机进程使用的临时原版存档。
-        JintCoroutine.WaitForSeconds(menu, 0.55, () => {
-            if (!isCurrentGeneration()) return;
+        const sequence = submitBridgeCommandTracked("prepareSave?name=" + encodeURIComponent(selectedSaveName));
+        if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
+        waitForBridgeResponse(menu, sequence, result => {
+            if (result !== "0") { log("准备线上存档失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
             try {
                 menu.StartGame();
                 waitForGameManager(menu, manager => {
+                    // LoadGame 前先固定线上临时名，原版自动保存也不会落入单机 AutoSave。
+                    GameManager.SaveName = activeName;
                     manager.LoadGame(activeName);
                     closePanel();
                     log("已载入线上存档: " + selectedSaveName);
@@ -383,10 +482,10 @@ function enterOnlineSave(): void {
     const activeName = activeSaveName(selectedSaveName);
     UnityEngine.PlayerPrefs.SetString("MPB.SelectedSave", selectedSaveName);
     UnityEngine.PlayerPrefs.Save();
-    JintCoroutine.WaitForSeconds(menu, 0.15, () => {
-        bridgeCall("beginSave?name=" + encodeURIComponent(selectedSaveName));
-    });
-    JintCoroutine.WaitForSeconds(menu, 0.35, () => {
+    const sequence = submitBridgeCommandTracked("beginSave?name=" + encodeURIComponent(selectedSaveName));
+    if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
+    waitForBridgeResponse(menu, sequence, result => {
+        if (result !== "0") { log("创建线上存档会话失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
         try {
             menu.StartGame();
             waitForGameManager(menu, manager => {
@@ -407,28 +506,338 @@ function joinFromUi(): void {
     const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
     if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    bridgeCall("stop");
-    const result = bridgeCall("join?address=" + encodeURIComponent(address) + "&port=" + port);
-    if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
-    role = "client";
     UnityEngine.PlayerPrefs.SetString("MPB.Address", address);
     UnityEngine.PlayerPrefs.SetString("MPB.Port", String(port));
     UnityEngine.PlayerPrefs.SetString("MPB.PlayerName", currentPlayerName);
     UnityEngine.PlayerPrefs.Save();
     updateStatusText(tr("status.connectingTo", { address, port }));
+    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
+        role = "client";
+        localNetworkId = -1;
+        refreshOnlineUiMode();
+    });
 }
 
 function stopFromUi(): void {
     try { bridgeCall("stop"); } catch (_error) { }
     role = "off";
+    localNetworkId = -1;
+    clearRemotePlayers();
+    outgoingMessages.splice(0, outgoingMessages.length);
+    refreshOnlineUiMode();
     updateStatusText(tr("status.offline"));
     toast(tr("toast.stopped"));
 }
 
 function send(peerId: number, message: any): void {
+    // PlayerPrefs 是单槽 IPC，连续写入会覆盖尚未被桥接程序读取的命令，因此先进入游戏侧队列。
+    const data = JSON.stringify(message);
+    if (outgoingMessages.length >= 256) outgoingMessages.shift();
+    outgoingMessages.push({ peerId, data });
+}
+
+function flushOutgoingMessage(): void {
+    if (!bridgeAvailable || outgoingMessages.length === 0) return;
+    const now = Number(UnityEngine.Time.unscaledTime);
+    if (now < nextOutgoingMessageAt) return;
+    nextOutgoingMessageAt = now + OUTGOING_MESSAGE_INTERVAL;
+    const item = outgoingMessages.shift();
+    if (!item) return;
     // peerId=0 在房主模式下表示向全部客户端广播。
-    const result = bridgeCall("send?peer=" + peerId + "&data=" + encodeURIComponent(JSON.stringify(message)));
+    const result = bridgeCall("send?peer=" + item.peerId + "&data=" + encodeURIComponent(item.data));
     if (result !== "0") log("发送失败，错误码=" + result);
+}
+
+function finiteNumber(value: any, fallback = 0): number {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function validPlayerState(packet: any): packet is PlayerStatePacket {
+    return packet && packet.type === "playerState" && Number.isInteger(Number(packet.ownerId)) &&
+        Number.isInteger(Number(packet.sequence)) && Number(packet.sequence) >= 0 &&
+        packet.position && packet.rotation && packet.move && typeof packet.scene === "string" &&
+        packet.scene.length <= 128 && String(packet.playerName || "").length <= 64 &&
+        [packet.position.x, packet.position.y, packet.position.z, packet.rotation.x, packet.rotation.y,
+            packet.rotation.z, packet.rotation.w, packet.move.x, packet.move.y, packet.move.z]
+            .every(value => Number.isFinite(Number(value)) && Math.abs(Number(value)) < 1000000);
+}
+
+function validPlayerProfile(packet: any): packet is PlayerProfilePacket {
+    if (!packet || packet.type !== "playerProfile" || !Number.isInteger(Number(packet.ownerId)) ||
+        !Number.isInteger(Number(packet.revision)) || !packet.profile || !Array.isArray(packet.profile.cloth) ||
+        !packet.profile.customization || typeof packet.profile.customization !== "object" ||
+        !packet.profile.progress || typeof packet.profile.progress !== "object") return false;
+    if (packet.profile.cloth.length > 128) return false;
+    return packet.profile.cloth.every((id: any) => typeof id === "string" && id.length <= 128);
+}
+
+function destroyRemotePlayer(ownerId: number): void {
+    const key = String(ownerId);
+    const remote = remotePlayers[key];
+    if (!remote) return;
+    try { if (remote.root) UnityEngine.Object.Destroy(remote.root); } catch (_error) { }
+    delete remotePlayers[key];
+    delete lastRemoteSequences[key];
+}
+
+function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerProfile | undefined): void {
+    if (!profile) return;
+    try {
+        const clonedPlayer = clone.GetComponent("Player") as Player;
+        const cloths = clonedPlayer && clonedPlayer.cloth ? clonedPlayer.cloth.All : null;
+        const dressed: Record<string, boolean> = {};
+        for (const id of profile.cloth) dressed[String(id)] = true;
+        if (cloths) {
+            for (const id of Object.keys(cloths)) {
+                const dress = cloths[id];
+                if (dress && dress.gameObject) dress.gameObject.SetActive(Boolean(dressed[id]));
+            }
+        }
+
+        const customization = clonedPlayer ? clonedPlayer.customization : null;
+        const data = profile.customization || {};
+        if (customization && customization.hairs) {
+            const hair = Math.trunc(finiteNumber(data.hair, -1));
+            for (let index = 0; index < customization.hairs.childCount; index++)
+                customization.hairs.GetChild(index).gameObject.SetActive(index === hair);
+        }
+        if (customization && customization.body && PlayerCustomization.BlendShapeNames) {
+            const keys = Object.keys(data);
+            for (let index = 0; index < PlayerCustomization.BlendShapeNames.length; index++) {
+                const name = String(PlayerCustomization.BlendShapeNames[index]);
+                const key = keys.find(item => item.toLowerCase() === name.toLowerCase());
+                if (key && typeof data[key] === "number")
+                    customization.body.SetBlendShapeWeight(index, finiteNumber(data[key]) * 100);
+            }
+        }
+    } catch (error) { log("应用远端玩家衣服/外观失败: " + error); }
+}
+
+function clearRemotePlayers(): void {
+    for (const key of Object.keys(remotePlayers)) destroyRemotePlayer(Number(key));
+}
+
+function stripRemoteNode(node: UnityEngine.Transform): void {
+    const go = node.gameObject;
+    // UcModLauncher 不公开 GetComponentsInChildren(Type)，但支持按类型名查找单个组件。
+    // 每删除一个就重新查询，直到本节点不再包含任何 MonoBehaviour。
+    for (let guard = 0; guard < 128; guard++) {
+        const script = go.GetComponent("MonoBehaviour");
+        if (!script) break;
+        UnityEngine.Object.DestroyImmediate(script);
+    }
+    const blockedTypes = ["Collider", "Rigidbody", "Camera", "AudioListener", "AudioSource", "Light"];
+    for (const typeName of blockedTypes) {
+        for (let guard = 0; guard < 32; guard++) {
+            const component = go.GetComponent(typeName);
+            if (!component) break;
+            UnityEngine.Object.DestroyImmediate(component);
+        }
+    }
+    for (let index = Number(node.childCount) - 1; index >= 0; index--) {
+        const child = node.GetChild(index);
+        // Player 预制体内含全部未使用服装和发型。远端只保留当前可见分支，避免每个玩家
+        // 克隆上千个无效节点，也避免对这些永远不会显示的节点逐个执行组件查询。
+        if (!child.gameObject.activeSelf) UnityEngine.Object.DestroyImmediate(child.gameObject);
+        else stripRemoteNode(child);
+    }
+}
+
+function stripRemoteClone(clone: UnityEngine.GameObject, animator: UnityEngine.Animator): void {
+    // 克隆体还未激活，此时销毁脚本可保证它们的 Awake/Start 永远不会运行；Animator
+    // 继承 Behaviour 而非 MonoBehaviour，因此会被保留，用于播放同步后的原版动作。
+    stripRemoteNode(clone.transform);
+    animator.enabled = true;
+}
+
+function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
+    const local = Player.LocalPlayer;
+    if (!local || !local.gameObject || !local.animator) return null;
+    const source = local.gameObject;
+    const wasActive = source.activeSelf;
+    let clone: UnityEngine.GameObject | null = null;
+    try {
+        // inactive 对象被 Instantiate 时不会执行克隆脚本的 Awake；先剥离逻辑组件再激活。
+        if (wasActive) source.SetActive(false);
+        clone = UnityEngine.Object.Instantiate(source) as UnityEngine.GameObject;
+        clone.name = "MPB_RemotePlayer_" + packet.ownerId;
+        const animator = clone.GetComponent("Animator") as UnityEngine.Animator;
+        if (!animator) throw new Error("远端玩家克隆体缺少 Animator");
+        log("正在准备远端玩家可视模型: " + String(packet.playerName || packet.ownerId));
+        // 剥离脚本和未启用节点之前，按该玩家的资料启用衣服、发型和脸型。
+        applyRemoteAppearance(clone, remoteProfiles[String(packet.ownerId)]);
+        stripRemoteClone(clone, animator);
+        animator.applyRootMotion = false;
+        clone.transform.position = new UnityEngine.Vector3(packet.position.x, packet.position.y, packet.position.z);
+        clone.transform.rotation = new UnityEngine.Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w);
+        clone.SetActive(true);
+        const remote: RemotePlayer = {
+            id: packet.ownerId,
+            name: String(packet.playerName || "Player"),
+            root: clone,
+            animator,
+            targetPosition: clone.transform.position,
+            targetRotation: clone.transform.rotation,
+            lastSeen: Number(UnityEngine.Time.unscaledTime),
+            animationHash: 0
+        };
+        remotePlayers[String(packet.ownerId)] = remote;
+        log("已创建远端玩家模型: " + remote.name + " (peer=" + packet.ownerId + ")");
+        return remote;
+    } catch (error) {
+        if (clone) UnityEngine.Object.Destroy(clone);
+        log("创建远端玩家模型失败: " + error);
+        return null;
+    } finally {
+        if (wasActive && !source.activeSelf) source.SetActive(true);
+        // 防御性恢复：即使未来游戏版本改变 Awake 时机，也不能让克隆体替换本地玩家单例。
+        Player.LocalPlayer = local;
+    }
+}
+
+function applyRemotePlayerState(packet: PlayerStatePacket): void {
+    if (!validPlayerState(packet) || packet.ownerId === localNetworkId) return;
+    const key = String(packet.ownerId);
+    latestPlayerStates[key] = packet;
+    const sequence = Math.trunc(Number(packet.sequence));
+    if (lastRemoteSequences[key] !== undefined && sequence <= lastRemoteSequences[key]) return;
+    lastRemoteSequences[key] = sequence;
+    if (!GameManager.InGame || packet.scene !== String(GameManager.NowSceneName || "")) {
+        destroyRemotePlayer(packet.ownerId);
+        return;
+    }
+    let remote = remotePlayers[String(packet.ownerId)] || createRemotePlayer(packet);
+    if (!remote) return;
+    remote.name = String(packet.playerName || remote.name);
+    remote.lastSeen = Number(UnityEngine.Time.unscaledTime);
+    remote.targetPosition = new UnityEngine.Vector3(packet.position.x, packet.position.y, packet.position.z);
+    remote.targetRotation = new UnityEngine.Quaternion(packet.rotation.x, packet.rotation.y, packet.rotation.z, packet.rotation.w);
+    try {
+        const distance = UnityEngine.Vector3.Distance(remote.root.transform.position, remote.targetPosition);
+        if (distance > 8) remote.root.transform.position = remote.targetPosition;
+        remote.animator.SetFloat("Speed", Math.sqrt(packet.move.x * packet.move.x + packet.move.z * packet.move.z));
+        remote.animator.SetBool("Grounded", packet.grounded);
+        remote.animator.SetBool("OnGround", packet.grounded);
+        remote.animator.SetInteger("Action", Math.trunc(packet.action));
+        remote.animator.SetInteger("HandAction", Math.trunc(packet.handAction));
+        remote.animator.SetInteger("StateID", Math.trunc(packet.stateId));
+        remote.animator.SetInteger("Attack", Math.trunc(packet.attack));
+        remote.animator.SetInteger("Weapon", Math.trunc(packet.weapon));
+        if (packet.animationHash && packet.animationHash !== remote.animationHash) {
+            remote.animator.Play(Math.trunc(packet.animationHash), 0, Math.max(0, packet.animationTime % 1));
+            remote.animationHash = packet.animationHash;
+        }
+    } catch (error) { log("更新远端玩家动作失败: " + error); }
+}
+
+function applyRemotePlayerProfile(packet: PlayerProfilePacket): void {
+    if (!validPlayerProfile(packet) || packet.ownerId === localNetworkId) return;
+    const key = String(packet.ownerId);
+    remoteProfiles[key] = packet.profile;
+    // 外观节点在克隆时裁剪。资料变化后重建一次模型，确保换装和捏脸立即生效。
+    if (remotePlayers[key]) destroyRemotePlayer(packet.ownerId);
+    const state = latestPlayerStates[key];
+    if (state) createRemotePlayer(state);
+    log("已同步玩家衣服和个人进度: " + String(packet.playerName || packet.ownerId));
+}
+
+function captureLocalPlayerProfile(): PlayerProfile | null {
+    try {
+        const manager = GameManager.Singleton;
+        if (!manager || !GameManager.InGame) return null;
+        const data = JSON.parse(manager.GetSave() || "{}");
+        const progress: Record<string, any> = {};
+        // 这些字段覆盖角色状态、任务、事件条件、服装解锁、性经历与全部个人进度旗标。
+        const progressKeys = ["PlayerStatusData", "SexData", "Quests", "ConditionSave", "UnlockedCloth", "PlayerHelper", "FirstExperience"];
+        for (const key of progressKeys) if (data[key] !== undefined) progress[key] = data[key];
+        for (const key of Object.keys(data)) if (key.startsWith("PlayFlag")) progress[key] = data[key];
+        return {
+            cloth: Array.isArray(data.Cloth) ? data.Cloth.map((id: any) => String(id)).slice(0, 128) : [],
+            customization: data.CustomizationData && typeof data.CustomizationData === "object" ? data.CustomizationData : {},
+            progress
+        };
+    } catch (error) {
+        log("采集玩家衣服和个人进度失败: " + error);
+        return null;
+    }
+}
+
+function sendLocalPlayerProfile(): void {
+    if (!bridgeAvailable || role === "off" || localNetworkId < 0) return;
+    const now = Number(UnityEngine.Time.unscaledTime);
+    if (now < nextPlayerProfileAt) return;
+    nextPlayerProfileAt = now + PLAYER_PROFILE_INTERVAL;
+    const profile = captureLocalPlayerProfile();
+    if (!profile) return;
+    const json = JSON.stringify(profile);
+    if (json === lastLocalProfileJson) return;
+    // 留出协议包头余量；正常个人进度只有数 KB，异常膨胀时拒绝超过网络层 64 KiB 上限。
+    if (json.length > 56000) { log("个人进度包过大，已跳过本次同步: " + json.length); return; }
+    lastLocalProfileJson = json;
+    send(0, {
+        type: "playerProfile", ownerId: localNetworkId, playerName: currentPlayerName,
+        revision: ++localProfileRevision, profile
+    } as PlayerProfilePacket);
+}
+
+function captureLocalPlayerState(player: Player): PlayerStatePacket | null {
+    if (!player || !player.animator || !GameManager.InGame || localNetworkId < 0) return null;
+    try {
+        const position = player.transform.position;
+        const rotation = player.transform.rotation;
+        const move = player.movment ? player.movment.MoveLrep : new UnityEngine.Vector3(0, 0, 0);
+        const animation = player.animator.GetCurrentAnimatorStateInfo(0);
+        let weapon = 0;
+        try { weapon = player.status && player.status.Data ? Number(player.status.Data.selectedWeapon) : 0; } catch (_error) { }
+        return {
+            type: "playerState",
+            ownerId: localNetworkId,
+            sequence: ++localStateSequence,
+            playerName: currentPlayerName,
+            scene: String(GameManager.NowSceneName || ""),
+            position: { x: position.x, y: position.y, z: position.z },
+            rotation: { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
+            move: { x: move.x, y: move.y, z: move.z },
+            grounded: player.movment ? Boolean(player.movment.onGround) : true,
+            action: player.action ? finiteNumber(player.action.Action) : 0,
+            handAction: player.action ? finiteNumber(player.action.handAction) : 0,
+            stateId: player.action ? finiteNumber(player.action.stateID) : 0,
+            attack: player.action ? finiteNumber(player.action.attack) : 0,
+            weapon,
+            animationHash: finiteNumber(animation.fullPathHash),
+            animationTime: finiteNumber(animation.normalizedTime)
+        };
+    } catch (error) {
+        log("采集本地玩家状态失败: " + error);
+        return null;
+    }
+}
+
+function sendLocalPlayerState(player: Player): void {
+    if (!bridgeAvailable || role === "off" || localNetworkId < 0) return;
+    const now = Number(UnityEngine.Time.unscaledTime);
+    if (now < nextPlayerStateAt) return;
+    nextPlayerStateAt = now + PLAYER_STATE_INTERVAL;
+    const packet = captureLocalPlayerState(player);
+    if (packet) send(0, packet);
+}
+
+function updateRemotePlayers(): void {
+    const now = Number(UnityEngine.Time.unscaledTime);
+    const blend = Math.min(1, Number(UnityEngine.Time.unscaledDeltaTime) * 12);
+    for (const key of Object.keys(remotePlayers)) {
+        const remote = remotePlayers[key];
+        if (!remote.root || now - remote.lastSeen > REMOTE_PLAYER_TIMEOUT) {
+            destroyRemotePlayer(Number(key));
+            continue;
+        }
+        remote.root.transform.position = UnityEngine.Vector3.Lerp(remote.root.transform.position, remote.targetPosition, blend);
+        remote.root.transform.rotation = UnityEngine.Quaternion.Slerp(remote.root.transform.rotation, remote.targetRotation, blend);
+    }
 }
 
 function processEvent(rawEvent: string): void {
@@ -441,7 +850,10 @@ function processEvent(rawEvent: string): void {
     if (event.type === "connected") {
         log("连接建立，peer=" + event.peerId);
         // 客户端建立 TCP 连接后先发送协议版本和玩家名，由房主确认兼容性。
-        if (role === "client") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
+        if (role === "client") {
+            localNetworkId = -1;
+            send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
+        }
         updateStatusText();
         return;
     }
@@ -449,15 +861,57 @@ function processEvent(rawEvent: string): void {
         const packet = JSON.parse(event.message);
         if (role === "host" && packet.type === "hello") {
             if (packet.protocol !== PROTOCOL_VERSION) { log("客户端协议不兼容，peer=" + event.peerId); return; }
+            peerNames[String(event.peerId)] = String(packet.playerName || "Player");
             send(event.peerId, { type: "welcome", protocol: PROTOCOL_VERSION, peerId: event.peerId });
+            // 新玩家需要立即收到房主和已在线玩家的完整外观/个人进度，而不是等待资料变化。
+            lastLocalProfileJson = "";
+            for (const ownerKey of Object.keys(remoteProfiles)) {
+                send(event.peerId, {
+                    type: "playerProfile", ownerId: Number(ownerKey),
+                    playerName: peerNames[ownerKey] || "Player", revision: 1, profile: remoteProfiles[ownerKey]
+                });
+            }
             toast(tr("toast.playerJoined", { player: packet.playerName }));
         } else if (role === "client" && packet.type === "welcome") {
+            if (packet.protocol !== PROTOCOL_VERSION) return;
+            localNetworkId = Math.trunc(Number(packet.peerId));
+            lastLocalProfileJson = "";
             toast(tr("toast.joinedRoom", { peer: packet.peerId }));
+        } else if (packet.type === "playerState" && validPlayerState(packet)) {
+            if (role === "host") {
+                packet.ownerId = Math.trunc(Number(event.peerId));
+                packet.playerName = peerNames[String(event.peerId)] || String(packet.playerName || "Player");
+                applyRemotePlayerState(packet);
+                // 房主是星型拓扑中心：转发后客户端之间也能互相看到。
+                send(0, packet);
+            } else applyRemotePlayerState(packet);
+        } else if (packet.type === "playerProfile" && validPlayerProfile(packet)) {
+            if (role === "host") {
+                packet.ownerId = Math.trunc(Number(event.peerId));
+                packet.playerName = peerNames[String(event.peerId)] || String(packet.playerName || "Player");
+                applyRemotePlayerProfile(packet);
+                send(0, packet);
+            } else applyRemotePlayerProfile(packet);
+        } else if (packet.type === "playerLeft") {
+            destroyRemotePlayer(Math.trunc(Number(packet.ownerId)));
+            delete remoteProfiles[String(packet.ownerId)];
+            delete latestPlayerStates[String(packet.ownerId)];
         }
         return;
     }
     if (event.type === "error") { log("网络错误: " + event.message); updateStatusText(tr("status.networkError", { error: event.message })); }
-    else if (event.type === "disconnected") { log("连接断开，peer=" + event.peerId); updateStatusText(); }
+    else if (event.type === "disconnected") {
+        log("连接断开，peer=" + event.peerId);
+        if (role === "host") {
+            destroyRemotePlayer(Number(event.peerId));
+            delete peerNames[String(event.peerId)];
+            send(0, { type: "playerLeft", ownerId: Number(event.peerId) });
+        } else {
+            localNetworkId = -1;
+            clearRemotePlayers();
+        }
+        updateStatusText();
+    }
 }
 
 function refreshSaveText(): void {
@@ -476,12 +930,27 @@ function closePanel(): void {
     if (uiPanel) uiPanel.SetActive(false);
 }
 
+function showConfigPage(): void {
+    if (uiSaveList) uiSaveList.SetActive(false);
+    if (uiConfigBody) uiConfigBody.SetActive(true);
+    if (uiTitle) uiTitle.text = tr("panel.title");
+    refreshOnlineUiMode();
+}
+
+function refreshOnlineUiMode(): void {
+    const online = role !== "off";
+    // 已进入联机后不允许在暂停菜单中切换存档或另建线上档，避免运行中替换世界状态。
+    try { if (uiSelectSaveButton) uiSelectSaveButton.SetActive(!online); } catch (_error) { }
+    try { if (uiNewOnlineButton) uiNewOnlineButton.SetActive(!online); } catch (_error) { }
+}
+
 function openPanel(): void {
     if (!uiPanel) return;
     syncGameLanguage();
     if (uiSaveList) uiSaveList.SetActive(false);
     if (uiConfigBody) uiConfigBody.SetActive(true);
     if (uiTitle) uiTitle.text = tr("panel.title");
+    refreshOnlineUiMode();
     uiPanel.SetActive(true);
 }
 
@@ -494,7 +963,7 @@ function selectSave(saveName: string): void {
     if (uiTitle) uiTitle.text = tr("panel.title");
 
     // 只有游戏当前已经加载了这个存档时才读取明文，避免从主菜单强制切场景引发崩溃。
-    if (GameManager.InGame && String(GameManager.SaveName || "") === saveName) {
+    if (GameManager.InGame && String(GameManager.SaveName || "") === activeSaveName(saveName)) {
         readCurrentSave();
         return;
     }
@@ -510,10 +979,12 @@ function refreshSaveList(): void {
     const saves = state && state.saves ? state.saves : [];
     if (!state) {
         makeText(uiSaveList.transform, "Unavailable", tr("save.listUnavailable"), uiFont, 34, 34, 652, 70, 26);
+        makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
         return;
     }
     if (saves.length === 0) {
         makeText(uiSaveList.transform, "Empty", tr("save.noSaves"), uiFont, 34, 34, 652, 70, 26);
+        makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
         return;
     }
 
@@ -529,8 +1000,9 @@ function refreshSaveList(): void {
         if (index < visible.length - 1) makeSolidRect(uiSaveList.transform, "Separator_" + index, new UnityEngine.Color(1, 1, 1, 0.16), 30, y + 113, 656, 2);
     }
     if (saves.length > visible.length) {
-        makeText(uiSaveList.transform, "More", tr("save.more", { count: saves.length - visible.length }), uiFont, 34, 432, 652, 34, 18);
+        makeText(uiSaveList.transform, "More", tr("save.more", { count: saves.length - visible.length }), uiFont, 34, 410, 652, 30, 18);
     }
+    makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
 }
 
 function formatSaveAge(lastWriteUtcTicks: number): string {
@@ -789,6 +1261,7 @@ function refreshLocalizedUi(): void {
             Stop: "button.stop",
             NewOnline: "button.newOnline",
             SelectSave: "button.selectSave",
+            Back: "button.back",
             Privacy: "privacy",
             Cancel: "button.cancel"
         };
@@ -893,25 +1366,21 @@ function buildPauseMenuButton(pause: PauseWindow): void {
 
         stage = "重新排列暂停菜单";
         cloned.transform.SetSiblingIndex(pause.setting.transform.GetSiblingIndex() + 1);
-        const originalButtons = [pause.setting, pause.load, pause.secret, pause.bugFeedback, pause.exit];
-        const sameParent = originalButtons.every(item => item && item.transform && item.transform.parent === parent);
-        if (!sameParent) throw new Error("原版暂停菜单按钮不在同一容器中");
-
         // 原菜单的五个按钮已经占满竖向空间。插入“联机”后，把六个按钮等距放进
-        // 原来“设置”到“退出”的范围，既不覆盖“读取”，也不会把“退出”挤出屏幕。
-        const startRect = pause.setting.transform as any;
-        const endRect = pause.exit.transform as any;
-        const startY = Number(startRect.anchoredPosition.y);
-        const endY = Number(endRect.anchoredPosition.y);
+        // 原来“设置”到“退出”的世界坐标范围。原版按钮分属不同容器，不能比较 anchoredPosition。
+        const startPosition = pause.setting.transform.position;
+        const endPosition = pause.exit.transform.position;
         const orderedButtons: UnityEngine.UI.Button[] = [
             pause.setting, button, pause.load, pause.secret, pause.bugFeedback, pause.exit
         ];
-        const stepY = (endY - startY) / (orderedButtons.length - 1);
+        const stepY = (endPosition.y - startPosition.y) / (orderedButtons.length - 1);
         for (let index = 0; index < orderedButtons.length; index++) {
-            const itemRect = orderedButtons[index].transform as any;
-            itemRect.anchoredPosition = new UnityEngine.Vector2(
-                Number(itemRect.anchoredPosition.x),
-                startY + stepY * index
+            const itemTransform = orderedButtons[index].transform;
+            const current = itemTransform.position;
+            itemTransform.position = new UnityEngine.Vector3(
+                current.x,
+                startPosition.y + stepY * index,
+                current.z
             );
         }
         cloned.SetActive(true);
@@ -977,8 +1446,8 @@ function buildUi(font: any): void {
         makeButton(configBody.transform, "Host", tr("button.host"), font, 30, 202, 205, startHostFromUi, 56);
         makeButton(configBody.transform, "Join", tr("button.join"), font, 257, 202, 205, joinFromUi, 56);
         makeButton(configBody.transform, "Stop", tr("button.stop"), font, 484, 202, 205, stopFromUi, 56);
-        makeButton(configBody.transform, "NewOnline", tr("button.newOnline"), font, 30, 280, 310, chooseNewOnlineSave, 56);
-        makeButton(configBody.transform, "SelectSave", tr("button.selectSave"), font, 380, 280, 310, toggleSaveList, 56);
+        uiNewOnlineButton = makeButton(configBody.transform, "NewOnline", tr("button.newOnline"), font, 30, 280, 310, chooseNewOnlineSave, 56);
+        uiSelectSaveButton = makeButton(configBody.transform, "SelectSave", tr("button.selectSave"), font, 380, 280, 310, toggleSaveList, 56);
         makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 350, 660, 54, 20);
         uiSave = makeText(configBody.transform, "Save", tr("save.notRead"), font, 30, 410, 660, 88, 23);
         (uiSave as any).alignment = 0;
@@ -990,6 +1459,7 @@ function buildUi(font: any): void {
         saveListImage.color = new UnityEngine.Color(0.34, 0.34, 0.34, 0.64);
         uiSaveList = saveList;
         saveList.SetActive(false);
+        refreshOnlineUiMode();
 
         makeButton(panel.transform, "Cancel", tr("button.cancel"), font, 130, 640, 500, closePanel, 64);
         panel.SetActive(false);
@@ -1011,8 +1481,7 @@ function startMainMenuInputLoop(owner: UnityEngine.MonoBehaviour): void {
     uiInputLoopStarted = true;
     const nextFrame = () => {
         if (!isCurrentGeneration()) return;
-        handleUiInput();
-        syncGameLanguage();
+        updateBridge(null);
         JintCoroutine.WaitForNextFrame(owner, nextFrame);
     };
     JintCoroutine.WaitForNextFrame(owner, nextFrame);
@@ -1024,7 +1493,7 @@ function ensureUi(font?: any): void {
     if (inheritedFont) buildUi(inheritedFont);
 }
 
-function updateBridge(): void {
+function updateBridge(player: Player | null): void {
     if (!isCurrentGeneration()) return;
     handleUiInput();
     syncGameLanguage();
@@ -1032,6 +1501,7 @@ function updateBridge(): void {
     ensureUi();
     updateFrames += 1;
     if (updateFrames % 120 === 0) updateStatusText();
+    updateRemotePlayers();
     if (!bridgeAvailable || role === "off") return;
     // 每帧最多处理 32 个事件，防止网络洪峰长时间占用 Unity 主线程。
     for (let index = 0; index < 32; index++) {
@@ -1045,30 +1515,44 @@ function updateBridge(): void {
             break;
         }
     }
+    if (player) {
+        sendLocalPlayerState(player);
+        sendLocalPlayerProfile();
+    }
+    flushOutgoingMessage();
 }
 
 // 原版退出按钮的回调执行前，先用游戏自己的 SaveGame 完成同步保存。
 // 联机档随后通知桥接程序立即套上 Mod 的第二层加密；回调返回后才继续原版退出流程。
-function saveBeforeGameExit(): void {
-    if (exitSaveInProgress || !GameManager.InGame) return;
+function saveBeforeGameExit(): boolean {
+    if (exitSaveInProgress || !GameManager.InGame) return true;
     exitSaveInProgress = true;
     try {
         const manager = GameManager.Singleton;
         if (!manager) throw new Error("GameManager 尚未初始化");
-        const saveName = String(GameManager.SaveName || "").trim() || "AutoSave";
+        let saveName = String(GameManager.SaveName || "").trim() || "AutoSave";
+        // 联机退出绝不允许写到 AutoSave 或玩家手动创建的单机槽位。
+        if (role !== "off") {
+            const onlineActiveName = activeSaveName(selectedSaveName);
+            if (onlineActiveName) saveName = onlineActiveName;
+            if (!saveName.startsWith(ACTIVE_SAVE_PREFIX)) throw new Error("没有有效的线上临时存档名");
+            GameManager.SaveName = saveName;
+        }
         manager.SaveGame(saveName);
         if (bridgeAvailable && saveName.startsWith(ACTIVE_SAVE_PREFIX)) bridgeCall("flushSave");
         log("退出前已自动保存: " + saveName);
+        return true;
     } catch (error) {
         log("退出前自动保存失败: " + error);
         toast(tr("toast.exitSaveFailed"));
+        return false;
     } finally {
         exitSaveInProgress = false;
     }
 }
 
 // Player.Update 是进入存档后的稳定逐帧入口，用于处理网络队列和刷新界面状态。
-RegisterHook("System.Void Player::Update()", (_self: Player) => { updateBridge(); });
+RegisterHook("System.Void Player::Update()", (self: Player) => { updateBridge(self); });
 // PauseWindow.Start 的原生初始化完成后，在下一帧复制“设置”按钮，避免覆盖游戏自己的监听器。
 RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
     if (!isCurrentGeneration()) return;
@@ -1078,13 +1562,28 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             const nativeLabel = self.setting ? findTextInChildren(self.setting.transform) : null;
             ensureUi(nativeLabel ? (nativeLabel as any).font : null);
             buildPauseMenuButton(self);
+            // 联机暂停菜单只打开 UI，不冻结世界时间；其他玩家和网络状态继续更新。
+            if (role !== "off") GameManager.PauseGame(false);
             syncGameLanguage();
         } catch (error) { log("暂停菜单 UI 初始化失败: " + error); }
     });
 });
+// 原版打开 ESC 菜单时会调用 PauseGame(true)。联机状态下拦截这一次冻结，单机行为保持不变。
+RegisterHook("System.Void GameManager::PauseGame(System.Boolean)", (pause: boolean, ctx: IHookContext) => {
+    if (isCurrentGeneration() && role !== "off" && pause) ctx.Intercept();
+});
+// 原版自动保存固定写 AutoSave；联机时改写到隔离的 MPActive_ 临时档，完全不触碰单机槽位。
+RegisterHook("System.Void GameManager::AutoSaving()", (ctx: IHookContext) => {
+    if (!isCurrentGeneration() || role === "off") return;
+    const activeName = activeSaveName(selectedSaveName);
+    if (!activeName || !GameManager.Singleton) return;
+    GameManager.SaveName = activeName;
+    GameManager.Singleton.SaveGame(activeName);
+    ctx.Intercept();
+});
 // PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
-RegisterHook("System.Void PauseWindow::<Start>b__9_3()", () => {
-    if (isCurrentGeneration()) saveBeforeGameExit();
+RegisterHook("System.Void PauseWindow::<Start>b__9_3()", (_self: any, ctx: IHookContext) => {
+    if (isCurrentGeneration() && !saveBeforeGameExit()) ctx.Intercept();
 });
 // MainMenu.Awake 用于尽早创建联机面板；面板会跨场景保留。
 RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
