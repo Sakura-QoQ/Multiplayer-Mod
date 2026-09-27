@@ -270,6 +270,7 @@ function stopFromUi(): void {
     serverTimeSeedSent = false;
     authoritativeServerScene = "";
     lastServerSceneRequest = "";
+    serverSceneTransitionPending = false;
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];

@@ -265,6 +265,7 @@ let onlineClockLastUnscaledTime = 0;
 let serverTimeSeedSent = false;
 let authoritativeServerScene = "";
 let lastServerSceneRequest = "";
+let serverSceneTransitionPending = false;
 let lastBridgeTouchAt = -1;
 let bedWindowInstance: BedWindow | null = null;
 let sleepConsensusExecuting = false;
@@ -1126,6 +1127,7 @@ function stopFromUi(): void {
     serverTimeSeedSent = false;
     authoritativeServerScene = "";
     lastServerSceneRequest = "";
+    serverSceneTransitionPending = false;
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];
@@ -1378,7 +1380,7 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
 }
 
 function updateServerSceneAuthority(): void {
-    if (networkTransport !== "server" || role === "off" || !GameManager.InGame) return;
+    if (networkTransport !== "server" || role === "off" || !GameManager.InGame || serverSceneTransitionPending) return;
     const localScene = String(GameManager.NowSceneName || "");
     if (!localScene || localScene === authoritativeServerScene || localScene === lastServerSceneRequest) return;
     lastServerSceneRequest = localScene;
@@ -2380,6 +2382,7 @@ function processEvent(rawEvent: string): void {
         serverTimeSeedSent = false;
         authoritativeServerScene = "";
         lastServerSceneRequest = "";
+        serverSceneTransitionPending = false;
         log("Dedicated room ready localPeer=" + localNetworkId + " authorityPeer=" +
             Math.trunc(Number(room.authorityPeerId)) + " serverAuthority=" + serverAuthority);
         updateStatusText();
@@ -2460,12 +2463,23 @@ function processEvent(rawEvent: string): void {
             if (GameManager.InGame && String(GameManager.NowSceneName || "") !== packet.scene &&
                 pendingHostScene !== packet.scene) {
                 pendingHostScene = packet.scene;
+                serverSceneTransitionPending = true;
                 try {
-                    GameManager.MoveToScene(packet.scene, () => { pendingHostScene = ""; });
+                    GameManager.MoveToScene(packet.scene, () => {
+                        pendingHostScene = "";
+                        serverSceneTransitionPending = false;
+                    });
                 } catch (error) {
                     pendingHostScene = "";
+                    serverSceneTransitionPending = false;
                     log("Failed to follow the server-authorized scene: " + error);
                 }
+            }
+        } else if (packet.type === "serverRoster" && networkTransport === "server" && Array.isArray(packet.players)) {
+            for (const member of packet.players) {
+                const peerId = Math.trunc(Number(member && member.peerId));
+                if (peerId > 0 && peerId !== localNetworkId)
+                    peerNames[String(peerId)] = String(member.playerName || "Player");
             }
         } else if (packet.type === "sleepRequest" && role === "host" && validSleepMode(packet.mode)) {
             sleepReady[String(event.peerId)] = {
@@ -2535,6 +2549,11 @@ function processEvent(rawEvent: string): void {
 }
 
 function processPlayerProfilePacket(packet: PlayerProfilePacket, sourcePeerId: number): void {
+    if (networkTransport === "server" && sourcePeerId > 0) {
+        // 完整资料分片在服务器看来是不透明载荷；重组后仍以已认证的传输来源覆盖 ownerId。
+        packet.ownerId = Math.trunc(sourcePeerId);
+        packet.playerName = peerNames[String(sourcePeerId)] || String(packet.playerName || "Player");
+    }
     if (role === "host") {
         packet.ownerId = Math.trunc(sourcePeerId);
         packet.playerName = peerNames[String(sourcePeerId)] || String(packet.playerName || "Player");

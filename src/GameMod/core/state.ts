@@ -92,6 +92,7 @@ let onlineClockLastUnscaledTime = 0;
 let serverTimeSeedSent = false;
 let authoritativeServerScene = "";
 let lastServerSceneRequest = "";
+let serverSceneTransitionPending = false;
 let lastBridgeTouchAt = -1;
 let bedWindowInstance: BedWindow | null = null;
 let sleepConsensusExecuting = false;

@@ -2,8 +2,9 @@
 
 This document records the exact identifiers used by Fallen Flower for the player profile synchronized by PlayerHostedMultiplayer. Field identifiers are never translated in the in-game profile card; only the card title follows the selected language.
 
-In v0.11.0 these packets travel through the public Ubuntu room relay. The relay treats the payload
-as opaque text; profile extraction, chunking, validation and application remain on player computers.
+In v0.11.0 these packets travel through the public Ubuntu authority service. It validates packet type
+and authenticated member identity but does not interpret profile fields; extraction, chunking,
+field validation and application remain on player computers.
 
 ## Fields shown in the profile card
 

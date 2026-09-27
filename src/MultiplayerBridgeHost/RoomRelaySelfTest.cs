@@ -31,15 +31,31 @@ internal static partial class Program
         _ = await WaitForEventAsync(joiner, "connected", TimeSpan.FromSeconds(5));
         const string creatorPayload = "{\"type\":\"selfTest\",\"value\":\"creator-to-member\"}";
         if (creator.Send(0, creatorPayload) != 0) throw new InvalidOperationException("Creator broadcast failed");
-        var fromCreator = await WaitForEventAsync(joiner, "message", TimeSpan.FromSeconds(5));
+        var fromCreator = await WaitForPayloadTypeAsync(joiner, "selfTest", TimeSpan.FromSeconds(5));
         if (fromCreator.PeerId != creatorReady.PeerId || fromCreator.Message != creatorPayload)
             throw new InvalidOperationException("Creator message did not preserve its ordinary member identity");
 
         const string joinerPayload = "{\"type\":\"selfTest\",\"value\":\"member-to-member\"}";
         if (joiner.Send(0, joinerPayload) != 0) throw new InvalidOperationException("Joiner send failed");
-        var fromJoiner = await WaitForEventAsync(creator, "message", TimeSpan.FromSeconds(5));
+        var fromJoiner = await WaitForPayloadTypeAsync(creator, "selfTest", TimeSpan.FromSeconds(5));
         if (fromJoiner.PeerId != joinerReady.PeerId || fromJoiner.Message != joinerPayload)
             throw new InvalidOperationException("Joiner message was not relayed to the creator");
+
+        var seed = "{\"type\":\"serverTimeSeed\",\"gameTime\":42.5,\"day\":3," +
+            "\"timeOfDay\":2,\"timeOffset\":0}";
+        if (creator.Send(0, seed) != 0) throw new InvalidOperationException("Server clock seed failed");
+        var creatorClock = await WaitForPayloadTypeAsync(creator, "worldTime", TimeSpan.FromSeconds(5));
+        var joinerClock = await WaitForPayloadTypeAsync(joiner, "worldTime", TimeSpan.FromSeconds(5));
+        if (creatorClock.PeerId != 0 || joinerClock.PeerId != 0)
+            throw new InvalidOperationException("World clock did not originate from server authority peer zero");
+
+        if (creator.Send(0, "{\"type\":\"sleepRequest\",\"mode\":\"short\"}") != 0 ||
+            joiner.Send(0, "{\"type\":\"sleepRequest\",\"mode\":\"short\"}") != 0)
+            throw new InvalidOperationException("Sleep consensus request failed");
+        var creatorSleep = await WaitForPayloadTypeAsync(creator, "sleepApproved", TimeSpan.FromSeconds(5));
+        var joinerSleep = await WaitForPayloadTypeAsync(joiner, "sleepApproved", TimeSpan.FromSeconds(5));
+        if (creatorSleep.PeerId != 0 || joinerSleep.PeerId != 0)
+            throw new InvalidOperationException("Sleep approval did not originate from the server");
         Console.WriteLine("PASS public room auto-entry, server authority and bidirectional relay");
     }
 
@@ -57,5 +73,24 @@ internal static partial class Program
             await Task.Delay(10);
         }
         throw new TimeoutException($"Timed out waiting for {eventType}");
+    }
+
+    private static async Task<BridgeEvent> WaitForPayloadTypeAsync(
+        RoomRelayClient client, string payloadType, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            while (client.TryPoll(out var bridgeEvent))
+            {
+                if (bridgeEvent.Type == "error") throw new InvalidOperationException(bridgeEvent.Message);
+                if (bridgeEvent.Type != "message") continue;
+                using var payload = JsonDocument.Parse(bridgeEvent.Message);
+                if (payload.RootElement.TryGetProperty("type", out var type) && type.GetString() == payloadType)
+                    return bridgeEvent;
+            }
+            await Task.Delay(10);
+        }
+        throw new TimeoutException($"Timed out waiting for payload {payloadType}");
     }
 }

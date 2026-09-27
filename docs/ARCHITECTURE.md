@@ -46,7 +46,7 @@ flowchart LR
 2. Every player sends `room.enter`; the server atomically joins an existing room or creates it when empty.
 3. The server remains logical authority peer `0`; every player receives a positive ordinary-member ID.
 4. The server overwrites player-owned packet IDs with the authenticated connection ID, preventing member impersonation.
-5. `room.send` payloads are forwarded without the server parsing player state or save data.
+5. The server parses only the control envelope, enforces member identity and coordinates time/scene/sleep. It does not interpret save-profile fields or run game simulation.
 6. A disconnect removes only that player. Public rooms persist until an administrator closes them or the service restarts.
 
 The endpoint is an AES-GCM ciphertext constant in the NativeAOT bridge, not plaintext configuration. Because the client also contains the key derivation material, this is static obfuscation and tamper resistance, not a secret that can withstand binary analysis.

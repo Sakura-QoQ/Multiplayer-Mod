@@ -204,6 +204,9 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             Console.WriteLine($"public room created id={roomId} capacity={room.Capacity}");
         else
             await BroadcastAsync(room, new { type = "room.playerJoined", peerId, playerName }, client, cancellationToken);
+        var roster = room.Members.Values.OrderBy(member => member.PeerId)
+            .Select(member => new { peerId = member.PeerId, playerName = member.PlayerName }).ToArray();
+        await BroadcastServerPacketAsync(room, new { type = "serverRoster", players = roster }, cancellationToken);
     }
 
     private async Task RelayAsync(ClientConnection source, JsonElement root, CancellationToken cancellationToken)
@@ -251,7 +254,10 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
                 return;
             }
             if (packetType is "playerState" or "playerLiveData" or "playerProfile")
+            {
                 packet["ownerId"] = source.PeerId; // 服务端覆盖来源，玩家不能冒充其他成员。
+                packet["playerName"] = source.PlayerName;
+            }
             payload = packet.ToJsonString();
             await BroadcastAsync(room, new { type = "room.message", sourcePeerId = source.PeerId, payload }, source, cancellationToken);
             return;

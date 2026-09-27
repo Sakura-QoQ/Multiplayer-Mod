@@ -98,7 +98,7 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
 }
 
 function updateServerSceneAuthority(): void {
-    if (networkTransport !== "server" || role === "off" || !GameManager.InGame) return;
+    if (networkTransport !== "server" || role === "off" || !GameManager.InGame || serverSceneTransitionPending) return;
     const localScene = String(GameManager.NowSceneName || "");
     if (!localScene || localScene === authoritativeServerScene || localScene === lastServerSceneRequest) return;
     lastServerSceneRequest = localScene;

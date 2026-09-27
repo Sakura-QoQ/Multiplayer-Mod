@@ -18,7 +18,7 @@ a real room-server process and the deployed public endpoint.
 - The two-process test did not change any original `AutoSave*.save` hash.
 - The online-save lifecycle created a UUIDv7 file, saved on exit, reopened the same UUID, restored the saved position within collision correction tolerance, preserved the recovery copy, and released its bridge port.
 - The bridge save self-test passed encryption round-trip, tamper rejection, UUIDv7 migration, save retention and single-player restoration.
-- The published NativeAOT bridge sent `room.enter` from two ordinary clients through a real local server process, automatically created/joined one public room, kept logical peer zero on the server, preserved positive member identities and relayed payloads in both directions.
+- The published NativeAOT bridge sent `room.enter` from two ordinary clients through a real local server process, automatically created/joined one public room, kept logical peer zero on the server, preserved positive member identities, relayed payloads in both directions, received the server clock and completed server-approved unanimous sleep.
 - The deployed public endpoint accepted the framed protocol and returned a valid `pong` response; TCP reachability was also confirmed externally. The deployed container must be updated to v0.11.0 before clients use `room.enter`.
 - After testing, no game or bridge process and no test listening port remained.
 

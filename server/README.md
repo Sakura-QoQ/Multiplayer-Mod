@@ -1,6 +1,6 @@
 # Fallen Flower dedicated room server
 
-Required Docker public-room relay for PlayerHostedMultiplayer v0.11.0. The server does not run the game, read saves, simulate the world, or parse player state. It manages rooms and forwards opaque payloads only.
+Required Docker public-room authority service for PlayerHostedMultiplayer v0.11.0. It does not run the game, read saves or simulate Unity gameplay. It validates the packet envelope and member identity, coordinates shared time/scene/sleep, and relays player-owned data without interpreting save-profile fields.
 
 The service is logical authority peer `0`. It owns membership, the 5 Hz room clock, scene arbitration, unanimous sleep approval and moderation. Every player is an ordinary positive-ID member; one player leaving never grants authority to another or closes the public room.
 
@@ -110,7 +110,9 @@ Supported commands:
 - `admin.room.close`
 - `admin.room.send`
 
-`room.send` contains an opaque string. The server does not inspect game packets.
+`room.send` contains a JSON string. For public rooms the server inspects its control type, overwrites
+member-owned IDs/names from the authenticated connection, rejects player time authority, and handles
+scene/time/sleep control packets. Complete save-profile field content remains client-managed.
 
 Client room messages cannot perform administrative actions. All administrative commands require `FF_ROOM_ADMIN_TOKEN`; if the token is empty, remote administration is disabled. Public rooms close only through `admin.room.close` or when the server process stops; empty rooms remain available.
 

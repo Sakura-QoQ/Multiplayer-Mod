@@ -22,7 +22,7 @@ FROM mcr.microsoft.com/dotnet/runtime:8.0-noble-chiseled AS runtime
 WORKDIR /app
 
 LABEL org.opencontainers.image.title="Fallen Flower Room Server" \
-      org.opencontainers.image.description="Room management and opaque relay service for PlayerHostedMultiplayer" \
+      org.opencontainers.image.description="Public-room authority and relay service for PlayerHostedMultiplayer" \
       org.opencontainers.image.licenses="LicenseRef-Proprietary"
 
 ENV DOTNET_EnableDiagnostics=0 \
