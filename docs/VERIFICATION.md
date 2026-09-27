@@ -56,7 +56,7 @@ Additional observed results from the two-game runs:
 
 - Player scheduling was configured for 20 Hz; two full game processes sharing one machine observed 17.43 Hz end-to-end while render interpolation continued each frame.
 - Material restoration covered 14 renderers and 21 private material instances per side with zero invalid/error shaders in that run.
-- The historical two-game test did not change original `AutoSave*.save` hashes. Current source strengthens this boundary by removing bridge AutoSave handling entirely and cancelling the original writer in online mode.
+- The historical two-game test did not change original `AutoSave*.save` hashes. Current source redirects native online autosaves to disposable `MPActive` while leaving bridge-side AutoSave handling disabled.
 - The public endpoint accepted the framed protocol and returned `pong`; TCP reachability was confirmed externally.
 
 ## Remaining verification

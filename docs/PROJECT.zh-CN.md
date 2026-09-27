@@ -50,11 +50,11 @@ ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安�
 1. 进入时，桥接程序校验并解密 `MPOnline`，临时生成 `MPActive_<UUIDv7>.save`，因为游戏只能读取原生 `Encrypted` 格式。
 2. 加载期间是强制只读事务；游戏端与桥接端写入锁都会拒绝自动保存。
 3. `LoadGame` 完成后立即删除临时 `MPActive`。
-4. 线上自动保存拦截游戏的 `SaveGame("AutoSave")`，取消原版写盘，从内存读取 `GameManager.GetSave()`，然后只原子替换 `MPOnline`。
+4. 线上自动保存把原版 `SaveGame("AutoSave")` 重定向到可丢弃的 `MPActive`，保留原版退出/切换流程，同时不触碰线下 `AutoSave.save`。
 5. 与床互动时会增加一个原版样式的“保存游戏”选项，玩家可主动提交并验证 `MPOnline`。
 6. 暂停菜单的退出按钮保持游戏原版行为，退出时不保存，也不会拦截退出。
 
-因此稳定状态下只存在 `MPOnline`。线上存档流程既不读取也不写入单机 `AutoSave.save`，线上文件也不会显示在原版读取/保存页面。
+因此只有 `MPOnline` 是权威持久档；原版自动保存短暂生成的 `MPActive` 只会被丢弃，不会晋升覆盖正式档。线上流程既不读取也不写入单机 `AutoSave.save`，线上文件也不会显示在原版读取/保存页面。
 
 内层是游戏原版 PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` 格式；Mod 外层使用 PBKDF2-SHA256 与 AES-256-GCM 认证加密。这保护磁盘文件，不代表网络流量已加密。
 

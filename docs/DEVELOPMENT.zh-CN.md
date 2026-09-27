@@ -55,7 +55,7 @@
 
 1. `prepareSave` 关闭桥接写入，只创建临时原生格式加载文件。
 2. `releaseSave` 删除该文件后，`enableSaveWrites` 才能开放保存。
-3. `SaveGame("AutoSave")` Hook 取消原版写入并从内存提交，不能触碰单机 `AutoSave.save`。
+3. `SaveGame("AutoSave")` Hook 改用 `MPActive` 执行完整原版方法，既不能触碰单机 `AutoSave.save`，也不能把工作副本晋升为正式档。
 
 ## 构建服务器
 

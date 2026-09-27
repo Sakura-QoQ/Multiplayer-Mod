@@ -55,7 +55,7 @@ When changing save code, verify all three boundaries:
 
 1. `prepareSave` disables bridge writes and creates only a temporary native-format load file.
 2. `releaseSave` deletes that file before `enableSaveWrites` succeeds.
-3. The `SaveGame("AutoSave")` Hook cancels the original writer and commits from memory without touching single-player `AutoSave.save`.
+3. The `SaveGame("AutoSave")` Hook invokes the native method with `MPActive`, preserving its control flow without touching single-player `AutoSave.save` or promoting the working copy.
 
 ## Build the server
 

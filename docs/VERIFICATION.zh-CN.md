@@ -56,7 +56,7 @@ PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inact
 
 - 玩家排程设置为 20 Hz；同机运行两份完整游戏时端到端实测 17.43 Hz，渲染插值仍逐帧执行。
 - 当次材质恢复每端覆盖 14 个渲染器、21 个独立材质，无效/错误 Shader 为零。
-- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码进一步删除桥接 AutoSave 处理，并在线上模式取消原版写入器。
+- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码把线上原版自动保存重定向到可丢弃的 `MPActive`，同时保持桥接层不处理 AutoSave。
 - 公网端点接受分帧协议并返回 `pong`，外部 TCP 可达性也已确认。
 
 ## 待验证项目
