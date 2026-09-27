@@ -148,6 +148,7 @@ public sealed class RoomRelayClient : IDisposable
                     : "{\"type\":\"room.join\",\"roomId\":" + Quote(roomId) +
                     ",\"roomKey\":" + Quote(roomKey) + ",\"playerName\":" + Quote(playerName) + "}";
             await SendFrameAsync(request, cancellationToken).ConfigureAwait(false);
+            // 不发送额外心跳包；服务器直接以现有 TCP 游戏/控制帧刷新活动时间。
             await ReceiveLoopAsync(client.GetStream(), cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }

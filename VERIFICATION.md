@@ -27,17 +27,17 @@ This test verifies that:
 - UUIDv7 migration, latest-save discovery and active-only legacy recovery work.
 - Clothing is included in load metadata so the runtime avatar can reapply the saved equipped list without editing the stored JSON.
 
-The current room adapter self-test also passes when the test server is started with capacity two:
+The current room adapter self-test also passes when the test server is started with capacity two, a test-only three-second TCP inactivity timeout and a ten-second AFK timeout:
 
 ```powershell
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-With the test server capacity set to two, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, bidirectional relay works, clock/sleep approval remains server-owned, and a replacement client receives the smallest ID released by a disconnected client.
+With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, bidirectional relay works, clock/sleep approval remains server-owned, a replacement client receives the smallest released ID, a silent connection is removed by TCP inactivity cleanup, and a connection continuously sending a fixed position is removed as AFK. Production defaults both thresholds to 300 seconds and sends no standalone heartbeat.
 
 ```text
-PASS public room auto-entry, reusable peer IDs, server authority and bidirectional relay
+PASS public room auto-entry, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## Full-game evidence

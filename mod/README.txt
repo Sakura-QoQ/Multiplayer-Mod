@@ -18,7 +18,11 @@ PLAY
 - Local Host/Join remains available with address/port controls. A direct public host may need an
   inbound firewall rule and router forwarding.
 - The Ubuntu service is logical authority peer 0. Every public player, including the first one,
-  is an ordinary positive-ID member.
+  is an ordinary member and receives the smallest available positive ID; released IDs are reused.
+- No standalone heartbeat is sent. After 5 minutes without an existing TCP game/control frame,
+  the server closes the stale connection and releases that member position and ID.
+- Five minutes without at least 0.05 units of position movement or a scene change is treated as AFK,
+  even if stationary position packets continue arriving.
 - Hold Tab in an online game for the centered player list. The pause-menu Multiplayer page is
   read-only; the world and synchronized clock continue behind it.
 

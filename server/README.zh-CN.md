@@ -44,6 +44,8 @@ Test-NetConnection <服务器地址> -Port 27777
 | `FF_ROOM_PORT` | `27777` | TCP 端口，1–65535 |
 | `FF_ROOM_MAX_ROOMS` | `256` | 内存房间上限，1–10,000 |
 | `FF_ROOM_MAX_PLAYERS` | `8` | 每房间玩家数，2–32 |
+| `FF_ROOM_CLIENT_TIMEOUT_SECONDS` | `300` | 连续多少秒没有收到完整 TCP 帧后断开，3–3,600 |
+| `FF_ROOM_AFK_TIMEOUT_SECONDS` | `300` | 连续多少秒没有有效位置移动或切换场景后断开，3–3,600 |
 | `FF_ROOM_ADMIN_TOKEN` | 空 | 启用全部 `admin.*` 指令；至少 16 个字符 |
 
 可用 `openssl rand -hex 32` 生成令牌。空令牌会关闭远程管理。不要提交 `.env`；Git 已忽略它，更新包也不应包含它。
@@ -81,7 +83,11 @@ sudo docker compose logs --tail=100 room-server
 - `room.list`、`room.create`、`room.join`、`room.enter`、`room.info`、`room.send`
 - `admin.stats`、`admin.room.kick`、`admin.room.close`、`admin.room.send`
 
-服务器启动时建立一个真实公开房间。`room.list` 只返回服务器实际管理的房间及实时人数/容量。全部房间达到 `FF_ROOM_MAX_PLAYERS` 后，服务器自动建立下一个编号房间，并回收多余空房间。`room.enter` 无密码加入列表中的房间，且不接受客户端指定容量。公开玩家始终获得正数 ID 和 `authorityPeerId: 0`；第一名玩家也不是权威玩家。
+服务器启动时建立一个真实公开房间。`room.list` 只返回服务器实际管理的房间及实时人数/容量。全部房间达到 `FF_ROOM_MAX_PLAYERS` 后，服务器自动建立下一个编号房间，并回收多余空房间。`room.enter` 无密码加入列表中的房间，且不接受客户端指定容量。公开玩家取得最小空闲正数 ID 和 `authorityPeerId: 0`；已释放 ID 会复用，第一名玩家也不是权威玩家。
+
+客户端不单独发送心跳，服务器收到现有游戏/控制数据的任何完整帧都会刷新连接活动时间。默认连续 5 分钟没有收到数据时，服务器会关闭失联套接字；连接处理器随后执行与正常退出相同的 `LeaveRoomAsync` 清理、广播 `room.playerLeft` 并释放成员 ID。
+
+挂机计时与 TCP 活动分开。持续发送相同坐标的数据包不能无限占位：默认连续 5 分钟没有累计至少 0.05 单位的世界坐标位移、也没有切换场景时，服务器会通过同一清理路径关闭连接。
 
 公开房间中，服务器解析控制包类型，用认证连接覆盖玩家声明的 ID/名称，拒绝玩家时间权威，并协调时间/场景/睡眠；资料内容仍由客户端管理。在容量允许时，服务器始终保留一个可加入的空房间。
 
@@ -99,5 +105,7 @@ sudo docker compose logs --tail=100 room-server
 | TCP 测试失败 | 云防火墙、UFW 或 Compose 端口 | 开放 TCP，确认 `0.0.0.0:27777->27777/tcp` |
 | `unknown command` | 旧服务器镜像 | 拉取匹配源码并重新构建，必要时禁用缓存 |
 | 公开房间已满 | 达到容量 | 选择其他房间，或提高 `FF_ROOM_MAX_PLAYERS` 后重启 |
+| 断线玩家暂时仍在名单 | 尚未达到 TCP 空闲超时 | 最多等待 `FF_ROOM_CLIENT_TIMEOUT_SECONDS`（默认 300 秒），服务器会自动释放成员和 ID |
+| 静止玩家被移除 | 已达到挂机超时 | 在 `FF_ROOM_AFK_TIMEOUT_SECONDS` 到期前移动至少 0.05 世界单位或切换场景 |
 | `dubious ownership` 或 `.env` 无权限 | 仓库所有权混乱 | 让一个部署用户统一拥有 `/opt/Multiplayer-Mod` |
 | 可以连接但行为不一致 | 版本不匹配 | 统一服务器、Mod 和游戏版本 |

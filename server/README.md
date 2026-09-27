@@ -44,6 +44,8 @@ Test-NetConnection <server-address> -Port 27777
 | `FF_ROOM_PORT` | `27777` | TCP port, 1–65535 |
 | `FF_ROOM_MAX_ROOMS` | `256` | In-memory room limit, 1–10,000 |
 | `FF_ROOM_MAX_PLAYERS` | `8` | Players per room, 2–32 |
+| `FF_ROOM_CLIENT_TIMEOUT_SECONDS` | `300` | Disconnect after this many seconds without a complete incoming TCP frame, 3–3,600 |
+| `FF_ROOM_AFK_TIMEOUT_SECONDS` | `300` | Disconnect after this many seconds without effective position movement or a scene change, 3–3,600 |
 | `FF_ROOM_ADMIN_TOKEN` | empty | Enables all `admin.*` commands; minimum 16 characters |
 
 Generate a token with `openssl rand -hex 32`. An empty token disables remote administration. Do not commit `.env`; it is ignored by Git and excluded from update archives.
@@ -81,7 +83,11 @@ Each frame is a four-byte big-endian length followed by UTF-8 JSON, maximum 64 K
 - `room.list`, `room.create`, `room.join`, `room.enter`, `room.info`, `room.send`
 - `admin.stats`, `admin.room.kick`, `admin.room.close`, `admin.room.send`
 
-The server creates one real public room at startup. `room.list` returns only actual server-managed rooms with live population/capacity. When every room reaches `FF_ROOM_MAX_PLAYERS`, the server creates the next numbered room; redundant empty rooms are reclaimed. `room.enter` joins a listed room without a password and never accepts capacity from a client. Public players always receive positive IDs and `authorityPeerId: 0`; the first entrant is not an authority player.
+The server creates one real public room at startup. `room.list` returns only actual server-managed rooms with live population/capacity. When every room reaches `FF_ROOM_MAX_PLAYERS`, the server creates the next numbered room; redundant empty rooms are reclaimed. `room.enter` joins a listed room without a password and never accepts capacity from a client. Public players receive the smallest available positive ID and `authorityPeerId: 0`; released IDs are reused and the first entrant is not an authority player.
+
+No standalone heartbeat is sent. Every existing game/control frame refreshes connection activity. If no complete frame arrives for five minutes by default, the server closes that stale socket; the connection handler then runs the same `LeaveRoomAsync` cleanup used for a normal exit, broadcasts `room.playerLeft`, and releases the member ID.
+
+AFK is tracked separately from TCP activity. Repeated packets at the same location do not keep a slot indefinitely: five minutes without at least 0.05 units of accumulated world-position movement or a scene change closes the connection through the same cleanup path.
 
 For public rooms, the server parses control packet types, replaces player-owned IDs/names with authenticated connection values, rejects player clock authority, and coordinates time/scene/sleep. Profile contents remain client-managed. The server always retains one joinable empty room when capacity allows.
 
@@ -99,5 +105,7 @@ The runtime image uses Ubuntu Chiseled .NET 8, a non-root user, no Linux capabil
 | TCP test fails | Cloud firewall, UFW or Compose port | Open TCP and confirm `0.0.0.0:27777->27777/tcp` |
 | `unknown command` | Old server image | Pull the matching source and rebuild without relying on cache |
 | Public room full | Capacity reached | Select another room or raise `FF_ROOM_MAX_PLAYERS` and restart |
+| A disconnected player remains temporarily | TCP inactivity timeout has not elapsed | Wait up to `FF_ROOM_CLIENT_TIMEOUT_SECONDS` (default 300); the server then releases the member and ID automatically |
+| A stationary player is removed | AFK timeout elapsed | Move at least 0.05 world units or change scene before `FF_ROOM_AFK_TIMEOUT_SECONDS` expires |
 | `dubious ownership` or `.env` permission denied | Mixed repository ownership | Make one deployment user own `/opt/Multiplayer-Mod` |
 | Players connect but cannot agree on behavior | Version mismatch | Match server, Mod and game versions |

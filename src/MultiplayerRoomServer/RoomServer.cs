@@ -11,7 +11,9 @@ namespace FallenFlower.MultiplayerRoomServer;
 internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposable
 {
     private const int ProtocolVersion = 1;
+    private static readonly TimeSpan ClientTimeoutCheckInterval = TimeSpan.FromSeconds(1);
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<ClientConnection, byte> _clients = new();
     private readonly object _publicRoomsLock = new();
     private readonly TcpListener _listener = new(options.ListenAddress, options.Port);
     private readonly CancellationTokenSource _shutdown = new();
@@ -28,6 +30,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         _listener.Start(512);
         Console.WriteLine($"Fallen Flower room server listening on {options.ListenAddress}:{options.Port}");
         var clockTask = RunAuthoritativeClockAsync(_shutdown.Token);
+        var timeoutTask = RunClientTimeoutsAsync(_shutdown.Token);
         try
         {
             while (!_shutdown.IsCancellationRequested)
@@ -40,7 +43,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
         finally
         {
-            try { await clockTask; }
+            try { await Task.WhenAll(clockTask, timeoutTask); }
             catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
         }
     }
@@ -54,6 +57,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
     private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken cancellationToken)
     {
         await using var client = new ClientConnection(tcpClient);
+        _clients.TryAdd(client, 0);
         try
         {
             var stream = tcpClient.GetStream();
@@ -61,6 +65,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             {
                 using var document = await FrameProtocol.ReadJsonAsync(stream, cancellationToken);
                 if (document is null) break;
+                client.MarkReceived();
                 await HandleMessageAsync(client, document.RootElement, cancellationToken);
             }
         }
@@ -75,6 +80,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException or OperationCanceledException) { }
         finally
         {
+            _clients.TryRemove(client, out _);
             await LeaveRoomAsync(client, cancellationToken);
         }
     }
@@ -246,6 +252,12 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             {
                 packet["ownerId"] = source.PeerId; // 服务端覆盖来源，玩家不能冒充其他成员。
                 packet["playerName"] = source.PlayerName;
+            }
+            if (packetType == "playerState" && packet["position"] is JsonObject position)
+            {
+                var scene = packet["scene"]?.GetValue<string>() ?? string.Empty;
+                source.ObservePosition(ReadDouble(position, "x"), ReadDouble(position, "y"),
+                    ReadDouble(position, "z"), scene);
             }
             payload = packet.ToJsonString();
             await BroadcastAsync(room, new { type = "room.message", sourcePeerId = source.PeerId, payload }, source, cancellationToken);
@@ -469,6 +481,28 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             {
                 var packet = room.CreateClockPacket();
                 if (packet is not null) await BroadcastServerPacketAsync(room, packet, cancellationToken);
+            }
+        }
+    }
+
+    private async Task RunClientTimeoutsAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(ClientTimeoutCheckInterval);
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            var now = DateTime.UtcNow;
+            foreach (var client in _clients.Keys)
+            {
+                var reason = client.TryBeginInactivityTimeout(now, TimeSpan.FromSeconds(options.ClientTimeoutSeconds))
+                    ? "TCP inactivity"
+                    : client.Room is not null && client.TryBeginAfkTimeout(now, TimeSpan.FromSeconds(options.AfkTimeoutSeconds))
+                        ? "AFK position"
+                        : string.Empty;
+                if (reason.Length == 0) continue;
+                var roomId = client.Room?.Id ?? "none";
+                Console.WriteLine($"client timed out reason={reason} room={roomId} peer={client.PeerId}");
+                // 关闭套接字会中断 ReadJsonAsync，随后统一进入 finally -> LeaveRoomAsync。
+                try { client.Client.Dispose(); } catch { }
             }
         }
     }

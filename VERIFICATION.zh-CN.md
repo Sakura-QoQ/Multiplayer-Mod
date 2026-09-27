@@ -27,17 +27,17 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
 - UUIDv7 迁移、最新存档发现和仅剩 Active 的旧版恢复通过。
 - 加载元数据包含衣服列表，运行时角色可以重新应用已装备衣服，而不修改存档 JSON。
 
-当前房间适配自检在测试服务器容量设为 2 时也已通过：
+当前房间适配自检在测试服务器容量设为 2、测试专用 TCP 空闲超时设为 3 秒、挂机超时设为 10 秒时也已通过：
 
 ```powershell
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发正常、服务器负责时钟和全员睡眠批准，并验证替补客户端取得断线客户端释放的最小 ID。
+测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发正常、服务器负责时钟和全员睡眠批准、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。正式环境两个阈值都默认 300 秒且不单独发送心跳。
 
 ```text
-PASS public room auto-entry, reusable peer IDs, server authority and bidirectional relay
+PASS public room auto-entry, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## 真实游戏证据

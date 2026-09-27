@@ -27,6 +27,8 @@ For local direct play, use **Host** or **Join** with an address and port. A dire
 - `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
 - The Ubuntu service is logical authority peer `0`. Every public player receives the room's smallest available positive ordinary-member ID; released IDs are reused immediately, and the first player has no special authority.
 - The server owns membership, the 5 Hz shared clock, scene arbitration and unanimous sleep approval. It relays player-owned state but does not run Unity gameplay or store player saves.
+- No separate heartbeat traffic is generated. Existing TCP game/control frames refresh connection activity; after five minutes without a complete frame, the server closes the stale connection and releases the member through the same leave path used by a normal exit.
+- A connected player whose world position does not move by at least 0.05 units and does not change scene for five minutes is also treated as AFK and removed through that same cleanup path.
 - Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
 - Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
 - Opening the online pause menu does not pause the world. Its Multiplayer page is read-only and shows room identity, synchronized time, population and players. Hold `Tab` for the centered player list.

@@ -49,6 +49,8 @@ Profile transfer is for remote appearance and player-information views. Receivin
 4. When all public rooms are full the server creates the next numbered room. Redundant empty rooms are reclaimed while one joinable empty room is retained.
 5. `room.create`/`room.join` remain available for explicit rooms and compatibility clients; the in-game local Host/Join page instead uses direct `BridgeNode` TCP.
 6. Direct mode retains player-host authority and may require inbound networking; public mode never grants authority to a player.
+7. No standalone heartbeat is sent. Existing public TCP frames refresh activity; five minutes without a complete client frame closes the socket and routes cleanup through `LeaveRoomAsync`, releasing membership and the reusable ID.
+8. Independently, five minutes without at least 0.05 units of accumulated world-position movement or a scene change is treated as AFK, even if stationary position packets continue arriving.
 
 Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB frame limit. The transport is plain TCP, not TLS. AES-GCM endpoint obfuscation only hides editable configuration; it does not secure packets on the wire.
 

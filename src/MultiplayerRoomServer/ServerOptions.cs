@@ -7,6 +7,8 @@ internal sealed record ServerOptions(
     int Port,
     int MaxRooms,
     int MaxPlayersPerRoom,
+    int ClientTimeoutSeconds,
+    int AfkTimeoutSeconds,
     string AdminToken)
 {
     public static ServerOptions Parse(string[] args)
@@ -30,6 +32,8 @@ internal sealed record ServerOptions(
             IntValue("port", "FF_ROOM_PORT", 27777, 1, 65535),
             IntValue("max-rooms", "FF_ROOM_MAX_ROOMS", 256, 1, 10_000),
             IntValue("max-players", "FF_ROOM_MAX_PLAYERS", 8, 2, 32),
+            IntValue("client-timeout-seconds", "FF_ROOM_CLIENT_TIMEOUT_SECONDS", 300, 3, 3600),
+            IntValue("afk-timeout-seconds", "FF_ROOM_AFK_TIMEOUT_SECONDS", 300, 3, 3600),
             Value("admin-token", "FF_ROOM_ADMIN_TOKEN", string.Empty));
 
         if (options.AdminToken.Length is > 0 and < 16)
