@@ -49,7 +49,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-This first verifies one-player “sleep until tomorrow” and the one-hour authoritative day rate, then creates a second ordinary client and verifies peer `0` authority, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](../VERIFICATION.md).
+This first verifies one-player “sleep until tomorrow” and the one-hour authoritative day rate, then creates a second ordinary client and verifies peer `0` authority, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
 When changing save code, verify all three boundaries:
 
@@ -75,4 +75,4 @@ The Docker build context is the repository root because the image copies `src/Mu
 
 The player ZIP contains generated Mod files, six language packs, English/Chinese player instructions and licenses, English/Chinese profile maps, and one self-contained Windows executable. It excludes source, tests, SDKs, build tools and the Linux server.
 
-The server deployment requires `server/`, `src/MultiplayerRoomServer/`, `LICENSE` and `LICENSE.zh-CN`. It does not require the game, player saves, Mod script or Windows toolchain.
+The server deployment requires `server/`, `src/MultiplayerRoomServer/`, `docs/LICENSE` and `docs/LICENSE.zh-CN`. It does not require the game, player saves, Mod script or Windows toolchain.

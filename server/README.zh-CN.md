@@ -37,6 +37,61 @@ sudo ufw allow 27777/tcp
 Test-NetConnection <服务器地址> -Port 27777
 ```
 
+## GitHub Actions 自动部署
+
+仓库的 `.github/workflows/deploy-server.yml` 会在 `main` 分支中的服务端源码、Compose 或 Docker 配置变化后自动部署，也支持从 Actions 页面手动执行。部署任务通过 SSH 登录服务器，由服务器克隆私有仓库；首次部署后则同步到触发工作流的准确提交。随后依次验证 Compose 配置、关闭旧容器、重新构建镜像并启动新容器。
+
+服务器建议使用专用普通用户 `deploy`。该用户必须拥有 `/opt/Multiplayer-Mod`，并具有直接运行 `docker compose` 的权限：
+
+```bash
+sudo adduser --disabled-password --gecos '' deploy
+sudo usermod -aG docker deploy
+sudo install -d -o deploy -g deploy /opt/Multiplayer-Mod
+```
+
+`docker` 用户组实际拥有接近 root 的主机控制能力，因此这个账号只能用于部署，不应与普通登录账号共用。创建账号后重新登录一次，使组成员关系生效。
+
+需要配置两套不同的 SSH 密钥：
+
+1. **Actions → 服务器：**将登录公钥写入服务器 `deploy` 用户的 `~/.ssh/authorized_keys`，私钥保存为 GitHub `production` Environment Secret `DEPLOY_SSH_PRIVATE_KEY`。
+2. **服务器 → 私有 GitHub 仓库：**在服务器上为 `deploy` 用户生成另一把密钥，把公钥添加到 `Sakura-QoQ/Multiplayer-Mod-Dev` 的只读 Deploy Key，并在该用户的 SSH 配置中让 `github.com` 使用这把密钥。不要给它写权限。
+
+服务器侧仓库密钥可以这样生成：
+
+```bash
+sudo -iu deploy
+install -d -m 700 ~/.ssh
+ssh-keygen -t ed25519 -f ~/.ssh/github_multiplayer_mod -N ''
+cat ~/.ssh/github_multiplayer_mod.pub
+```
+
+把输出公钥添加到私有仓库的 **Settings → Deploy keys** 后，为该用户配置 `github.com` 使用此密钥，并将 GitHub 官方公布、已核验指纹的 host key 写入 `~/.ssh/known_hosts`。最后用下面的只读命令确认仓库访问：
+
+```bash
+git ls-remote git@github.com:Sakura-QoQ/Multiplayer-Mod-Dev.git HEAD
+```
+
+在 GitHub 仓库的 `production` Environment 中设置：
+
+| 名称 | 类型 | 内容 |
+| --- | --- | --- |
+| `DEPLOY_SSH_HOST` | Secret | Ubuntu 服务器域名或 IP |
+| `DEPLOY_SSH_USER` | Secret | `deploy` |
+| `DEPLOY_SSH_PRIVATE_KEY` | Secret | Actions 登录服务器所用的私钥全文 |
+| `DEPLOY_SSH_KNOWN_HOSTS` | Secret | 已核验指纹的服务器 SSH host-key 行 |
+| `DEPLOY_SSH_PORT` | Variable，可选 | SSH 端口，默认 `22` |
+
+首次自动部署会克隆仓库，然后因为缺少私密配置而安全停止。此时在服务器创建 `/opt/Multiplayer-Mod/server/.env`：
+
+```bash
+sudo -u deploy cp /opt/Multiplayer-Mod/server/.env.example /opt/Multiplayer-Mod/server/.env
+sudo -u deploy nano /opt/Multiplayer-Mod/server/.env
+```
+
+配置完成后，在 Actions 页面重新运行 `Deploy Room Server`。`.env` 已被 Git 忽略，后续的强制源码同步和 `git clean -fd` 都不会删除它。部署用户不应在 `/opt/Multiplayer-Mod` 中保存其他未跟踪文件。
+
+建议为 GitHub 的 `production` Environment 启用仅允许 `main` 部署；如果需要人工确认，再增加 required reviewers。Actions 密钥应只允许登录 `deploy` 用户，服务器仓库 Deploy Key 应保持只读。
+
 ## 配置
 
 | 变量 | 默认值 | 范围/作用 |

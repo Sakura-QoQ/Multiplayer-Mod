@@ -49,7 +49,7 @@
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试先验证单人“睡到明天”和一小时权威游戏日，再创建第二个普通客户端，验证服务器权威 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](../VERIFICATION.zh-CN.md)。
+测试先验证单人“睡到明天”和一小时权威游戏日，再创建第二个普通客户端，验证服务器权威 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](VERIFICATION.zh-CN.md)。
 
 修改存档代码时必须验证三条边界：
 
@@ -75,4 +75,4 @@ Docker 构建上下文是仓库根目录，因为镜像需要复制 `src/Multipl
 
 玩家 ZIP 包含生成后的 Mod 文件、六种语言包、中英文玩家说明与许可、中英文资料字段映射，以及一个自包含 Windows 可执行程序；不包含源码、测试、SDK、构建工具或 Linux 服务器。
 
-服务器部署需要 `server/`、`src/MultiplayerRoomServer/`、`LICENSE` 和 `LICENSE.zh-CN`，不需要游戏、玩家存档、Mod 脚本或 Windows 工具链。
+服务器部署需要 `server/`、`src/MultiplayerRoomServer/`、`docs/LICENSE` 和 `docs/LICENSE.zh-CN`，不需要游戏、玩家存档、Mod 脚本或 Windows 工具链。

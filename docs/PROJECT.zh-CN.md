@@ -8,7 +8,7 @@
 >
 > **传输安全：**房间协议是带长度前缀的明文 TCP JSON，不是 TLS。端点隐藏和存档文件加密都不会加密网络流量；管理员令牌不要复用其他敏感密码。
 
-[English](README.md) · [文档索引](docs/README.zh-CN.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可中文参考](LICENSE.zh-CN)
+[English](../README.md) · [文档索引](README.zh-CN.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可中文参考](LICENSE.zh-CN)
 
 ## 发行文件
 
@@ -67,7 +67,7 @@ ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安�
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
-服务器管理员参阅 [服务器部署](server/README.zh-CN.md)；开发者从 [开发指南](docs/DEVELOPMENT.zh-CN.md) 和 [架构说明](docs/ARCHITECTURE.zh-CN.md) 开始。
+服务器管理员参阅 [服务器部署](../server/README.zh-CN.md)；开发者从 [开发指南](DEVELOPMENT.zh-CN.md) 和 [架构说明](ARCHITECTURE.zh-CN.md) 开始。
 
 ## 支持环境
 

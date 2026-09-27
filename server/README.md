@@ -37,6 +37,22 @@ From Windows:
 Test-NetConnection <server-address> -Port 27777
 ```
 
+## Automatic deployment with GitHub Actions
+
+`.github/workflows/deploy-server.yml` deploys server-side changes from `main` and can also be run manually. It connects to the Ubuntu host over SSH; the host clones the private `Sakura-QoQ/Multiplayer-Mod-Dev` repository on first use and checks out the exact workflow commit thereafter. The deployment validates Compose configuration, stops the old stack, rebuilds the image, starts a fresh container and verifies that it is running.
+
+Use a dedicated unprivileged `deploy` account that owns `/opt/Multiplayer-Mod` and can run `docker compose` directly. Configure separate credentials for Actions-to-server SSH and a read-only repository Deploy Key for server-to-GitHub access. Add these values to the GitHub `production` Environment:
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `DEPLOY_SSH_HOST` | Secret | Ubuntu host name or IP address |
+| `DEPLOY_SSH_USER` | Secret | Deployment account, normally `deploy` |
+| `DEPLOY_SSH_PRIVATE_KEY` | Secret | Private key used by Actions to log in |
+| `DEPLOY_SSH_KNOWN_HOSTS` | Secret | Verified SSH host-key line for the server |
+| `DEPLOY_SSH_PORT` | Variable, optional | SSH port; defaults to `22` |
+
+The first run clones the repository and then stops safely if `server/.env` is absent. Create `/opt/Multiplayer-Mod/server/.env` on the host and rerun the workflow. Git ignores this file, so subsequent source resets and `git clean -fd` preserve it.
+
 ## Configure
 
 | Variable | Default | Valid range/purpose |

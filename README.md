@@ -8,7 +8,7 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 >
 > **Transport security:** the room protocol is length-prefixed JSON over plain TCP, not TLS. Endpoint obfuscation and save-file encryption do not encrypt network traffic. Do not reuse sensitive passwords as an administrator token.
 
-[简体中文说明](README.zh-CN.md) · [Documentation](docs/README.md) · [Verification](VERIFICATION.md) · [License](LICENSE)
+[简体中文说明](docs/PROJECT.zh-CN.md) · [Documentation](docs/README.md) · [Verification](docs/VERIFICATION.md) · [License](docs/LICENSE)
 
 ## Release artifacts
 
@@ -78,4 +78,4 @@ Server administrators should follow [server/README.md](server/README.md). Contri
 
 ## License
 
-This is proprietary, non-public-source software. Personal use of an authorized binary copy is permitted; source disclosure, redistribution, modification and commercial use require prior written permission. See [LICENSE](LICENSE).
+This is proprietary, non-public-source software. Personal use of an authorized binary copy is permitted; source disclosure, redistribution, modification and commercial use require prior written permission. See [LICENSE](docs/LICENSE).
