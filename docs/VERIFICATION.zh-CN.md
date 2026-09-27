@@ -11,7 +11,7 @@
 ```
 
 ```text
-PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
 
 正式构建在生成包之前还会强制执行运行时安全扫描：拒绝会落入注册表的游戏偏好接口、Windows 注册表 API、提权请求以及常见安装器/包管理器命令。当前源码、生成的 `mod/main.ts` 和已安装负载均不包含这些 API；发布桥接程序与安装目录桥接程序的 SHA-256 完全一致。
@@ -20,6 +20,7 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
 
 - `MPOnline_<UUIDv7>.save` 是正常情况下唯一持久存档。
 - `MPActive` 只是原生格式临时加载副本，加载后会释放。
+- 完整的自动保存 `MPActive` 会经过校验并原子晋升；畸形输入不会改变旧正式档的任何字节。
 - `prepareSave` 会关闭写入；提交不完整快照返回 `-8`，正式完整文件逐字节不变。
 - 保存直接原子提交到双层加密 `MPOnline` 容器。
 - 桥接程序不再监视、转存、备份、恢复或修改 `AutoSave.save`。
@@ -56,7 +57,7 @@ PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inact
 
 - 玩家排程设置为 20 Hz；同机运行两份完整游戏时端到端实测 17.43 Hz，渲染插值仍逐帧执行。
 - 当次材质恢复每端覆盖 14 个渲染器、21 个独立材质，无效/错误 Shader 为零。
-- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码把线上原版自动保存重定向到可丢弃的 `MPActive`，同时保持桥接层不处理 AutoSave。
+- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码把线上原版自动保存重定向到隔离的 `MPActive`，随后显式校验并原子晋升，全程不处理线下 AutoSave。
 - 公网端点接受分帧协议并返回 `pong`，外部 TCP 可达性也已确认。
 
 ## 待验证项目

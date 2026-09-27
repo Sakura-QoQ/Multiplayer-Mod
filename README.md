@@ -50,11 +50,11 @@ Each player owns one persistent `MPOnline_<UUIDv7>.save`. The server never recei
 1. On entry, the bridge authenticates and decrypts `MPOnline` into a temporary `MPActive_<UUIDv7>.save` because the game can only load its native `Encrypted` format.
 2. Loading is a read-only transaction. Game-side and bridge-side write gates reject autosaves until loading finishes.
 3. After `LoadGame` completes, the temporary `MPActive` file is deleted.
-4. Online autosave redirects the native `SaveGame("AutoSave")` call to disposable `MPActive`, preserving native exit/transition control flow without touching offline `AutoSave.save`.
+4. Online autosave redirects native `SaveGame("AutoSave")` to temporary `MPActive`; after the native write returns, the bridge validates HMAC/decryption/JSON, atomically replaces `MPOnline`, then deletes `MPActive`.
 5. Interacting with a bed adds a native-style **Save game** option that commits and verifies `MPOnline` on demand.
-6. The pause-menu Exit button keeps the game's original behavior and never saves or blocks exit.
+6. The pause-menu Exit button keeps the game's original behavior; if that flow invokes native AutoSave, it uses the same validated two-phase commit without blocking exit.
 
-The persistent authoritative file therefore remains `MPOnline` only. `MPActive` may briefly reappear after native autosave and is discarded rather than promoted. Single-player `AutoSave.save` is neither read nor written by the online-save pipeline, and online files are hidden from the original load/save UI.
+The persistent authoritative file therefore remains `MPOnline` only. `MPActive` exists only until a fully validated atomic promotion completes; failures leave the previous `MPOnline` unchanged. Single-player `AutoSave.save` is neither read nor written by the online-save pipeline, and online files are hidden from the original load/save UI.
 
 The inner layer matches the game's PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` format. The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption. This protects files at rest, not network traffic.
 

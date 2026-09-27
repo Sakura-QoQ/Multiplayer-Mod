@@ -11,7 +11,7 @@ The current NativeAOT bridge passes:
 ```
 
 ```text
-PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
 
 The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
@@ -20,6 +20,7 @@ This test verifies that:
 
 - `MPOnline_<UUIDv7>.save` is the only persistent normal save.
 - `MPActive` is a temporary native-format load copy and is released after loading.
+- A complete AutoSave `MPActive` is validated and atomically promoted; malformed input leaves the prior formal save byte-for-byte unchanged.
 - `prepareSave` disables writes; an attempted incomplete snapshot returns `-8` and leaves the complete formal file byte-for-byte unchanged.
 - Saving commits directly and atomically to the double-encrypted `MPOnline` container.
 - The bridge does not monitor, redirect, back up, restore or otherwise modify `AutoSave.save`.
@@ -56,7 +57,7 @@ Additional observed results from the two-game runs:
 
 - Player scheduling was configured for 20 Hz; two full game processes sharing one machine observed 17.43 Hz end-to-end while render interpolation continued each frame.
 - Material restoration covered 14 renderers and 21 private material instances per side with zero invalid/error shaders in that run.
-- The historical two-game test did not change original `AutoSave*.save` hashes. Current source redirects native online autosaves to disposable `MPActive` while leaving bridge-side AutoSave handling disabled.
+- The historical two-game test did not change original `AutoSave*.save` hashes. Current source redirects native online autosaves to isolated `MPActive`, then explicitly validates and atomically promotes them without handling offline AutoSave.
 - The public endpoint accepted the framed protocol and returned `pong`; TCP reachability was confirmed externally.
 
 ## Remaining verification

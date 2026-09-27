@@ -70,18 +70,22 @@ sequenceDiagram
     B->>D: delete MPActive
     G->>B: enableSaveWrites
     G->>G: redirect SaveGame("AutoSave") to MPActive
-    G->>D: native writer updates disposable MPActive
+    G->>D: native writer completes MPActive
+    G->>B: commitActiveSave
+    B->>D: validate HMAC / decrypt / parse JSON
+    B->>D: atomically replace MPOnline
+    B->>D: delete MPActive after success
     G->>B: bed Save Game commits GetSave JSON
     B->>D: atomically replace MPOnline
 ```
 
 Only `MPOnline_<UUIDv7>.save` persists normally. `MPActive` exists solely because the game cannot read the Mod's authenticated outer container. During preparation and loading, both the game script and bridge reject writes. If loading fails, the formal online file remains byte-for-byte unchanged.
 
-Online autosave invokes the original method with the isolated `MPActive` name so native exit and transition behavior remains intact. The working copy is never promoted at runtime; only the explicit bed save commits the double-encrypted online file. The online pipeline does not read, create, back up or restore single-player `AutoSave.save`.
+Online autosave invokes the original method with the isolated `MPActive` name so native exit and transition behavior remains intact. After that write completes, the bridge validates the game HMAC, fully decrypts and parses the JSON, validates the new outer container from disk, atomically replaces `MPOnline`, and only then deletes `MPActive`. The explicit bed save remains an alternative direct snapshot commit. The online pipeline never reads or writes single-player `AutoSave.save`.
 
-Pause-menu Exit keeps the game's original behavior and does not trigger an extra save. Bridge shutdown
-only removes a decrypted `MPActive` working copy, so a partially initialized exit state cannot replace
-the formal file. The native-style bed button performs the only explicit formal save through the atomic commit path.
+Pause-menu Exit keeps the game's original behavior. If native exit invokes AutoSave, it uses the same
+validated two-phase commit. Bridge shutdown retries a valid writable-stage `MPActive`; a partially initialized
+or invalid file cannot replace the formal file.
 
 ## Source assembly
 

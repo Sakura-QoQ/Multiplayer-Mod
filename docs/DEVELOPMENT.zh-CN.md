@@ -40,7 +40,7 @@
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
-预期结果包含 `read-only load transaction`、`single-file online save`、`temporary load copy`、篡改拒绝和 `AutoSave isolation`。
+预期结果包含 `read-only load transaction`、`validated AutoSave two-phase commit`、`single-file online save`、`temporary load copy`、篡改拒绝和 `AutoSave isolation`。
 
 测试独立房间适配时，先在测试端口运行房间服务器，再执行：
 
@@ -55,7 +55,7 @@
 
 1. `prepareSave` 关闭桥接写入，只创建临时原生格式加载文件。
 2. `releaseSave` 删除该文件后，`enableSaveWrites` 才能开放保存。
-3. `SaveGame("AutoSave")` Hook 改用 `MPActive` 执行完整原版方法，既不能触碰单机 `AutoSave.save`，也不能把工作副本晋升为正式档。
+3. `SaveGame("AutoSave")` Hook 改用 `MPActive` 执行完整原版方法，随后请求完整校验并原子晋升到 `MPOnline`，全程不能触碰单机 `AutoSave.save`。
 
 ## 构建服务器
 

@@ -70,18 +70,20 @@ sequenceDiagram
     B->>D: 删除 MPActive
     G->>B: enableSaveWrites
     G->>G: 把 SaveGame("AutoSave") 重定向到 MPActive
-    G->>D: 原版写入器更新可丢弃的 MPActive
+    G->>D: 原版写入器完整写入 MPActive
+    G->>B: commitActiveSave
+    B->>D: 校验 HMAC / 完整解密 / 解析 JSON
+    B->>D: 原子替换 MPOnline
+    B->>D: 成功后删除 MPActive
     G->>B: 床边“保存游戏”提交 GetSave JSON
     B->>D: 原子替换 MPOnline
 ```
 
 正常情况下只有 `MPOnline_<UUIDv7>.save` 持久存在。之所以短暂生成 `MPActive`，只是因为游戏无法读取 Mod 的认证外层容器。准备和加载期间，游戏脚本与桥接程序都会拒绝写入；加载失败时正式线上档逐字节保持不变。
 
-线上自动保存会以隔离的 `MPActive` 名称执行完整原版方法，保留退出和切换流程。工作副本不会在运行时晋升；只有床边手动保存会提交双层加密正式档。线上流程不会读取、创建、备份或恢复单机 `AutoSave.save`。
+线上自动保存会以隔离的 `MPActive` 名称执行完整原版方法，保留退出和切换流程。写入结束后，桥接程序校验游戏 HMAC、完整解密并解析 JSON，从磁盘复验新外层容器，再原子替换 `MPOnline`，最后删除 `MPActive`。床边手动保存仍作为直接快照提交的备用入口。线上流程不会读取或写入单机 `AutoSave.save`。
 
-暂停菜单退出保持原版行为，不触发额外保存。桥接进程结束时只删除解密的 `MPActive` 临时副本，
-不会把退出时的半完成状态写回正式档。玩家需要主动保存时可使用床窗口新增的原版样式按钮；
-该按钮是唯一会调用原子提交实现的正式保存入口。
+暂停菜单退出保持原版行为；若原版退出流程调用 AutoSave，则走相同的校验两阶段提交。桥接进程结束时会重试可写阶段的有效 `MPActive`，半完成或无效文件不能替换正式档。
 
 ## 源码合并
 
