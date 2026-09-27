@@ -1,71 +1,98 @@
 # PlayerHostedMultiplayer
 
-《Fallen Flower》的玩家主机联机 Mod。房主电脑同时承担游戏服务器角色，不使用中心服务器。
+Player-hosted multiplayer for **Fallen Flower**. One player's Windows PC hosts the room and runs the bundled network bridge; no central server or separate runtime installation is required.
 
-## 当前结构
+[简体中文说明](README.zh-CN.md) · [Verification report](VERIFICATION.md) · [License](LICENSE)
+
+## Features
+
+- Native-style multiplayer entry on the main menu and multiplayer settings in the pause menu.
+- Host or join directly from the in-game UI. The pause menu remains visible without stopping online world time.
+- Up to four players by default; the host acts as the authoritative relay.
+- Player model, position, rotation, movement, grounded state, weapon, action and all Animator layers are synchronized.
+- Clothing, skin tan, character customization, complete save-profile data and continuously changing player status are synchronized.
+- Remote transforms and clothing bones are updated every render frame from 5 Hz network snapshots.
+- The host controls world time, date and time-of-day. Sleeping advances time only after every connected player agrees on the same sleep mode.
+- Online saves use one persistent UUIDv7 per player and never appear in the single-player load/save UI.
+- Exiting online mode saves and verifies the online file before quitting.
+
+## Installation
+
+1. Import `PlayerHostedMultiplayer-v0.9.0-win-x64.zip` with the game's dedicated Mod launcher.
+2. Start the game through that Mod launcher.
+3. Select **Multiplayer** above **New Game** on the main menu.
+
+The package contains a Windows x64 NativeAOT bridge and all of its runtime dependencies. Players do **not** need Node.js, TypeScript, .NET, Visual Studio or a separate start script.
+
+## Hosting and joining
+
+- **Host:** choose a player name, port and maximum player count, then select **Host and Enter**. The Mod resumes that player's UUIDv7 online save, or creates the first online save from a clean game when none exists.
+- **Join:** enter the host address and port, then select **Join**. Every player keeps an independent online save and personal progress.
+- **LAN:** use the host PC's LAN IPv4 address, for example `192.168.1.20`.
+- **Internet:** the host must allow the configured TCP port through Windows Firewall and usually forward it on the router, or use a trusted virtual-LAN tool.
+
+All players should use the same game and Mod versions. The default TCP port is `27777`.
+
+## Architecture
 
 ```text
 PlayerHostedMultiplayer
 ├─ mod
-│  ├─ main.ts                         游戏内 UI、协议和存档读取
-│  ├─ config.json                     默认配置
-│  ├─ i18n                            跟随游戏语言的界面语言包
-│  │  ├─ en / ja / ko / es
-│  │  └─ zh-CN / zh-TW
-│  └─ Bridge/MultiplayerBridgeHost.exe 自包含联机桥，由 Mod 自动启动
+│  ├─ main.ts                         In-game UI, hooks, synchronization and saves
+│  ├─ config.json                     Default configuration
+│  ├─ README.txt                      Default English player guide
+│  ├─ README.zh-CN.txt                Simplified Chinese player guide
+│  └─ i18n/<language>/strings.json    In-game localization
 ├─ src
-│  ├─ MultiplayerBridge               TCP 主机/客户端网络核心
-│  ├─ MultiplayerBridgeHost           自包含进程和受限 IPC
-│  └─ MultiplayerBridge.SmokeTest      网络回环测试
-└─ build.ps1                           编译、打包和安装
+│  ├─ MultiplayerBridge               Framed TCP networking core
+│  ├─ MultiplayerBridgeHost           NativeAOT bridge, IPC and save protection
+│  └─ MultiplayerBridge.SmokeTest      Network smoke test
+├─ tests
+│  ├─ dual-instance                   Two real game-process integration test
+│  └─ online-save                     Online-save lifecycle integration test
+└─ build.ps1                          Build, package and optional local install
 ```
 
-## 实现方式
+`main.ts` runs inside the Mod launcher's Jint environment. It communicates with the bundled bridge through bounded commands and atomic state snapshots. TCP messages use a four-byte big-endian length prefix followed by UTF-8 JSON, with size and queue limits.
 
-- `main.ts` 由游戏自带的 Jint Mod 环境执行，只使用公开的日志、`ReadModFile`、UI 和 Hook API。
-- `MultiplayerBridgeHost.exe` 是随包附带的 Windows x64 NativeAOT 程序，玩家无需安装 .NET。
-- 游戏脚本用带专用标记的 `Player.log` 行提交短命令；桥接程序只增量读取新日志，并把状态和有界事件列表原子写入
-  `Bridge/state.json`，脚本再通过受沙箱限制的 `ReadModFile` 读取。
-- 网络消息使用 4 字节大端长度前缀加 UTF-8 JSON，单条上限 64 KiB，事件队列有上限。
-- 主菜单入口复制游戏自己的 `newGame` 按钮，改名为“联机”，放在其正上方，因此样式、
-  字体、悬停效果和菜单间距均继承原界面。
-- UI 根据游戏的 `UserSelectedLanguage` / `Localization.Language` 自动读取
-  `i18n/<语言缩写>/strings.json`；英语作为缺失文本的后备语言，切换语言无需重启。
-- 建立房间时自动继续最近的有效联机存档；没有联机存档时才从零创建。
-- 联机卡片使用底部“取消”按钮或 `Esc` 关闭，圆角边缘为完全不透明的硬边。
+## Synchronization model
 
-## 为什么不再使用 version.dll
+- Player state and authoritative world time are sent at 5 Hz to limit bandwidth.
+- Rendering still runs every frame: remote positions, rotations, animation layers and clothing bones interpolate toward the newest snapshot.
+- Complete `GetSave()` profile data is chunked when necessary, reassembled with revision tracking and retained per remote player.
+- Frequently changing health, stamina, money, time and scene values use a smaller live-data message.
+- Remote avatars are visual-only clones. Input, camera, collision and gameplay scripts are removed before activation.
 
-旧版通过游戏根目录 `version.dll` 代理接入网络桥。游戏日志证明
-`AntiTamperChecker.DelayedExit()` 会检测该文件并主动退出。v0.3.0 已移除这条注入路径，
-不修改或绕过反篡改组件。v0.8.0 只通过游戏专用 Mod 启动器加载，并由 Mod 自动启动包内桥接程序。
+The game save contains photo metadata but not the external PNG image bytes; those external image files are not transferred.
 
-## 构建
+## Online-save isolation
+
+- Formal file: `MPOnline_<player UUIDv7>.save`.
+- Recovery working copy: `MPActive_<player UUIDv7>.save`.
+- Both are filtered from the original single-player load/save pages.
+- The inner layer matches the game's `Encrypted` format: PBKDF2-SHA256, AES-256-CBC and HMAC-SHA256.
+- The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption.
+- Save writes are atomic. The working copy remains available for recovery, and the original `AutoSave*.save` files are not overwritten.
+
+## Build and verification
+
+Development requires the .NET 8 SDK and Visual Studio x64 C++ tools for NativeAOT linking:
 
 ```powershell
-.\build.ps1 -Install
-dotnet run --project .\src\MultiplayerBridge.SmokeTest -c Release
+./build.ps1 -Install
+dotnet run --project ./src/MultiplayerBridge.SmokeTest -c Release
+./tests/online-save/Run-OnlineSaveLifecycleTest.ps1
+./tests/dual-instance/Run-DualInstanceTest.ps1 -Address <LAN IPv4>
 ```
 
-发布物：`artifacts/PlayerHostedMultiplayer-v0.8.0-win-x64.zip`
+The integration tests create temporary lightweight game instances and are not included in the player package. See [VERIFICATION.md](VERIFICATION.md) for the verified scope and evidence paths.
 
-## 玩家同步
+## Supported environment
 
-- 房主作为星型转发中心，支持房主、客户端以及客户端之间互相显示。
-- 以 5 Hz 发送场景、位置、朝向、移动、落地、动作、攻击、武器和 Animator 状态。
-- 远端模型逐帧插值；大跨度移动自动校正，断线或跨场景后自动清理。
-- 远端玩家使用本机当前角色可视模型作为安全映射模板，只保留 Animator 和渲染组件，不复制输入、相机、碰撞或游戏逻辑。
-- 房主以 5 Hz 广播绝对游戏时间、日期、时段和 `timeOffset`；客户端本地的 `AddTime/AddDay/SetTime` 会被拦截，只接受房间权威时间。
-- 睡一会和睡到明天都必须由所有已连接玩家在 20 秒内选择同一方式；桥接层仍有未确认玩家时不会批准跳夜。
+- Windows x64
+- Fallen Flower with the dedicated Mod launcher
+- Matching game and Mod versions for every participant
 
-## 线上存档隔离
+## License
 
-- 联机界面不再显示“选择存档”或“新建线上存档”；建房时自动继续最近的有效联机存档，没有时才从零创建。
-- 正式线上文件与游戏默认存档同在 `Saves` 目录，命名为 `MPOnline_<玩家UUIDv7>.save`；UUIDv7 每位玩家只生成一次并持续复用。
-- 游戏运行时解包为 `MPActive_<玩家UUIDv7>.save` 工作副本；原版读取和保存窗口会过滤两种前缀。
-- 旧版时间戳线上档会在首次建房时原地迁移为当前玩家的 UUIDv7 文件名，内容不会被解密或改写。
-- 内层使用与游戏原版一致的 `Encrypted` 格式（PBKDF2-SHA256、AES-256-CBC、HMAC-SHA256），外层再使用 Mod 的 PBKDF2-SHA256 + AES-256-GCM 认证加密。
-- 联机保存直接采集游戏的完整 `GetSave()` JSON，由桥接程序生成原版内层密文并原子写入工作副本，再验证和封装正式档；不会借用或覆盖单机 `AutoSave`。
-- 退出游戏时桥接程序必须成功写入并验证正式档后才允许退出；`MPActive_` 工作档不会删除，若被原版流程删除还会从 `MPOnline_` 自动恢复。
-- 重新进入时先由原版 `LoadGame` 恢复完整角色数据，再补应用只在游戏初始化阶段生效的场景、位置和朝向；角色碰撞控制器会把落在碰撞体内的旧坐标修正到最近合法点。
-- 联机时隐藏暂停菜单的原版读取入口，并拦截 `SaveTab.DeleteSave`；即使其他 Mod 重新显示删除按钮，也不能删除线上档。
+This is proprietary, non-public-source software. Personal use of an authorized binary copy is permitted; source disclosure, redistribution, modification and commercial use require prior written permission. See [LICENSE](LICENSE).

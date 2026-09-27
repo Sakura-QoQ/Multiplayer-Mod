@@ -19,8 +19,10 @@ internal static class Program
     private const string ActiveSavePrefix = "MPActive_";
     private const string OnlineSaveMagic = "MPB2";
     private const string ModEncryptionPassword = "FallenFlower.PlayerHostedMultiplayer.Save.v1";
+    private const string GameEncryptionPassword = "Encrypt";
     private const string DefaultLogCommandMarker = "[PlayerHostedMultiplayerIPC]";
     private const int ModKeyIterations = 120_000;
+    private const int GameKeyIterations = 10_000;
     private const int StateSlotCount = 3;
     private const int StateSlotMilliseconds = 100;
 
@@ -47,6 +49,7 @@ internal static class Program
     private static DateTime _lastClientTouchUtc;
     private static bool _clientTouchSeen;
     private static readonly StringBuilder RawSaveBuffer = new();
+    private static readonly byte[] GameEncryptionSalt = [0x04, 0x08, 0x41, 0x20, 0x49, 0x24, 0x00, 0x6d];
     private static int _rawSaveExpectedChunks;
     private static int _rawSaveReceivedChunks;
 
@@ -119,8 +122,7 @@ internal static class Program
                     stateWriteTimer.Restart();
                 }
 
-                // 游戏仍然写入原版加密的临时存档。桥接程序检测到变化后，再把完整原版密文
-                // 套入 Mod 的 AES-GCM 认证加密容器；这样磁盘上的正式线上存档始终是双层密文。
+                // 定期保护工作副本，并兼容旧版脚本可能留下的原版自动存档写入。
                 if (!_networkOnly && saveProtectionTimer.ElapsedMilliseconds >= 500)
                 {
                     RedirectOnlineAutoSave();
@@ -394,7 +396,7 @@ internal static class Program
         return 0;
     }
 
-    // 游戏在退出回调前已经同步写好 MPActive_ 临时档；这里立即完成 Mod 外层加密。
+    // 游戏脚本先提交完整 GetSave JSON；这里验证工作副本和正式双层密文已经一致。
     private static int FlushOnlineSave()
     {
         RedirectOnlineAutoSave();
@@ -406,9 +408,7 @@ internal static class Program
         var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
         ProtectedHashes.Remove(activePath);
 
-        // Unity 的 SaveGame 会先创建空文件，再在后续游戏帧完成加密写盘。桥接线程不能在这里
-        // 睡眠等待，否则游戏端同步等待响应时会阻塞那些帧。-6 表示“尚未写完”，脚本会让出
-        // 游戏帧后重试；只有完整原版 Encrypted 内容才会被封装并返回成功。
+        // 文件可能正处于原子替换的极短窗口。桥接线程不能睡眠等待；-6 让游戏脚本在后续帧重试。
         try
         {
             if (!File.Exists(activePath) || new FileInfo(activePath).Length == 0) return -6;
@@ -801,8 +801,7 @@ internal static class Program
     {
         // 与游戏 EncryptHelper.Encrypt 完全一致："Encrypted" + Base64(HMAC || IV || AES-CBC)。
         // 参数来自当前 GameAssembly.dll 的静态分析，并已用原版 AutoSave 做解密/再加密往返验证。
-        var salt = new byte[] { 0x04, 0x08, 0x41, 0x20, 0x49, 0x24, 0x00, 0x6d };
-        var key = Rfc2898DeriveBytes.Pbkdf2("Encrypt", salt, 10_000, HashAlgorithmName.SHA256, 32);
+        var key = DeriveGameSaveKey();
         try
         {
             using var aes = Aes.Create();
@@ -837,8 +836,7 @@ internal static class Program
         var expectedMac = payload.AsSpan(0, 32);
         var iv = payload.AsSpan(32, 16);
         var ciphertext = payload.AsSpan(48);
-        var salt = new byte[] { 0x04, 0x08, 0x41, 0x20, 0x49, 0x24, 0x00, 0x6d };
-        var key = Rfc2898DeriveBytes.Pbkdf2("Encrypt", salt, 10_000, HashAlgorithmName.SHA256, 32);
+        var key = DeriveGameSaveKey();
         try
         {
             using var hmac = new HMACSHA256(key);
@@ -856,6 +854,10 @@ internal static class Program
         }
         finally { CryptographicOperations.ZeroMemory(key); }
     }
+
+    private static byte[] DeriveGameSaveKey() =>
+        Rfc2898DeriveBytes.Pbkdf2(GameEncryptionPassword, GameEncryptionSalt,
+            GameKeyIterations, HashAlgorithmName.SHA256, 32);
 
     private static string BuildSaveMetadata(string onlineName, byte[] originalGameCiphertext)
     {

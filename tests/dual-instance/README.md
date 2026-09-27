@@ -1,26 +1,30 @@
-# 双游戏实例验证
+# Two-game-instance integration test
 
-`Run-DualInstanceTest.ps1` 是开发验证工具，不进入玩家发布包。它使用硬链接和只读目录联接创建两份轻量游戏实例，分别加载 `host`、`client` 测试通道，并保存独立日志与 JSON 证据。
+[简体中文](README.zh-CN.md)
 
-验证范围：
+`Run-DualInstanceTest.ps1` is a development-only integration test and is not included in the player release. It creates two lightweight game directories with hard links and read-only junctions, then starts separate `host` and `client` Mod channels.
 
-- 两个真实 `FallenFlower.exe` 进程；
-- 两个隔离的桥接进程和本机 TCP 会话；
-- 双方进入相同存档/场景；
-- 双方创建远端人物模型；
-- 双方接收衣服、外观和完整存档资料包；
-- 远端位置与动作包进入 Animator 映射；
-- 测试前后 `AutoSave*.save` 哈希不变。
+The test verifies:
 
-测试通道使用 `--network-only`，不会执行线上存档封装或 AutoSave 重定向。生产配置始终为 `bridgeChannel=default`，不启用该测试路径。
+- two real `FallenFlower.exe` processes;
+- two isolated bridge processes and a real TCP connection;
+- protocol negotiation and peer assignment;
+- remote player creation on both sides;
+- complete profile chunks, live player status, clothing, skin tan and bone rebinding;
+- movement, actions, Animator layers and host-authoritative scene following;
+- online pause/phone behavior, world-time synchronization and unanimous sleep approval;
+- unchanged hashes for the original `AutoSave*.save` files;
+- natural process exit and released test ports.
 
-默认使用 `127.0.0.1`。要验证房主监听能通过真实局域网网卡访问，可指定房主当前 IPv4：
+The non-default test channels use `--network-only`, so they cannot write production online saves. Normal players always use the `default` channel.
+
+Use the host PC's active LAN IPv4 to exercise a physical network adapter instead of loopback:
 
 ```powershell
-./Run-DualInstanceTest.ps1 -Address 192.168.37.127
+./Run-DualInstanceTest.ps1 -Address 192.168.37.127 -Port 28861
 ```
 
-真实发送 ESC 并截图验证联机暂停菜单（不启动客户端）：
+To verify only the original pause window and capture a screenshot:
 
 ```powershell
 ./Run-DualInstanceTest.ps1 -CapturePauseUiOnly

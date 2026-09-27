@@ -1,26 +1,33 @@
-PlayerHostedMultiplayer v0.8.0（Windows x64 开发预览版）
+PlayerHostedMultiplayer v0.9.0 — Windows x64
 
-安装：
-1. 在游戏专用 Mod 启动器中导入 PlayerHostedMultiplayer。
-2. 正常通过 Mod 启动器启动游戏；Mod 会自动启动随包联机桥，无需额外安装或启动脚本。
-3. 玩家电脑不需要安装 .NET、Node.js、Visual Studio 或其他开发工具。
-4. 在主菜单“新建游戏”按钮正上方点击“联机”。
+INSTALLATION
+1. Import this package with the game's dedicated Mod launcher.
+2. Start the game through the Mod launcher. No separate start script is required.
+3. Select Multiplayer above New Game on the main menu.
 
-界面会跟随游戏语言菜单自动切换。语言包位于 i18n 目录：
-en、ja、zh-CN、zh-TW、ko、es；每种语言都有独立的 strings.json。
+The package includes the self-contained MultiplayerBridgeHost.exe and all runtime dependencies.
+Players do not need .NET, Node.js, TypeScript, Visual Studio or other development software.
 
-本版本不再把 version.dll 放进游戏根目录，不修改游戏文件，也不绕过游戏反篡改。
-网络桥 MultiplayerBridgeHost.exe、.NET 运行时和全部依赖已编译进 Mod 包；玩家不需要安装
-Visual Studio、.NET、Node.js、TypeScript 或其他开发软件。
+HOSTING
+- Host and Enter resumes your existing UUIDv7 online save.
+- A clean online save is created only when no online save exists.
+- LAN players connect to the host PC's LAN IPv4 and configured TCP port.
+- Internet hosting normally requires a Windows Firewall rule and router port forwarding, or a trusted virtual-LAN tool.
 
-“建立主机”会让当前玩家电脑监听设置的 TCP 端口。互联网玩家仍需要房主在路由器或
-防火墙中允许该端口；同一局域网通常直接填写房主的局域网 IP 即可。
+SYNCHRONIZATION
+The Mod synchronizes player models, position, rotation, actions, all Animator layers, clothing,
+skin tan, customization, complete save-profile data, live status, scenes and host-authoritative time.
+Network snapshots are sent at 5 Hz and rendered smoothly every frame. Time advances through sleep
+only when every connected player agrees on the same sleep mode.
 
-当前版本会同步同场景玩家的模型、位置、朝向和 Animator 动作。远端模型使用安全的
-可视层克隆，不会复制本地输入、相机、碰撞或游戏逻辑。状态以 5 Hz 发送并逐帧平滑显示。
+SAVES
+Online saves are named MPOnline_<player UUIDv7>.save. MPActive_<player UUIDv7>.save is the retained
+recovery copy. Both are hidden from the original single-player save UI. Exiting online mode saves
+and verifies the double-encrypted online file before quitting, without overwriting AutoSave files.
 
-联机界面不提供“选择存档”或“新建线上存档”按钮；建立房间时自动读取最近的联机存档，
-没有联机存档时才从零开始，单机读取页面不会显示联机存档。
+LANGUAGES
+The in-game UI follows the game's current language. Available language packs: English, Japanese,
+Simplified Chinese, Traditional Chinese, Korean and Spanish.
 
-线上存档使用 MPOnline_<玩家UUIDv7>.save，退出时会先采集完整游戏数据并验证双层加密写盘，
-成功后才退出。MPActive_<玩家UUIDv7>.save 是保留的恢复工作副本，不会覆盖单机 AutoSave。
+See README.zh-CN.txt for Simplified Chinese documentation.
+This package is proprietary software. See LICENSE for the governing terms.

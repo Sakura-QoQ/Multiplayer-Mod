@@ -11,7 +11,7 @@ $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
-$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.8.0-win-x64.zip'
+$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.9.0-win-x64.zip'
 
 function Import-VisualCppEnvironment {
     # 当前终端没有 link.exe 时，从现有 Visual Studio 安装中载入 x64 编译环境。
@@ -58,6 +58,9 @@ function Copy-ModPayload([string] $destination) {
     New-Item -ItemType Directory -Force -Path $bridgeDestination | Out-Null
     Copy-Item -Path (Join-Path $projectRoot 'mod\*') -Destination $destination -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $publishDir 'MultiplayerBridgeHost.exe') -Destination (Join-Path $bridgeDestination 'MultiplayerBridgeHost.exe') -Force
+    # 英文许可是正式文本，中文许可只供参考；两份都进入玩家包和本机安装目录。
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $destination 'LICENSE') -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE.zh-CN') -Destination (Join-Path $destination 'LICENSE.zh-CN') -Force
 
     # 从旧版本原地升级时删除不再使用的启动、安装和卸载脚本。
     $legacyScripts = @(
@@ -72,7 +75,7 @@ function Copy-ModPayload([string] $destination) {
         Remove-ProjectPath $destination (Join-Path $destination $legacyName)
     }
 
-    # v0.8.0 使用单文件自包含桥接程序，旧版注入 DLL 和代理目录不再参与运行。
+    # 当前版本使用单文件自包含桥接程序，旧版注入 DLL 和代理目录不再参与运行。
     foreach ($legacyDirectoryName in @('Native', 'Runtime')) {
         Remove-ProjectPath $destination (Join-Path $destination $legacyDirectoryName) -Recurse
     }

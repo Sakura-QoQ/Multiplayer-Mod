@@ -1,5 +1,5 @@
 // PlayerHostedMultiplayer 的游戏脚本入口。
-// 本文件负责游戏内界面、配置读取、联机协议握手，以及只读存档预览。
+// 本文件负责游戏内界面、配置读取、联机协议、玩家同步和线上存档生命周期。
 type MultiplayerConfig = {
     mode: "off" | "host" | "client";
     address: string;
@@ -781,49 +781,43 @@ function makeOnlineSaveName(): string {
     return ONLINE_SAVE_PREFIX + getOrCreateOnlineSaveId();
 }
 
-function waitForGameManager(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
-    remaining = 180, settleFrames = 2): void {
+type GameReadyPredicate = (manager: GameManager) => boolean;
+
+function waitForGameState(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
+    predicate: GameReadyPredicate, remaining: number, settleFrames = 0): void {
     if (!isCurrentGeneration()) return;
-    // StartGame 会异步切场景；即使旧场景的 Singleton 还存在，也至少让出两帧再使用它。
+    // 场景切换期间旧单例仍可能存活；调用者可要求先让出若干帧，再检查目标状态。
     if (settleFrames > 0) {
-        JintCoroutine.WaitForNextFrame(owner, () => waitForGameManager(owner, callback, remaining, settleFrames - 1));
+        JintCoroutine.WaitForNextFrame(owner,
+            () => waitForGameState(owner, callback, predicate, remaining, settleFrames - 1));
         return;
     }
     try {
-        if (GameManager.Singleton) { callback(GameManager.Singleton); return; }
+        const manager = GameManager.Singleton;
+        if (manager && predicate(manager)) { callback(manager); return; }
     } catch (_error) { }
     if (remaining <= 0) { toast(tr("toast.onlineSaveFailed")); return; }
-    JintCoroutine.WaitForNextFrame(owner, () => waitForGameManager(owner, callback, remaining - 1, 0));
+    JintCoroutine.WaitForNextFrame(owner,
+        () => waitForGameState(owner, callback, predicate, remaining - 1));
+}
+
+function waitForGameManager(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
+    remaining = 180, settleFrames = 2): void {
+    waitForGameState(owner, callback, _manager => true, remaining, settleFrames);
 }
 
 function waitForPlayableGame(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void, remaining = 600): void {
-    if (!isCurrentGeneration()) return;
-    try {
-        if (GameManager.Singleton && GameManager.InGame && Player.LocalPlayer) {
-            callback(GameManager.Singleton);
-            return;
-        }
-    } catch (_error) { }
-    if (remaining <= 0) { toast(tr("toast.onlineSaveFailed")); return; }
-    JintCoroutine.WaitForNextFrame(owner, () => waitForPlayableGame(owner, callback, remaining - 1));
+    waitForGameState(owner, callback, _manager => Boolean(GameManager.InGame && Player.LocalPlayer), remaining);
 }
 
 function waitForSavableGame(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void, remaining = 900): void {
-    if (!isCurrentGeneration()) return;
-    try {
-        if (GameManager.Singleton && GameManager.InGame && Player.LocalPlayer) {
-            const raw = GameManager.Singleton.GetSave();
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    callback(GameManager.Singleton);
-                    return;
-                }
-            }
-        }
-    } catch (_error) { }
-    if (remaining <= 0) { toast(tr("toast.onlineSaveFailed")); return; }
-    JintCoroutine.WaitForNextFrame(owner, () => waitForSavableGame(owner, callback, remaining - 1));
+    waitForGameState(owner, callback, manager => {
+        if (!GameManager.InGame || !Player.LocalPlayer) return false;
+        const raw = manager.GetSave();
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed && typeof parsed === "object" && !Array.isArray(parsed));
+    }, remaining);
 }
 
 function gameCoroutineOwner(menu: MainMenu): UnityEngine.MonoBehaviour {
