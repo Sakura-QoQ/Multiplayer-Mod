@@ -1,4 +1,10 @@
-# Verification — v0.14.3
+# Verification — v0.14.4
+
+- Rebuilt the phone window as a Phone 17-style front face with a rounded black body, clipped screen, Dynamic Island, status bar, three bottom tabs, and a home indicator.
+- Native Home, DM, chat, and post objects remain controlled by `XWindow`; the Mod only reparents their layout so their existing interactions are preserved.
+- Added a Contacts tab that reads the current multiplayer session and refreshes local and remote online players.
+- Removed the global hold-Tab player list and its input polling. Player presence now appears only in the phone Contacts page.
+- The component/page boundary, localization-key consistency, and generated TypeScript checks pass. Final in-game proportions still require visual confirmation at the active game resolution.
 
 - Confirmed that lingering classroom models and the online clock fixed at 09:00 share one cause: native `ClassroomDirector.<NormalClass>d__5.MoveNext` calls `PlayerStatus.AddTime` before moving the player to the exit and clearing `_inClass`; the old server overwrote that story result with a morning phase every 200 ms.
 - Public servers no longer create, advance, or broadcast `worldTime`, and `FF_ROOM_DAY_LENGTH_SECONDS` was removed. Detailed time uses each client's native game flow at the same game speed.
