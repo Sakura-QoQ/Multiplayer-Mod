@@ -1,6 +1,6 @@
 # Fallen Flower room server
 
-Required public-room authority and relay for PlayerHostedMultiplayer v0.13.2. It owns membership, logical peer `0`, the 5 Hz room clock, scene arbitration and unanimous sleep approval. It does not run the game, read player saves or simulate Unity gameplay.
+Public-room authority and relay for PlayerHostedMultiplayer. It owns membership, logical peer `0`, the 5 Hz room clock, scene arbitration and unanimous sleep approval. It does not run the game, read player saves or simulate Unity gameplay.
 
 > The protocol is framed JSON over plain TCP, not TLS. Restrict administration, use a unique random admin token, and place a secure transport proxy in front of the service if confidentiality is required.
 

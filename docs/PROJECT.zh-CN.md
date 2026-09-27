@@ -4,7 +4,7 @@
 
 `PlayerHostedMultiplayer` 是为升级兼容保留的包名。公开房间使用单独部署的 Ubuntu 服务；联机主页仍保留本地“建立/加入”。
 
-> **版本要求：**玩家 Mod 与 Ubuntu 服务必须同时使用 v0.13.2；所有玩家还必须使用相同游戏版本和 Mod 版本。
+> **版本要求：**所有玩家必须使用相同游戏版本和 Mod 版本；Ubuntu 服务端从 `main` 自动部署，不使用玩家包版本号。
 >
 > **传输安全：**房间协议是带长度前缀的明文 TCP JSON，不是 TLS。端点隐藏和存档文件加密都不会加密网络流量；管理员令牌不要复用其他敏感密码。
 
@@ -12,17 +12,18 @@
 
 ## 发行文件
 
-- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.2-win-x64.zip`
-- Ubuntu 服务器源码包：`artifacts/FallenFlowerRoomServer-v0.13.2-source.zip`
+- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.3-win-x64.zip`
 
-发布工作流会把两份文件上传到对应的公开 GitHub Release，也可以在 Actions 页面手动重新运行。
+发布工作流会把玩家 ZIP 和校验文件上传到对应的公开 GitHub Release，也可以在 Actions 页面手动重新运行。服务器源码直接走自动部署流程，不生成服务器 ZIP。
 
 ## 安装与进入游戏
 
-1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.2-win-x64.zip`。
+1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.3-win-x64.zip`。
 2. 通过该启动器启动游戏。
 3. 点击主菜单“新建游戏”上方的“联机”。
 4. 输入玩家名，打开“公开服务器”，查看服务器管理的真实房间及实时人数/容量后选择房间。
+
+主菜单右下角会在原版游戏版本号左侧显示 `Multiplayer v0.13.3`。该文本直接读取 `mod/info.json`，与玩家 ZIP 文件名使用同一个版本来源。
 
 ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安装 Node.js、TypeScript、.NET、Visual Studio，也不需要额外启动脚本。Mod 不写 Windows 注册表、不安装服务、不请求提权，也不调用软件安装器；运行偏好只放在游戏内存，会话身份通过 Mod 自己的轮换 JSON 状态文件和线上存档文件名保持。公开服务器只需要出站 TCP；玩家电脑不开放入站端口。
 
