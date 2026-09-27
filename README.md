@@ -1,6 +1,6 @@
 # Fallen Flower Multiplayer — dedicated server edition
 
-Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and the game's native default save.
+Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and the game's original save-slot workflow.
 
 `PlayerHostedMultiplayer` remains the package identifier for upgrade compatibility. Public rooms use the separately deployed Ubuntu service; local Host/Join remains available from the main Multiplayer page.
 
@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.7-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.8-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.14.7-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.14.8-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -47,9 +47,9 @@ The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and 
 
 ## Saves
 
-Multiplayer now uses the game's ordinary `AutoSave` directly. The Mod no longer creates, loads, redirects, encrypts or promotes `MPOnline`/`MPActive` files, and the bridge no longer protects or restores a separate offline baseline. Automatic saving, bed saving and the original load/save UI all operate on the same native default save used by the game.
+After entering a room, Multiplayer opens the game's original Load Game window and waits for the player to choose a native slot. The Mod never combines New Game initialization with a delayed load. Automatic saving and bed saving preserve the selected native slot, while the bridge does not create, load, redirect, encrypt or promote `MPOnline`/`MPActive` files.
 
-Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.7 does not read or write them. The room server never receives or stores save data.
+Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.8 does not read or write them. The room server never receives or stores save data.
 
 ## Build and deploy
 

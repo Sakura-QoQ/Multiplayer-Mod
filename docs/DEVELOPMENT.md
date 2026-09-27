@@ -53,7 +53,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
 
 This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
-When changing save code, verify that room entry selects native `AutoSave`, bed saving calls the original `GameManager.SaveGame("AutoSave")`, and no bridge save command or disk redirection is reintroduced.
+When changing save code, verify that room entry invokes the original Load Game button, no Mod path calls `StartGame`/`LoadGame`, bed saving preserves `GameManager.SaveName`, and no bridge save command or disk redirection is reintroduced.
 
 ## Build the server
 
