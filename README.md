@@ -1,6 +1,6 @@
 # Fallen Flower Multiplayer — dedicated server edition
 
-Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and isolated per-player online saves.
+Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and the game's native default save.
 
 `PlayerHostedMultiplayer` remains the package identifier for upgrade compatibility. Public rooms use the separately deployed Ubuntu service; local Host/Join remains available from the main Multiplayer page.
 
@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.5-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.6-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.14.5-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.14.6-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -39,26 +39,17 @@ For local direct play, use **Host** or **Join** with an address and port. A dire
 - A connected player whose world position does not move by at least 0.05 units and does not change scene for five minutes is also treated as AFK and removed through that same cleanup path.
 - Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
 - Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
-- Opening the online pause menu does not pause the world. Its Multiplayer page is read-only and shows room identity, synchronized time, population and players. Hold `Tab` for the centered player list.
+- Opening the online pause menu does not pause the world. Its Multiplayer page is read-only and shows room identity, population and players. The phone Contacts tab shows the current online roster.
 - The main menu shows the Mod version immediately to the left of the game's version text; it reads the same `mod/info.json` version used for the player ZIP name.
 - Server-authoritative room time continues while menus are open. A new player adopts the existing room phase without replacing it or inheriting another player's story day. Sleep advances after every connected player requests the same mode; each current player advances their own story day only when the shared room phase crosses midnight.
 
 The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and is absent from editable configuration and UI text. This prevents casual editing; it is not secret management because the client contains the decryption material.
 
-## Save isolation
+## Saves
 
-Each player owns one persistent `MPOnline_<UUIDv7>.save`. The server never receives or stores this file.
+Multiplayer now uses the game's ordinary `AutoSave` directly. The Mod no longer creates, loads, redirects, encrypts or promotes `MPOnline`/`MPActive` files, and the bridge no longer protects or restores a separate offline baseline. Automatic saving, bed saving and the original load/save UI all operate on the same native default save used by the game.
 
-1. On entry, the bridge authenticates and decrypts `MPOnline` into a temporary `MPActive_<UUIDv7>.save` because the game can only load its native `Encrypted` format.
-2. Loading is a read-only transaction. Game-side and bridge-side write gates reject autosaves until loading finishes.
-3. After `LoadGame` completes, the temporary `MPActive` file is deleted.
-4. Because `GameManager` is not hookable in this game build, the bridge keeps an exact offline `AutoSave` baseline. A hard-coded native `AutoSave` write is captured into temporary `MPActive`, validated, promoted to `MPOnline`, and then the offline baseline is atomically restored.
-5. Interacting with a bed adds a native-style **Save game** option that commits and verifies `MPOnline` on demand.
-6. The pause-menu Exit button keeps the game's original behavior; if that flow invokes native AutoSave, it uses the same validated two-phase commit without blocking exit.
-
-The persistent authoritative online file therefore remains `MPOnline` only. `MPActive` exists only until a fully validated atomic promotion completes; failures leave the previous `MPOnline` unchanged. The bridge reads and restores the single-player `AutoSave.save` only to protect it byte-for-byte from the game's hard-coded writer. Online files are hidden from the original load/save UI.
-
-The inner layer matches the game's PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` format. The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption. This protects files at rest, not network traffic.
+Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.6 does not read or write them. The room server never receives or stores save data.
 
 ## Build and deploy
 

@@ -12,8 +12,8 @@ flowchart LR
     BridgeB -->|rotating state JSON| GameB
     BridgeA <-->|plain framed TCP| Server[Ubuntu room authority]
     BridgeB <-->|plain framed TCP| Server
-    GameA --> SaveA[MPOnline UUIDv7 save]
-    GameB --> SaveB[MPOnline UUIDv7 save]
+    GameA --> SaveA[Native AutoSave]
+    GameB --> SaveB[Native AutoSave]
 ```
 
 - `src/GameMod/` owns Unity UI, hooks, save lifecycle, online time presentation and player/profile synchronization.
@@ -35,7 +35,7 @@ The bridge launches as the current user without registry IPC or elevation. Game-
 | Detailed day/time/offset | Each game client | Native game flow; the public server never writes a clock value |
 | Room scene | Ubuntu server peer `0` | Compare-and-swap request/broadcast |
 | Sleep advancement | Ubuntu server peer `0` + every client | Server approves unanimous matching requests; every client applies the same transition |
-| Online save | Local player computer | UUIDv7 file; never sent to the room server as a file |
+| Player save | Local player computer | Native `AutoSave`; never sent to the room server as a file |
 
 The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names and handles scene/sleep control packets. It intentionally drops legacy `worldTime`, `serverTimeSeed`, and `serverTimeCommit` packets and never broadcasts a detailed clock. Each client therefore keeps the game's native time flow and story-driven `AddTime/AddDay` results. A unanimous sleep request—including a single member in a one-player room—is approved by the server, then every current client applies the same transition. The server does not simulate Unity physics, combat, quests or inventory.
 
@@ -54,38 +54,11 @@ Profile transfer is for remote appearance and player-information views. Receivin
 
 Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB frame limit. The transport is plain TCP, not TLS. AES-GCM endpoint obfuscation only hides editable configuration; it does not secure packets on the wire.
 
-## Save transaction
+## Save behavior
 
-```mermaid
-sequenceDiagram
-    participant G as Game Mod
-    participant B as Bridge
-    participant D as Save directory
-    G->>B: prepareSave(MPOnline UUID)
-    B->>D: authenticate/decrypt MPOnline
-    B->>D: create temporary MPActive
-    Note over G,B: write gates remain disabled
-    G->>G: LoadGame(MPActive)
-    G->>B: releaseSave
-    B->>D: delete MPActive
-    G->>B: enableSaveWrites
-    B->>D: preserve byte-exact offline AutoSave baseline
-    G->>D: unhookable native writer writes hard-coded AutoSave
-    B->>D: capture complete AutoSave into MPActive
-    B->>D: validate HMAC / decrypt / parse JSON
-    B->>D: atomically replace MPOnline
-    B->>D: delete MPActive after success
-    G->>B: bed Save Game commits GetSave JSON
-    B->>D: atomically replace MPOnline
-```
+Multiplayer and single-player intentionally share the game's native `AutoSave`. After entering a room, the Mod uses the original `StartGame`/`LoadGame("AutoSave")` path. Automatic saves, bed saves, the pause-menu load/save controls and exit all stay on the original `GameManager` path. The bridge is network-only and no longer protects, redirects, encrypts or promotes save files.
 
-Only `MPOnline_<UUIDv7>.save` persists normally. `MPActive` exists solely because the game cannot read the Mod's authenticated outer container. During preparation and loading, both the game script and bridge reject writes. If loading fails, the formal online file remains byte-for-byte unchanged.
-
-`GameManager` is absent from the launcher's `@hookable` type list, so `AutoSaving/SaveGame` hooks are not a valid boundary. The bridge durably protects the offline `AutoSave` baseline, captures a new hard-coded native `AutoSave` through `MPActive`, validates HMAC/decryption/JSON and the outer container, atomically replaces `MPOnline`, deletes `MPActive`, and restores the offline bytes. Startup completes the same recovery after an interrupted process.
-
-Pause-menu Exit keeps the game's original behavior. If native exit invokes AutoSave, it uses the same
-validated two-phase commit. Bridge shutdown retries a valid writable-stage `MPActive`; a partially initialized
-or invalid file cannot replace the formal file.
+Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the current release does not list, read or write them. Because save isolation is disabled, multiplayer and single-player changes to `AutoSave` are visible to each other by design.
 
 ## Source assembly
 

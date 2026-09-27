@@ -35,14 +35,14 @@
 
 ## 验证功能
 
-构建并运行当前存档/隔离自检：
+构建并运行当前运行日志自检：
 
 ```powershell
 ./build.ps1 -SkipPackage -NoRestore
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
 ```
 
-预期结果包含 `read-only load transaction`、`disk-level AutoSave isolation/crash recovery`、`validated two-phase commit`、`single-file online save`、`temporary load copy` 和篡改拒绝。
+存档加密自检仅用于验证旧 `MPOnline` 文件的恢复兼容性，不属于当前运行时存档链路。
 
 测试独立房间适配时，先在测试端口运行房间服务器，再执行：
 
@@ -53,11 +53,7 @@
 
 测试先验证服务器绝不发送详细 `worldTime`，以及单人“睡到明天”，再创建第二个普通客户端，验证服务器协调 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](VERIFICATION.zh-CN.md)。
 
-修改存档代码时必须验证三条边界：
-
-1. `prepareSave` 关闭桥接写入，只创建临时原生格式加载文件。
-2. `releaseSave` 删除该文件后，`enableSaveWrites` 才能开放保存。
-3. 不得为不可 Hook 的 `GameManager` 注册虚假保存 Hook；桥接必须保护线下 `AutoSave` 基线，把原版写死的新内容经 `MPActive` 完整校验并晋升 `MPOnline`，随后恢复线下字节。
+修改存档代码时必须确认：进入房间选择原版 `AutoSave`，床边保存调用原版 `GameManager.SaveGame("AutoSave")`，并且没有重新引入桥接存档命令或磁盘重定向。
 
 ## 构建服务器
 

@@ -12,8 +12,8 @@ flowchart LR
     BridgeB -->|轮换状态 JSON| GameB
     BridgeA <-->|明文分帧 TCP| Server[Ubuntu 房间权威服务]
     BridgeB <-->|明文分帧 TCP| Server
-    GameA --> SaveA[UUIDv7 MPOnline 存档]
-    GameB --> SaveB[UUIDv7 MPOnline 存档]
+    GameA --> SaveA[游戏默认 AutoSave]
+    GameB --> SaveB[游戏默认 AutoSave]
 ```
 
 - `src/GameMod/`：Unity UI、Hook、存档生命周期、线上时间显示和玩家/资料同步。
@@ -35,7 +35,7 @@ flowchart LR
 | 房间时段 | Ubuntu 服务器 Peer `0` | 5 Hz 锚点；新房/空房从早晨开始；现实 3,600 秒为一个完整周期 |
 | 房间场景 | Ubuntu 服务器 Peer `0` | 比较交换请求/广播 |
 | 睡眠推进 | Ubuntu 服务器 Peer `0` | 全员相同请求后由服务器直接推进并批准 |
-| 线上存档 | 玩家本机 | UUIDv7 文件；不会作为文件发送给服务器 |
+| 玩家存档 | 玩家本机 | 游戏默认 `AutoSave`；不会作为文件发送给服务器 |
 
 服务器校验房间信封与已经认证的成员身份。公开流量中，它会替换玩家声明的 ID/名称、拒绝玩家时间权威，并处理时间/场景/睡眠控制包。公开房间只维护相对 `roomCycle` 和时段；任何玩家的绝对剧情日期都不会成为时钟输入，也不会应用到其他玩家。新成员只以当前周期建立基线，不补算加入前经历的天数。原版四个时段均分配置的周期长度；全员睡眠（单人房间即该玩家本人）达成时，服务器先推进房间时段再广播批准。服务器不模拟 Unity 物理、战斗、任务或背包。
 
@@ -54,36 +54,11 @@ flowchart LR
 
 每帧由 4 字节大端长度和 UTF-8 JSON 构成，最大 64 KiB。传输是明文 TCP，不是 TLS。AES-GCM 端点混淆只隐藏可编辑配置，不会加密网络数据包。
 
-## 存档事务
+## 存档行为
 
-```mermaid
-sequenceDiagram
-    participant G as 游戏 Mod
-    participant B as 桥接程序
-    participant D as 存档目录
-    G->>B: prepareSave(MPOnline UUID)
-    B->>D: 认证并解密 MPOnline
-    B->>D: 创建临时 MPActive
-    Note over G,B: 写入锁保持关闭
-    G->>G: LoadGame(MPActive)
-    G->>B: releaseSave
-    B->>D: 删除 MPActive
-    G->>B: enableSaveWrites
-    B->>D: 记录线下 AutoSave 的逐字节基线
-    G->>D: 不可 Hook 的原版写入器写死 AutoSave
-    B->>D: 捕获完整 AutoSave 到 MPActive
-    B->>D: 校验 HMAC / 完整解密 / 解析 JSON
-    B->>D: 原子替换 MPOnline
-    B->>D: 成功后删除 MPActive
-    G->>B: 床边“保存游戏”提交 GetSave JSON
-    B->>D: 原子替换 MPOnline
-```
+联机和单机明确共用游戏原生 `AutoSave`。进入房间后 Mod 通过原版 `StartGame`/`LoadGame("AutoSave")` 进入存档；自动保存、床边手动保存、暂停菜单读取/保存与退出流程均继续使用原版 `GameManager` 路径。桥接程序只负责网络，不再保护、重定向、加密或晋升任何存档文件。
 
-正常情况下只有 `MPOnline_<UUIDv7>.save` 持久存在。之所以短暂生成 `MPActive`，只是因为游戏无法读取 Mod 的认证外层容器。准备和加载期间，游戏脚本与桥接程序都会拒绝写入；加载失败时正式线上档逐字节保持不变。
-
-当前游戏的 `GameManager` 不在启动器的 `@hookable` 类型清单中，所以不能依赖 `AutoSaving/SaveGame` Hook。桥接程序先持久保护线下 `AutoSave` 基线；发现原版写死的新 `AutoSave` 后，将它捕获到 `MPActive`，校验游戏 HMAC、完整解密并解析 JSON，从磁盘复验新外层容器，再原子替换 `MPOnline`、删除 `MPActive` 并恢复线下基线。进程中断时，下次桥接启动会先完成相同的恢复事务。
-
-暂停菜单退出保持原版行为；若原版退出流程调用 AutoSave，则走相同的校验两阶段提交。桥接进程结束时会重试可写阶段的有效 `MPActive`，半完成或无效文件不能替换正式档。
+旧版本创建的 `MPOnline`/`MPActive` 文件不会自动删除，便于人工恢复，但当前版本不会列出、读取或写入这些文件。因为不再隔离，联机与单机对 `AutoSave` 的修改会彼此可见，这是采用原版存档的预期行为。
 
 ## 源码合并
 

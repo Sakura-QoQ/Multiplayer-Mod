@@ -35,14 +35,14 @@ Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new mo
 
 ## Verify behavior
 
-Build and run the current save/isolation self-test:
+Build and run the runtime-log self-test:
 
 ```powershell
 ./build.ps1 -SkipPackage -NoRestore
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
 ```
 
-The expected result includes `read-only load transaction`, `disk-level AutoSave isolation/crash recovery`, `validated two-phase commit`, `single-file online save`, `temporary load copy` and tamper rejection.
+The save-crypto self-test is retained only to verify recovery compatibility with legacy `MPOnline` files. It is not part of the current runtime save path.
 
 To test the dedicated-room adapter, run a room server on a test port and then execute:
 
@@ -53,11 +53,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
 
 This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
-When changing save code, verify all three boundaries:
-
-1. `prepareSave` disables bridge writes and creates only a temporary native-format load file.
-2. `releaseSave` deletes that file before `enableSaveWrites` succeeds.
-3. Do not register fake save hooks for the unhookable `GameManager`; the bridge must preserve the offline `AutoSave`, validate/promote a hard-coded native write through `MPActive`, and restore the exact offline bytes.
+When changing save code, verify that room entry selects native `AutoSave`, bed saving calls the original `GameManager.SaveGame("AutoSave")`, and no bridge save command or disk redirection is reintroduced.
 
 ## Build the server
 
