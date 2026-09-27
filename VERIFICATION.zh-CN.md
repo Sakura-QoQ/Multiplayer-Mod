@@ -1,4 +1,4 @@
-# v0.13.0 验证报告
+# v0.13.1 验证报告
 
 状态更新于 2026 年 9 月 27 日。本文把当前自动化检查与较早的真实游戏证据分开，避免用旧结果证明刚修改的存档流程。
 
@@ -34,10 +34,10 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发正常、服务器负责时钟和全员睡眠批准、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。正式环境两个阈值都默认 300 秒且不单独发送心跳。
+测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、单人可睡到服务器权威的下一天、时钟按配置的 3,600 秒完整日以 240 个原生时段单位推进、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发及全员睡眠正常、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
 
 ```text
-PASS public room auto-entry, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
+PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## 真实游戏证据
