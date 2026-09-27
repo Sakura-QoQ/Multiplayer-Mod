@@ -1,4 +1,4 @@
-# Verification — v0.14.6
+# Verification — v0.14.7
 
 - The generated transparent PNG is now the complete phone-body material. Original direct XWindow chrome is disabled after its dynamic pages are moved into the replacement screen.
 - Multiplayer now sets and loads the native `AutoSave`; automatic and bed saves call the game's ordinary save path without creating or committing `MPOnline`/`MPActive`.
@@ -18,7 +18,7 @@
 - The server only decides unanimous sleep among real players. It is not counted as a player and does not calculate a clock; each client applies the same approved transition. Clients also ignore `worldTime` from an older server during a rolling deployment.
 
 - Root cause confirmed: `GameManager` has no `@hookable` marker in the generated type list, so the former `AutoSaving/SaveGame` hooks never formed a reliable isolation boundary.
-- v0.14.6 removes the unreliable save-isolation layer: multiplayer now loads and writes the game's native `AutoSave` directly.
+- v0.14.7 retains the native `AutoSave` path introduced in v0.14.6.
 - The bridge no longer scans, protects, redirects, promotes or restores save files; legacy `MPOnline`/`MPActive` files stay untouched for manual recovery.
 - Disconnecting affects only networking and does not change the game's native save lifecycle.
 - The build rejects any future attempt to register a `GameManager` hook.
@@ -68,7 +68,7 @@ period `3 -> 0` rollover as well.
 
 The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
 
-The legacy save-crypto test verifies recovery compatibility only; it is not part of the v0.14.6 runtime path. Current runtime verification confirms that:
+The legacy save-crypto test verifies recovery compatibility only; it is not part of the v0.14.7 runtime path. Current runtime verification confirms that:
 
 - room entry selects and loads native `AutoSave`;
 - bed saving calls the original `GameManager.SaveGame("AutoSave")`;

@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.6-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.7-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.14.6-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.14.7-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -49,7 +49,7 @@ The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and 
 
 Multiplayer now uses the game's ordinary `AutoSave` directly. The Mod no longer creates, loads, redirects, encrypts or promotes `MPOnline`/`MPActive` files, and the bridge no longer protects or restores a separate offline baseline. Automatic saving, bed saving and the original load/save UI all operate on the same native default save used by the game.
 
-Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.6 does not read or write them. The room server never receives or stores save data.
+Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.7 does not read or write them. The room server never receives or stores save data.
 
 ## Build and deploy
 
