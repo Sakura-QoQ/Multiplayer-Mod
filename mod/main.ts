@@ -62,8 +62,7 @@ const PAUSE_BUTTON_NAME = "MPB_PauseMultiplayerButton";
 const ONLINE_SAVE_PREFIX = "MPOnline_";
 const ACTIVE_SAVE_PREFIX = "MPActive_";
 const BRIDGE_STATE_FILE = "Bridge/state.json";
-const IPC_COMMAND_KEY = "MPB.IpcCommand";
-const IPC_SEQUENCE_KEY = "MPB.IpcCommandSequence";
+const IPC_LOG_MARKER = "[PlayerHostedMultiplayerIPC]";
 const GENERATION_KEY = "MPB.ScriptGeneration";
 const LANGUAGE_CODES = ["en", "ja", "zh-CN", "zh-TW", "ko", "es"];
 const PLAYER_STATE_INTERVAL = 0.2;
@@ -78,6 +77,8 @@ UnityEngine.PlayerPrefs.Save();
 
 let initialized = false;
 let bridgeAvailable = false;
+let bridgeLaunchAttempted = false;
+let bridgeStartupGraceFrames = 0;
 let role: "off" | "host" | "client" = "off";
 let currentPlayerName = "Player";
 let smokeTestScheduled = false;
@@ -85,17 +86,14 @@ let updateFrames = 0;
 let uiRoot: UnityEngine.GameObject | null = null;
 let uiPanel: UnityEngine.GameObject | null = null;
 let uiConfigBody: UnityEngine.GameObject | null = null;
-let uiSaveList: UnityEngine.GameObject | null = null;
 let uiTitle: UnityEngine.UI.Text | null = null;
 let uiStatus: UnityEngine.UI.Text | null = null;
-let uiSave: UnityEngine.UI.Text | null = null;
 let uiAddress: UnityEngine.UI.InputField | null = null;
 let uiPort: UnityEngine.UI.InputField | null = null;
 let uiName: UnityEngine.UI.InputField | null = null;
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
-let uiNewOnlineButton: UnityEngine.GameObject | null = null;
-let uiSelectSaveButton: UnityEngine.GameObject | null = null;
+let coroutineRunner: UnityEngine.MonoBehaviour | null = null;
 let lastBridgeEventSequence = 0;
 let pendingBridgeEvents: string[] = [];
 let languageIndex = -1;
@@ -109,8 +107,6 @@ let englishMessages: Record<string, string> = {};
 let uiFont: any = null;
 let uiInputLoopStarted = false;
 let selectedSaveName = "";
-let saveViewState: "empty" | "selected" | "needsGame" | "loaded" | "error" = "empty";
-let saveViewData: Record<string, string | number> = {};
 let roundedPanelSprite: UnityEngine.Sprite | null = null;
 let mainMenuInstance: MainMenu | null = null;
 let mainMenuTranslationRefreshPending = false;
@@ -129,6 +125,8 @@ const peerNames: Record<string, string> = {};
 const lastRemoteSequences: Record<string, number> = {};
 const outgoingMessages: { peerId: number; data: string }[] = [];
 let nextOutgoingMessageAt = 0;
+// 使用高分辨率时间作为本次游戏进程的序号起点，避免桥接程序短时间重启时与旧响应碰撞。
+let ipcCommandSequence = Math.trunc(Date.now() % 2000000000);
 
 function loadLanguageFile(code: string): Record<string, string> {
     try {
@@ -188,9 +186,6 @@ function syncGameLanguage(force = false): void {
     refreshLocalizedUi();
     log("已切换联机界面语言: " + languageCode);
 }
-// 存档明文只保存在当前游戏进程的内存中，不写文件，也不自动发送给其他玩家。
-let lastSaveSnapshot = "";
-
 function isCurrentGeneration(): boolean {
     return Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) === SCRIPT_GENERATION;
 }
@@ -202,6 +197,7 @@ function toast(message: string): void {
 }
 type BridgeStateFile = {
     protocol: number;
+    heartbeatUtcTicks?: number;
     state: string;
     port: number;
     peers: number;
@@ -220,6 +216,7 @@ function readBridgeState(): BridgeStateFile | null {
         const parsed = JSON.parse(text);
         return {
             protocol: Number(parsed.protocol) || 0,
+            heartbeatUtcTicks: Number(parsed.heartbeatUtcTicks) || 0,
             state: typeof parsed.state === "string" ? parsed.state : "stopped",
             port: Number(parsed.port) || 0,
             peers: Number(parsed.peers) || 0,
@@ -237,14 +234,41 @@ function readBridgeState(): BridgeStateFile | null {
     } catch (_error) { return null; }
 }
 
+function bridgeStateIsFresh(state: BridgeStateFile | null): boolean {
+    if (!state || !state.heartbeatUtcTicks) return false;
+    // .NET ticks 从公元 1 年开始，每毫秒 10,000 ticks。
+    const heartbeatMilliseconds = Number(state.heartbeatUtcTicks) / 10000 - 62135596800000;
+    return Math.abs(Date.now() - heartbeatMilliseconds) < 5000;
+}
+
+function launchBundledBridge(): void {
+    if (bridgeLaunchAttempted) return;
+    bridgeLaunchAttempted = true;
+    try {
+        // 启动器会给每个 Mod 提供 __dirname；这样即使玩家修改文件夹名称，也能找到随包桥接程序。
+        let modDirectory = String(typeof __dirname !== "undefined" ? __dirname : "").replace(/\\/g, "/");
+        if (!modDirectory) {
+            // 兼容没有注入 __dirname 的旧版启动器，退回游戏默认 Mods 目录。
+            const dataPath = String(UnityEngine.Application.dataPath || "").replace(/\\/g, "/");
+            const separator = dataPath.lastIndexOf("/");
+            if (separator <= 0) throw new Error("无法确定游戏根目录: " + dataPath);
+            modDirectory = dataPath.substring(0, separator) + "/Mods/PlayerHostedMultiplayer";
+        }
+        const bridgePath = modDirectory + "/Bridge/MultiplayerBridgeHost.exe";
+        UnityEngine.Application.OpenURL(bridgePath);
+        log("已请求 Mod 启动器环境自动启动联机桥: " + bridgePath);
+    } catch (error) {
+        log("自动启动联机桥失败: " + error);
+    }
+}
+
 function submitBridgeCommandTracked(command: string): number {
     if (!bridgeAvailable) return -1;
     try {
-        const sequence = Number(UnityEngine.PlayerPrefs.GetInt(IPC_SEQUENCE_KEY, 0)) + 1;
-        // 先写命令正文，再写序号；桥接程序只把序号变化视为一条新命令。
-        UnityEngine.PlayerPrefs.SetString(IPC_COMMAND_KEY, command);
-        UnityEngine.PlayerPrefs.SetInt(IPC_SEQUENCE_KEY, sequence);
-        UnityEngine.PlayerPrefs.Save();
+        const sequence = ++ipcCommandSequence;
+        // Unity PlayerPrefs 在部分运行环境中不会写入桥接程序可见的注册表位置。
+        // Debug.Log 一定进入 Player.log；桥接程序只增量读取带专用标记的新行。
+        print(IPC_LOG_MARKER + " " + sequence + " " + command);
         return sequence;
     } catch (error) {
         log("提交桥接命令失败: " + error);
@@ -314,6 +338,8 @@ function loadConfig(): MultiplayerConfig {
 
 function readBridgeStatus(): BridgeStatus {
     try {
+        const state = readBridgeState();
+        if (!bridgeStateIsFresh(state)) return { state: "unavailable", port: 0, peers: 0 };
         const parsed = JSON.parse(bridgeCall("status"));
         return {
             state: typeof parsed.state === "string" ? parsed.state : "unknown",
@@ -340,12 +366,31 @@ function updateStatusText(message?: string): void {
 }
 
 function startBridge(): void {
-    if (initialized) return;
+    // ReadModFile 对不存在的文件会抛出启动器宿主异常，Jint 的 try/catch 无法可靠截获。
+    // 因此首次进入时先启动单例桥接程序，等待它创建 state.json 后再读取。
+    if (!bridgeLaunchAttempted) {
+        initialized = true;
+        bridgeStartupGraceFrames = 60;
+        launchBundledBridge();
+        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
+        return;
+    }
+    if (bridgeStartupGraceFrames > 0) {
+        bridgeStartupGraceFrames -= 1;
+        return;
+    }
+    if (initialized && bridgeAvailable) return;
+    // 桥接程序可以在游戏之后启动；未连接时每约 60 帧重新检查一次，避免必须重启游戏。
+    if (initialized && updateFrames % 60 !== 0) return;
     initialized = true;
-    try { bridgeAvailable = bridgeCall("protocol") === String(PROTOCOL_VERSION); }
+    try {
+        const state = readBridgeState();
+        bridgeAvailable = bridgeStateIsFresh(state) && state !== null && state.protocol === PROTOCOL_VERSION;
+    }
     catch (_error) { bridgeAvailable = false; }
     if (!bridgeAvailable) {
-        log("联机桥未运行；请用游戏目录里的“启动联机 Mod.cmd”启动游戏");
+        launchBundledBridge();
+        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
         return;
     }
 
@@ -402,7 +447,6 @@ function startHostFromUi(): void {
         if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
         role = "host";
         localNetworkId = 0;
-        refreshOnlineUiMode();
         toast(tr("toast.hostStarted", { port }));
         enterOnlineSave();
     });
@@ -426,16 +470,6 @@ function isOnlineSaveSlot(value: string): boolean {
 function makeOnlineSaveName(): string {
     // 时间戳只用于产生不重复的文件名；正式文件仍由桥接程序写入游戏原本的 Saves 目录。
     return ONLINE_SAVE_PREFIX + String(Date.now());
-}
-
-function chooseNewOnlineSave(): void {
-    selectedSaveName = "";
-    UnityEngine.PlayerPrefs.DeleteKey("MPB.SelectedSave");
-    UnityEngine.PlayerPrefs.Save();
-    saveViewState = "empty";
-    saveViewData = {};
-    refreshSaveText();
-    toast(tr("toast.newOnlineSelected"));
 }
 
 function waitForGameManager(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
@@ -465,6 +499,17 @@ function waitForPlayableGame(owner: UnityEngine.MonoBehaviour, callback: (manage
     JintCoroutine.WaitForNextFrame(owner, () => waitForPlayableGame(owner, callback, remaining - 1));
 }
 
+function gameCoroutineOwner(menu: MainMenu): UnityEngine.MonoBehaviour {
+    // UI 根节点使用 DontDestroyOnLoad，优先让等待任务绑定到它的常驻 MonoBehaviour。
+    if (coroutineRunner) return coroutineRunner;
+    try { if (GameManager.Singleton) return GameManager.Singleton; } catch (_error) { }
+    try {
+        const manager = menu.gameManager ? menu.gameManager.GetComponent("GameManager") : null;
+        if (manager) return manager as GameManager;
+    } catch (_error) { }
+    return menu;
+}
+
 function enterOnlineSave(): void {
     const menu = mainMenuInstance;
     if (!menu) {
@@ -475,25 +520,34 @@ function enterOnlineSave(): void {
 
     const state = readBridgeState();
     const saves = state && state.saves ? state.saves : [];
-    // 建立房间时优先继续上次选择的线上档；选择失效时自动读取最近的线上档。
-    // 只有磁盘上完全没有线上档时才从零创建，避免每次建房产生一个新存档。
-    const selectedExists = selectedSaveName && saves.some(save => save.name === selectedSaveName);
-    if (!selectedExists && saves.length > 0) {
+    // PlayerPrefs 中的上次线上档名是首选依据。state.json 正在刷新或桥接刚启动时，
+    // saves 可能暂时为空；不能因此直接创建新档，必须让桥接程序到磁盘上验证。
+    let rememberedSave = selectedSaveName.startsWith(ONLINE_SAVE_PREFIX) ? selectedSaveName : "";
+    const rememberedIsListed = rememberedSave && saves.some(save => save.name === rememberedSave);
+    // 索引非空时以磁盘结果为准：旧选择已丢失就续读最近的现存档，而不是另建一个。
+    if (saves.length > 0 && !rememberedIsListed) {
         selectedSaveName = saves[0].name;
+        rememberedSave = selectedSaveName;
         UnityEngine.PlayerPrefs.SetString("MPB.SelectedSave", selectedSaveName);
         UnityEngine.PlayerPrefs.Save();
     }
 
-    if (selectedSaveName && (selectedExists || saves.some(save => save.name === selectedSaveName))) {
+    if (rememberedSave || saves.some(save => save.name === selectedSaveName)) {
         const activeName = activeSaveName(selectedSaveName);
         if (!activeName) { toast(tr("toast.onlineSaveFailed")); return; }
         const sequence = submitBridgeCommandTracked("prepareSave?name=" + encodeURIComponent(selectedSaveName));
         if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
         waitForBridgeResponse(menu, sequence, result => {
+            if (result === "-3") {
+                // 桥接已经检查过真实磁盘，确认记住的文件不存在；此时才允许创建首个线上档。
+                log("上次线上存档不存在，将创建首个线上存档: " + selectedSaveName);
+                createInitialOnlineSave(menu);
+                return;
+            }
             if (result !== "0") { log("准备线上存档失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
             try {
                 menu.StartGame();
-                waitForGameManager(menu, manager => {
+                waitForGameManager(gameCoroutineOwner(menu), manager => {
                     // LoadGame 前先固定线上临时名，原版自动保存也不会落入单机 AutoSave。
                     GameManager.SaveName = activeName;
                     manager.LoadGame(activeName);
@@ -505,7 +559,11 @@ function enterOnlineSave(): void {
         return;
     }
 
-    // 没有选择旧档时始终从游戏的新游戏初始状态开始，绝不复制任何单机存档。
+    createInitialOnlineSave(menu);
+}
+
+function createInitialOnlineSave(menu: MainMenu): void {
+    // 磁盘上确实没有线上档时才从游戏的新游戏初始状态开始，绝不复制任何单机存档。
     selectedSaveName = makeOnlineSaveName();
     const activeName = activeSaveName(selectedSaveName);
     UnityEngine.PlayerPrefs.SetString("MPB.SelectedSave", selectedSaveName);
@@ -516,11 +574,11 @@ function enterOnlineSave(): void {
         if (result !== "0") { log("创建线上存档会话失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
         try {
             menu.StartGame();
-            waitForPlayableGame(menu, manager => {
+            waitForPlayableGame(gameCoroutineOwner(menu), manager => {
                 GameManager.SaveName = activeName;
                 manager.SaveGame(activeName);
                 // 桥接程序把已经由游戏加密的 MPActive_ 文件再封装成 MPOnline_ 正式档。
-                JintCoroutine.WaitForSeconds(menu, 0.6, () => submitBridgeCommand("flushSave"));
+                JintCoroutine.WaitForSeconds(manager, 0.6, () => submitBridgeCommand("flushSave"));
                 closePanel();
                 toast(tr("toast.onlineSaveCreated"));
                 log("已从零创建线上存档: " + selectedSaveName);
@@ -547,7 +605,6 @@ function joinFromUi(): void {
         if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
         role = "client";
         localNetworkId = -1;
-        refreshOnlineUiMode();
     });
 }
 
@@ -557,7 +614,6 @@ function stopFromUi(): void {
     localNetworkId = -1;
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
-    refreshOnlineUiMode();
     updateStatusText(tr("status.offline"));
     toast(tr("toast.stopped"));
 }
@@ -956,149 +1012,18 @@ function processEvent(rawEvent: string): void {
     }
 }
 
-function refreshSaveText(): void {
-    if (!uiSave) return;
-    if (saveViewState === "needsGame") uiSave.text = tr("save.needsGame");
-    else if (saveViewState === "selected") uiSave.text = tr("save.selected", saveViewData);
-    else if (saveViewState === "loaded") uiSave.text = tr("save.loaded", saveViewData);
-    else if (saveViewState === "error") uiSave.text = tr("save.failed", saveViewData);
-    else uiSave.text = tr("save.notRead");
-}
-
 function closePanel(): void {
-    if (uiSaveList) uiSaveList.SetActive(false);
     if (uiConfigBody) uiConfigBody.SetActive(true);
     if (uiTitle) uiTitle.text = tr("panel.title");
     if (uiPanel) uiPanel.SetActive(false);
 }
 
-function showConfigPage(): void {
-    if (uiSaveList) uiSaveList.SetActive(false);
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-    refreshOnlineUiMode();
-}
-
-function refreshOnlineUiMode(): void {
-    const online = role !== "off";
-    // 已进入联机后不允许在暂停菜单中切换存档或另建线上档，避免运行中替换世界状态。
-    try { if (uiSelectSaveButton) uiSelectSaveButton.SetActive(!online); } catch (_error) { }
-    try { if (uiNewOnlineButton) uiNewOnlineButton.SetActive(!online); } catch (_error) { }
-}
-
 function openPanel(): void {
     if (!uiPanel) return;
     syncGameLanguage();
-    if (uiSaveList) uiSaveList.SetActive(false);
     if (uiConfigBody) uiConfigBody.SetActive(true);
     if (uiTitle) uiTitle.text = tr("panel.title");
-    refreshOnlineUiMode();
     uiPanel.SetActive(true);
-}
-
-function selectSave(saveName: string): void {
-    selectedSaveName = saveName;
-    UnityEngine.PlayerPrefs.SetString("MPB.SelectedSave", saveName);
-    UnityEngine.PlayerPrefs.Save();
-    if (uiSaveList) uiSaveList.SetActive(false);
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-
-    // 只有游戏当前已经加载了这个存档时才读取明文，避免从主菜单强制切场景引发崩溃。
-    if (GameManager.InGame && String(GameManager.SaveName || "") === activeSaveName(saveName)) {
-        readCurrentSave();
-        return;
-    }
-    saveViewState = "selected";
-    saveViewData = { save: saveName };
-    refreshSaveText();
-}
-
-function refreshSaveList(): void {
-    if (!uiSaveList || !uiFont) return;
-    Extensions.RemoveAllChildren(uiSaveList.transform);
-    const state = readBridgeState();
-    const saves = state && state.saves ? state.saves : [];
-    if (!state) {
-        makeText(uiSaveList.transform, "Unavailable", tr("save.listUnavailable"), uiFont, 34, 34, 652, 70, 26);
-        makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
-        return;
-    }
-    if (saves.length === 0) {
-        makeText(uiSaveList.transform, "Empty", tr("save.noSaves"), uiFont, 34, 34, 652, 70, 26);
-        makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
-        return;
-    }
-
-    // 原版读取窗口使用三条大行：左侧名称和相对时间，右侧是“读取”按钮。
-    const visible = saves.slice(0, 3);
-    for (let index = 0; index < visible.length; index++) {
-        const save = visible[index];
-        const y = 22 + index * 132;
-        const marker = save.name === selectedSaveName ? "✓  " : "";
-        makeText(uiSaveList.transform, "SaveName_" + index, marker + save.name, uiFont, 34, y, 470, 48, 31);
-        makeText(uiSaveList.transform, "SaveAge_" + index, formatSaveAge(save.lastWriteUtcTicks), uiFont, 34, y + 50, 470, 38, 24);
-        makeButton(uiSaveList.transform, "SaveLoad_" + index, tr("button.load"), uiFont, 548, y + 17, 138, () => selectSave(save.name), 66);
-        if (index < visible.length - 1) makeSolidRect(uiSaveList.transform, "Separator_" + index, new UnityEngine.Color(1, 1, 1, 0.16), 30, y + 113, 656, 2);
-    }
-    if (saves.length > visible.length) {
-        makeText(uiSaveList.transform, "More", tr("save.more", { count: saves.length - visible.length }), uiFont, 34, 410, 652, 30, 18);
-    }
-    makeButton(uiSaveList.transform, "Back", tr("button.back"), uiFont, 220, 446, 280, showConfigPage, 54);
-}
-
-function formatSaveAge(lastWriteUtcTicks: number): string {
-    try {
-        const unixMilliseconds = Number(lastWriteUtcTicks) / 10000 - 62135596800000;
-        const minutes = Math.max(0, Math.floor((Date.now() - unixMilliseconds) / 60000));
-        if (minutes < 1) return tr("time.justNow");
-        if (minutes < 60) return tr("time.minutesAgo", { count: minutes });
-        const hours = Math.floor(minutes / 60);
-        if (hours < 24) return tr("time.hoursAgo", { count: hours });
-        return tr("time.daysAgo", { count: Math.floor(hours / 24) });
-    } catch (_error) { return ""; }
-}
-
-function toggleSaveList(): void {
-    if (!uiSaveList) return;
-    const opening = !uiSaveList.activeSelf;
-    uiSaveList.SetActive(opening);
-    if (uiConfigBody) uiConfigBody.SetActive(!opening);
-    if (uiTitle) uiTitle.text = opening ? tr("save.listTitle") : tr("panel.title");
-    if (opening) refreshSaveList();
-}
-
-function readCurrentSave(): void {
-    try {
-        const manager = GameManager.Singleton;
-        if (!manager || !GameManager.InGame) {
-            saveViewState = "needsGame";
-            saveViewData = {};
-            refreshSaveText();
-            return;
-        }
-        // 调用游戏自己的序列化接口，避免直接解密或改写磁盘上的 .save 文件。
-        const plaintext = manager.GetSave();
-        if (!plaintext) throw new Error("游戏返回了空存档");
-        const data = JSON.parse(plaintext);
-        const player = data.PlayerStatusData || {};
-        lastSaveSnapshot = plaintext;
-        const saveName = String(GameManager.SaveName || "当前存档");
-        const scene = String(data.Scene || GameManager.NowSceneName || "未知");
-        const playerName = String(player.playerName || "未知");
-        const day = player.day === undefined ? "?" : String(player.day);
-        const money = player.money === undefined ? "?" : String(player.money);
-        saveViewState = "loaded";
-        saveViewData = { save: saveName, player: playerName, day, scene, money, length: plaintext.length };
-        refreshSaveText();
-        toast(tr("toast.saveRead"));
-    } catch (error) {
-        lastSaveSnapshot = "";
-        saveViewState = "error";
-        saveViewData = { error: String(error) };
-        refreshSaveText();
-        log("存档读取失败: " + error);
-    }
 }
 
 function rect(go: UnityEngine.GameObject, anchorX: number, anchorY: number, x: number, y: number, width: number, height: number): UnityEngine.RectTransform {
@@ -1210,12 +1135,6 @@ function makeRoundedPanelSprite(): UnityEngine.Sprite {
     return roundedPanelSprite;
 }
 
-function useDarkPanelText(text: UnityEngine.UI.Text): UnityEngine.UI.Text {
-    // 保留旧函数名以减少热更新迁移风险；原版样式统一使用白字黑描边。
-    text.color = new UnityEngine.Color(1, 1, 1, 1);
-    return text;
-}
-
 function addOriginalFrameCorners(parent: UnityEngine.Transform, x: number, y: number, width: number, height: number): void {
     const color = new UnityEngine.Color(0.92, 0.92, 0.92, 0.9);
     const length = 28;
@@ -1301,20 +1220,16 @@ function refreshLocalizedUi(): void {
             Host: "button.host",
             Join: "button.join",
             Stop: "button.stop",
-            NewOnline: "button.newOnline",
-            SelectSave: "button.selectSave",
-            Back: "button.back",
             Privacy: "privacy",
+            Save: "save.notRead",
             Cancel: "button.cancel"
         };
         for (const name of Object.keys(labels)) setChildText(root, name, tr(labels[name]));
         try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
         try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
-        if (uiTitle) uiTitle.text = uiSaveList && uiSaveList.activeSelf ? tr("save.listTitle") : tr("panel.title");
+        if (uiTitle) uiTitle.text = tr("panel.title");
         updateStatusText();
-        refreshSaveText();
-        if (uiSaveList && uiSaveList.activeSelf) refreshSaveList();
     } catch (error) { log("刷新联机界面语言失败: " + error); }
 }
 
@@ -1341,7 +1256,6 @@ function buildMainMenuButton(menu: MainMenu): void {
             const opening = !uiPanel.activeSelf;
             if (opening) openPanel();
             else closePanel();
-            if (!opening && uiSaveList) uiSaveList.SetActive(false);
         };
         stage = "添加联机点击事件";
         let listenerAdded = false;
@@ -1458,6 +1372,15 @@ function buildUi(font: any): void {
         uiFont = font;
         selectedSaveName = UnityEngine.PlayerPrefs.GetString("MPB.SelectedSave", "");
 
+        // 透明零尺寸 Image 是 MonoBehaviour，并会随 UI 根节点跨场景保留。
+        // 建房后的等待、载入和延迟封装不再依赖即将被销毁的 MainMenu。
+        const runnerObject = uiObject("CoroutineRunner", root.transform);
+        rect(runnerObject, 0.5, 0.5, 0, 0, 0, 0);
+        const runnerImage = runnerObject.AddComponent("Image") as UnityEngine.UI.Image;
+        runnerImage.color = new UnityEngine.Color(0, 0, 0, 0);
+        runnerImage.raycastTarget = false;
+        coroutineRunner = runnerImage as UnityEngine.MonoBehaviour;
+
         const panel = uiObject("Panel", root.transform);
         // 原版读取窗口采用竖向居中的窄面板；anchor、pivot 固定在屏幕中心。
         rect(panel, 0.5, 0.5, 0, 0, 760, 720);
@@ -1488,26 +1411,18 @@ function buildUi(font: any): void {
         makeButton(configBody.transform, "Host", tr("button.host"), font, 30, 202, 205, startHostFromUi, 56);
         makeButton(configBody.transform, "Join", tr("button.join"), font, 257, 202, 205, joinFromUi, 56);
         makeButton(configBody.transform, "Stop", tr("button.stop"), font, 484, 202, 205, stopFromUi, 56);
-        uiNewOnlineButton = makeButton(configBody.transform, "NewOnline", tr("button.newOnline"), font, 30, 280, 310, chooseNewOnlineSave, 56);
-        uiSelectSaveButton = makeButton(configBody.transform, "SelectSave", tr("button.selectSave"), font, 380, 280, 310, toggleSaveList, 56);
-        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 350, 660, 54, 20);
-        uiSave = makeText(configBody.transform, "Save", tr("save.notRead"), font, 30, 410, 660, 88, 23);
-        (uiSave as any).alignment = 0;
-
-        // 存档列表沿用原版读取界面的三行布局，切换时隐藏配置内容以免文字叠加。
-        const saveList = uiObject("SaveList", panel.transform);
-        rect(saveList, 0, 1, 20, -92, 720, 520);
-        const saveListImage = saveList.AddComponent("Image");
-        saveListImage.color = new UnityEngine.Color(0.34, 0.34, 0.34, 0.64);
-        uiSaveList = saveList;
-        saveList.SetActive(false);
-        refreshOnlineUiMode();
+        // 联机存档由建房流程自动选择最近的有效存档，不再创建“选择存档”子页面，
+        // 也不提供与自动续档规则冲突的“新建线上存档”按钮。
+        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 298, 660, 70, 20);
+        const saveText = makeText(configBody.transform, "Save", tr("save.notRead"), font, 30, 382, 660, 104, 23);
+        (saveText as any).alignment = 0;
 
         makeButton(panel.transform, "Cancel", tr("button.cancel"), font, 130, 640, 500, closePanel, 64);
         panel.SetActive(false);
         log("游戏内联机界面已创建：原版读取窗口样式、半透明灰黑面板和白色四角框线");
     } catch (error) {
         uiRoot = null;
+        coroutineRunner = null;
         log("创建联机界面失败: " + error);
     }
 }
@@ -1535,6 +1450,17 @@ function ensureUi(font?: any): void {
     if (inheritedFont) buildUi(inheritedFont);
 }
 
+function keepOnlineWorldRunning(): void {
+    if (!bridgeAvailable || role === "off") return;
+    try {
+        // PauseGame(false) 会同时撤销暂停状态并关闭原版暂停窗口。
+        // 这里只恢复 Unity 世界时钟，保留 GameManager.Paused 和窗口交互状态。
+        if (GameManager.Paused && Number(UnityEngine.Time.timeScale) <= 0) {
+            UnityEngine.Time.timeScale = 1;
+        }
+    } catch (_error) { }
+}
+
 function updateBridge(player: Player | null): void {
     if (!isCurrentGeneration()) return;
     handleUiInput();
@@ -1545,9 +1471,8 @@ function updateBridge(player: Player | null): void {
     if (updateFrames % 120 === 0) updateStatusText();
     updateRemotePlayers();
     if (!bridgeAvailable || role === "off") return;
-    // Unity 在 timeScale=0 时仍执行 Update。联机 ESC 菜单一旦把原版 Paused 置为 true，
-    // 下一帧立即恢复世界时间，同时保留暂停菜单窗口本身。
-    try { if (GameManager.Paused) GameManager.PauseGame(false); } catch (_error) { }
+    // Unity 在 timeScale=0 时仍执行 Update；只恢复世界时钟，不关闭原版暂停菜单。
+    keepOnlineWorldRunning();
     // 每帧最多处理 32 个事件，防止网络洪峰长时间占用 Unity 主线程。
     for (let index = 0; index < 32; index++) {
         try {
@@ -1608,7 +1533,7 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             ensureUi(nativeLabel ? (nativeLabel as any).font : null);
             buildPauseMenuButton(self);
             // 联机暂停菜单只打开 UI，不冻结世界时间；其他玩家和网络状态继续更新。
-            if (role !== "off") GameManager.PauseGame(false);
+            keepOnlineWorldRunning();
             syncGameLanguage();
         } catch (error) { log("暂停菜单 UI 初始化失败: " + error); }
     });

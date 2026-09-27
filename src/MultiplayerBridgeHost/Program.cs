@@ -18,6 +18,7 @@ internal static class Program
     private const string ActiveSavePrefix = "MPActive_";
     private const string OnlineSaveMagic = "MPB2";
     private const string ModEncryptionPassword = "FallenFlower.PlayerHostedMultiplayer.Save.v1";
+    private const string LogCommandMarker = "[PlayerHostedMultiplayerIPC]";
     private const int ModKeyIterations = 120_000;
 
     private static readonly BridgeNode Node = new();
@@ -32,6 +33,8 @@ internal static class Program
     private static byte[]? _singlePlayerAutoSaveBackup;
     private static bool _singlePlayerAutoSaveExisted;
     private static string _autoSaveObservedHash = string.Empty;
+    private static long _gameLogPosition;
+    private static string _gameLogRemainder = string.Empty;
 
     private static async Task Main(string[] args)
     {
@@ -40,7 +43,7 @@ internal static class Program
             SelfTestOnlineSaveCrypto();
             return;
         }
-        // 全局互斥锁防止玩家重复点击启动脚本后出现两个桥接进程争用同一状态文件。
+        // 全局互斥锁防止 Mod 重载或重复启动时出现两个桥接进程争用同一状态文件。
         // Mutex 构造函数的 out 参数只表示“是否新建内核对象”，不表示当前进程是否持有锁；
         // 因此必须显式 WaitOne，才能正确处理残留句柄和上次进程异常退出后的 abandoned 状态。
         using var singleton = new Mutex(false, @"Local\FallenFlower.PlayerHostedMultiplayer");
@@ -65,6 +68,7 @@ internal static class Program
         var gameWasSeen = false;
         var noProcessSince = Stopwatch.StartNew();
         var saveProtectionTimer = Stopwatch.StartNew();
+        InitializeGameLogPosition();
         if (Process.GetProcessesByName("FallenFlower").Length == 0) ProtectActiveSaves(deleteActive: true);
         WriteState(statePath);
 
@@ -73,6 +77,7 @@ internal static class Program
             while (true)
             {
                 var dirty = DrainNetworkEvents();
+                if (DrainGameLogCommands()) dirty = true;
                 var currentSequence = ReadInt(registry, SequenceValueName);
                 if (currentSequence != lastCommandSequence)
                 {
@@ -95,11 +100,17 @@ internal static class Program
                 }
 
                 var gameRunning = Process.GetProcessesByName("FallenFlower").Length > 0;
-                var launcherRunning = Process.GetProcessesByName("UcModLauncher").Length > 0;
-                if (gameRunning) gameWasSeen = true;
-                if (gameRunning || launcherRunning) noProcessSince.Restart();
+                if (gameRunning)
+                {
+                    gameWasSeen = true;
+                    noProcessSince.Restart();
+                }
                 else if ((gameWasSeen && noProcessSince.Elapsed > TimeSpan.FromSeconds(5)) ||
-                         (!gameWasSeen && startedAt.Elapsed > TimeSpan.FromMinutes(2))) break;
+                         (!gameWasSeen && startedAt.Elapsed > TimeSpan.FromMinutes(2)))
+                {
+                    // Mod 启动器通常会留在后台；它不应阻止桥接程序释放监听端口并退出。
+                    break;
+                }
 
                 await Task.Delay(25).ConfigureAwait(false);
             }
@@ -110,7 +121,7 @@ internal static class Program
             ProtectActiveSaves(deleteActive: true);
             RestoreSinglePlayerAutoSave();
             Node.Dispose();
-            try { File.Delete(statePath); } catch { }
+            WriteOfflineState(statePath);
             try { singleton.ReleaseMutex(); } catch { }
         }
     }
@@ -142,6 +153,72 @@ internal static class Program
             _response = "-1";
             AddEvent(new BridgeEvent("error", 0, exception.Message));
         }
+    }
+
+    private static string GetGameLogPath()
+    {
+        var localDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var appDataDirectory = Directory.GetParent(localDirectory)?.FullName
+            ?? throw new InvalidOperationException("无法确定 AppData 目录");
+        return Path.Combine(appDataDirectory, "LocalLow", "DefaultCompany", "FallenFlower", "Player.log");
+    }
+
+    private static void InitializeGameLogPosition()
+    {
+        try
+        {
+            var path = GetGameLogPath();
+            _gameLogPosition = File.Exists(path) ? new FileInfo(path).Length : 0;
+        }
+        catch
+        {
+            _gameLogPosition = 0;
+        }
+    }
+
+    // UcModLauncher 的 Jint 环境可以稳定写 Player.log，但 PlayerPrefs 不一定落入普通注册表。
+    // 这里只读取上次偏移之后的新内容，并且只接受带专用标记、整数序号和单行命令的记录。
+    private static bool DrainGameLogCommands()
+    {
+        try
+        {
+            var path = GetGameLogPath();
+            if (!File.Exists(path)) return false;
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            if (stream.Length < _gameLogPosition)
+            {
+                // Unity 每次启动会轮换/截断 Player.log。
+                _gameLogPosition = 0;
+                _gameLogRemainder = string.Empty;
+            }
+            if (stream.Length == _gameLogPosition) return false;
+            stream.Position = _gameLogPosition;
+            using var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, leaveOpen: true);
+            var text = _gameLogRemainder + reader.ReadToEnd();
+            _gameLogPosition = stream.Position;
+            var lines = text.Split('\n');
+            _gameLogRemainder = text.EndsWith('\n') ? string.Empty : lines[^1];
+            var completeCount = text.EndsWith('\n') ? lines.Length : lines.Length - 1;
+            var handled = false;
+            for (var index = 0; index < completeCount; index++)
+            {
+                var line = lines[index].TrimEnd('\r');
+                var markerAt = line.IndexOf(LogCommandMarker, StringComparison.Ordinal);
+                if (markerAt < 0) continue;
+                var payload = line[(markerAt + LogCommandMarker.Length)..].TrimStart();
+                var separator = payload.IndexOf(' ');
+                if (separator <= 0 || !int.TryParse(payload[..separator], NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out var sequence)) continue;
+                var command = payload[(separator + 1)..].Trim();
+                if (command.Length == 0 || command.Length > 60_000) continue;
+                HandleCommand(command, sequence);
+                handled = true;
+            }
+            return handled;
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
 
     private static int RestartHost(Dictionary<string, string> values)
@@ -331,6 +408,30 @@ internal static class Program
         File.Move(temporary, path, true);
     }
 
+    private static void WriteOfflineState(string path)
+    {
+        // 保留心跳为 0 的离线哨兵，避免下次启动时 ReadModFile 因文件不存在而中断整个 Mod。
+        // 存档索引不能清空，否则游戏在下一次桥接心跳完成前会把“暂时没有索引”误判成“没有存档”。
+        var saves = ReadSaveEntries();
+        var builder = new StringBuilder(1024);
+        builder.Append("{\"protocol\":").Append(ProtocolVersion)
+            .Append(",\"heartbeatUtcTicks\":0,\"state\":\"stopped\",\"port\":0,\"peers\":0,")
+            .Append("\"responseSequence\":0,\"response\":\"\",\"saves\":[");
+        for (var index = 0; index < saves.Count; index++)
+        {
+            if (index > 0) builder.Append(',');
+            var save = saves[index];
+            builder.Append("{\"name\":\"").Append(Escape(save.Name)).Append('"')
+                .Append(",\"lastWriteUtcTicks\":").Append(save.LastWriteUtcTicks)
+                .Append(",\"size\":").Append(save.Size).Append('}');
+        }
+        builder.Append("],\"events\":[]}");
+        var json = builder.ToString();
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, json, new UTF8Encoding(false));
+        File.Move(temporary, path, true);
+    }
+
     private static List<SaveEntry> ReadSaveEntries()
     {
         try
@@ -374,18 +475,23 @@ internal static class Program
     private static string ToOnlineSaveName(string activeName) =>
         OnlineSavePrefix + activeName[ActiveSavePrefix.Length..];
 
-    private static void ProtectActiveSaves(bool deleteActive)
+    private static void ProtectActiveSaves(bool deleteActive, string? saveDirectoryOverride = null)
     {
         try
         {
-            var saveDirectory = GetSaveDirectory();
+            var saveDirectory = saveDirectoryOverride ?? GetSaveDirectory();
             if (!Directory.Exists(saveDirectory)) return;
             foreach (var activePath in Directory.EnumerateFiles(saveDirectory, ActiveSavePrefix + "*.save", SearchOption.TopDirectoryOnly))
             {
                 try
                 {
                     var originalGameCiphertext = File.ReadAllBytes(activePath);
-                    if (originalGameCiphertext.Length == 0) continue;
+                    if (originalGameCiphertext.Length == 0)
+                    {
+                        // 游戏中断进场时可能只创建空占位文件；退出清理不能让它永久残留。
+                        if (deleteActive) File.Delete(activePath);
+                        continue;
+                    }
                     // 第一层必须仍然是游戏自己的 Encrypted 存档，拒绝把损坏或明文文件封装成线上存档。
                     if (!originalGameCiphertext.AsSpan().StartsWith("Encrypted"u8)) continue;
                     var hash = Convert.ToHexString(SHA256.HashData(originalGameCiphertext));
@@ -474,13 +580,19 @@ internal static class Program
                 throw new InvalidOperationException("线上自动保存没有转存到临时档");
             if (!File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(singlePlayer))
                 throw new InvalidOperationException("单机 AutoSave 没有恢复");
+            ProtectActiveSaves(deleteActive: false, saveDirectoryOverride: testDirectory);
+            var onlinePath = Path.Combine(testDirectory, "MPOnline_selftest.save");
+            if (!File.Exists(onlinePath))
+                throw new InvalidOperationException("临时线上存档没有封装成正式线上存档");
+            if (!DecryptOuterLayer(File.ReadAllBytes(onlinePath)).AsSpan().SequenceEqual(onlineAutoSave))
+                throw new InvalidOperationException("正式线上存档内容与临时档不一致");
             RestoreSinglePlayerAutoSave();
         }
         finally
         {
             if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, true);
         }
-        Console.WriteLine("PASS online-save crypto, tamper rejection, autosave redirect and single-player restore");
+        Console.WriteLine("PASS online-save crypto, formal-save commit, tamper rejection, autosave redirect and single-player restore");
     }
 
     private static void WriteAtomic(string path, byte[] bytes)

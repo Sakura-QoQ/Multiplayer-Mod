@@ -11,7 +11,7 @@ $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
-$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.5.1-win-x64.zip'
+$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.6.0-win-x64.zip'
 
 function Import-VisualCppEnvironment {
     # 当前终端没有 link.exe 时，从现有 Visual Studio 安装中载入 x64 编译环境。
@@ -39,12 +39,43 @@ function Import-VisualCppEnvironment {
     }
 }
 
+function Remove-ProjectPath([string] $root, [string] $path, [switch] $Recurse) {
+    # 所有构建清理都经过同一个边界检查，避免重复实现路径判断。
+    $resolvedRoot = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
+    $resolvedPath = [IO.Path]::GetFullPath($path)
+    $comparisonPath = if ($Recurse) { $resolvedPath.TrimEnd('\') + '\' } else { $resolvedPath }
+    if (-not $comparisonPath.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a path outside the expected directory: $resolvedPath"
+    }
+    if (Test-Path -LiteralPath $resolvedPath) {
+        Remove-Item -LiteralPath $resolvedPath -Force -Recurse:$Recurse
+    }
+}
+
 function Copy-ModPayload([string] $destination) {
     # 只复制运行时必需文件；源码和调试中间文件不进入玩家包。
     $bridgeDestination = Join-Path $destination 'Bridge'
     New-Item -ItemType Directory -Force -Path $bridgeDestination | Out-Null
     Copy-Item -Path (Join-Path $projectRoot 'mod\*') -Destination $destination -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $publishDir 'MultiplayerBridgeHost.exe') -Destination (Join-Path $bridgeDestination 'MultiplayerBridgeHost.exe') -Force
+
+    # 从旧版本原地升级时删除不再使用的启动、安装和卸载脚本。
+    $legacyScripts = @(
+        'Start-Multiplayer.cmd',
+        'Install-PlayerHostedMultiplayer.cmd',
+        'Install-PlayerHostedMultiplayer.ps1',
+        'Uninstall-PlayerHostedMultiplayer.cmd',
+        'Uninstall-PlayerHostedMultiplayer.ps1',
+        'runtime.log'
+    )
+    foreach ($legacyName in $legacyScripts) {
+        Remove-ProjectPath $destination (Join-Path $destination $legacyName)
+    }
+
+    # v0.6.0 已改为单文件自包含桥接程序，旧版注入 DLL 和代理目录不再参与运行。
+    foreach ($legacyDirectoryName in @('Native', 'Runtime')) {
+        Remove-ProjectPath $destination (Join-Path $destination $legacyDirectoryName) -Recurse
+    }
 }
 
 Import-VisualCppEnvironment
@@ -58,12 +89,7 @@ if (-not $SkipPackage) {
     # 每次重新创建 staging 目录，防止旧版本残留文件混进新包。
     New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
     if (Test-Path -LiteralPath $packageRoot) {
-        $resolvedArtifacts = [IO.Path]::GetFullPath($artifactsRoot)
-        $resolvedPackage = [IO.Path]::GetFullPath($packageRoot)
-        if (-not $resolvedPackage.StartsWith($resolvedArtifacts, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean package path outside artifacts: $resolvedPackage"
-        }
-        Remove-Item -LiteralPath $resolvedPackage -Recurse -Force
+        Remove-ProjectPath $artifactsRoot $packageRoot -Recurse
     }
     New-Item -ItemType Directory -Force -Path $packageMod | Out-Null
     Copy-ModPayload $packageMod
@@ -78,5 +104,14 @@ if ($Install) {
     $gameRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
     $modTarget = Join-Path $gameRoot 'Mods\PlayerHostedMultiplayer'
     Copy-ModPayload $modTarget
+
+    # 仅清理本项目旧版本创建、且带有专用标记的游戏根目录启动脚本。
+    $legacyLauncher = Join-Path $gameRoot '启动联机 Mod.cmd'
+    if (Test-Path -LiteralPath $legacyLauncher) {
+        $legacyLauncherContent = Get-Content -LiteralPath $legacyLauncher -Raw
+        if ($legacyLauncherContent.Contains('PlayerHostedMultiplayerLauncher')) {
+            Remove-Item -LiteralPath $legacyLauncher -Force
+        }
+    }
     Write-Host "Installed to $modTarget"
 }

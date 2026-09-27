@@ -1,9 +1,9 @@
-PlayerHostedMultiplayer v0.5.1（Windows x64 开发预览版）
+PlayerHostedMultiplayer v0.6.0（Windows x64 开发预览版）
 
 安装：
-1. 把整个 PlayerHostedMultiplayer 文件夹放进游戏的 Mods 目录。
-2. 运行 Install-PlayerHostedMultiplayer.cmd 一次。
-3. 以后使用游戏根目录的“启动联机 Mod.cmd”启动。
+1. 在游戏专用 Mod 启动器中导入 PlayerHostedMultiplayer。
+2. 正常通过 Mod 启动器启动游戏；Mod 会自动启动随包联机桥，无需额外安装或启动脚本。
+3. 玩家电脑不需要安装 .NET、Node.js、Visual Studio 或其他开发工具。
 4. 在主菜单“新建游戏”按钮正上方点击“联机”。
 
 界面会跟随游戏语言菜单自动切换。语言包位于 i18n 目录：
@@ -16,9 +16,8 @@ Visual Studio、.NET、Node.js、TypeScript 或其他开发软件。
 “建立主机”会让当前玩家电脑监听设置的 TCP 端口。互联网玩家仍需要房主在路由器或
 防火墙中允许该端口；同一局域网通常直接填写房主的局域网 IP 即可。
 
-v0.4.0 会同步同场景玩家的模型、位置、朝向和 Animator 动作。远端模型使用安全的
+当前版本会同步同场景玩家的模型、位置、朝向和 Animator 动作。远端模型使用安全的
 可视层克隆，不会复制本地输入、相机、碰撞或游戏逻辑。状态以 5 Hz 发送并逐帧平滑显示。
 
-存档读取调用游戏自己的 GameManager.GetSave()。明文快照只保存在当前游戏进程内存中，
-不会自动上传、覆盖或写回存档文件。
-“选择存档”会显示本机存档列表；桥接程序只读取文件名、大小和修改时间等元数据。
+联机界面不提供“选择存档”或“新建线上存档”按钮；建立房间时自动读取最近的联机存档，
+没有联机存档时才从零开始，单机读取页面不会显示联机存档。

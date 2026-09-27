@@ -12,8 +12,7 @@ PlayerHostedMultiplayer
 │  ├─ i18n                            跟随游戏语言的界面语言包
 │  │  ├─ en / ja / ko / es
 │  │  └─ zh-CN / zh-TW
-│  ├─ Start-Multiplayer.cmd           安全启动管理器与网络桥
-│  └─ Install-/Uninstall-*            玩家安装和卸载脚本
+│  └─ Bridge/MultiplayerBridgeHost.exe 自包含联机桥，由 Mod 自动启动
 ├─ src
 │  ├─ MultiplayerBridge               TCP 主机/客户端网络核心
 │  ├─ MultiplayerBridgeHost           自包含进程和受限 IPC
@@ -23,24 +22,23 @@ PlayerHostedMultiplayer
 
 ## 实现方式
 
-- `main.ts` 由游戏自带的 Jint Mod 环境执行，只使用公开的 `PlayerPrefs`、`ReadModFile`、UI 和 Hook API。
+- `main.ts` 由游戏自带的 Jint Mod 环境执行，只使用公开的日志、`ReadModFile`、UI 和 Hook API。
 - `MultiplayerBridgeHost.exe` 是随包附带的 Windows x64 NativeAOT 程序，玩家无需安装 .NET。
-- 游戏脚本用专用 PlayerPrefs 键提交短命令；桥接程序把状态和有界事件列表原子写入
+- 游戏脚本用带专用标记的 `Player.log` 行提交短命令；桥接程序只增量读取新日志，并把状态和有界事件列表原子写入
   `Bridge/state.json`，脚本再通过受沙箱限制的 `ReadModFile` 读取。
 - 网络消息使用 4 字节大端长度前缀加 UTF-8 JSON，单条上限 64 KiB，事件队列有上限。
 - 主菜单入口复制游戏自己的 `newGame` 按钮，改名为“联机”，放在其正上方，因此样式、
   字体、悬停效果和菜单间距均继承原界面。
 - UI 根据游戏的 `UserSelectedLanguage` / `Localization.Language` 自动读取
   `i18n/<语言缩写>/strings.json`；英语作为缺失文本的后备语言，切换语言无需重启。
-- “选择存档”通过桥接程序枚举本机存档名称并在卡片内显示；不会读取文件内容。
-- 已加载存档的预览调用 `GameManager.GetSave()`，明文仅留在游戏进程内存，不自动上传或写回。
+- 建立房间时自动继续最近的有效联机存档；没有联机存档时才从零创建。
 - 联机卡片使用底部“取消”按钮或 `Esc` 关闭，圆角边缘为完全不透明的硬边。
 
 ## 为什么不再使用 version.dll
 
 旧版通过游戏根目录 `version.dll` 代理接入网络桥。游戏日志证明
 `AntiTamperChecker.DelayedExit()` 会检测该文件并主动退出。v0.3.0 已移除这条注入路径，
-不修改或绕过反篡改组件。安装脚本升级时只会删除带本 Mod 内部标记的旧代理。
+不修改或绕过反篡改组件。v0.6.0 只通过游戏专用 Mod 启动器加载，并由 Mod 自动启动包内桥接程序。
 
 ## 构建
 
@@ -49,9 +47,9 @@ PlayerHostedMultiplayer
 dotnet run --project .\src\MultiplayerBridge.SmokeTest -c Release
 ```
 
-发布物：`artifacts/PlayerHostedMultiplayer-v0.5.1-win-x64.zip`
+发布物：`artifacts/PlayerHostedMultiplayer-v0.6.0-win-x64.zip`
 
-## v0.4.0 玩家同步
+## 玩家同步
 
 - 房主作为星型转发中心，支持房主、客户端以及客户端之间互相显示。
 - 以 5 Hz 发送场景、位置、朝向、移动、落地、动作、攻击、武器和 Animator 状态。
@@ -60,7 +58,7 @@ dotnet run --project .\src\MultiplayerBridge.SmokeTest -c Release
 
 ## 线上存档隔离
 
-- “新线上存档”始终调用游戏的新游戏流程，从零创建，不复制单机存档。
+- 联机界面不再显示“选择存档”或“新建线上存档”；建房时自动继续最近的有效联机存档，没有时才从零创建。
 - 正式线上文件与游戏默认存档同在 `Saves` 目录，命名为 `MPOnline_<时间戳>.save`。
 - 游戏运行时只解包为 `MPActive_<时间戳>.save` 临时文件；原版读取和保存窗口会过滤两种前缀。
 - 内层完整保留游戏原生 `Encrypted` 密文，外层使用 Mod 的 PBKDF2-SHA256 + AES-256-GCM 认证加密。
