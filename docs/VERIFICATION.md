@@ -1,4 +1,4 @@
-# Verification — v0.13.3
+# Verification — v0.13.4
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
