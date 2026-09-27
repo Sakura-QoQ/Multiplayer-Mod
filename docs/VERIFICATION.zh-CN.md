@@ -15,7 +15,7 @@
 
 - 已确认课程模型残留与线上时间固定 9 点是同一根因：原版 `ClassroomDirector.<NormalClass>d__5.MoveNext` 在结束阶段调用 `PlayerStatus.AddTime` 后才把玩家移到出口并清除 `_inClass`；旧服务器每 200ms 回写早晨时段，撤销了这个剧情结果。
 - 公开服务器不再创建、推进或广播 `worldTime`，并移除 `FF_ROOM_DAY_LENGTH_SECONDS`；详细时间由每个客户端按游戏原生相同流速推进。
-- 服务器睡眠只判断真实玩家是否全员同意，不把服务器算作玩家，也不计算钟点；批准后每个客户端执行同一个明确跳转。客户端还会忽略滚动部署期间旧服务器发来的 `worldTime`。
+- 服务器睡眠只判断真实玩家是否全员同意，不把服务器算作玩家，也不计算钟点；批准后每个客户端执行原版床按钮的时间事务。客户端会忽略所有 `worldTime`，Mod 不再写入时间流速、游戏时间、时段偏移或日期。
 
 - 已确认根因：当前生成类型清单中的 `GameManager` 没有 `@hookable`，旧 `AutoSaving/SaveGame` Hook 从未构成可靠隔离边界。
 - v0.14.9 无需额外选择，直接使用原版默认读档事务，并在事务稳定前禁止时间、场景和资料同步。
@@ -60,12 +60,11 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 时间流速，剧情自己的 `AddTime/AddDay` 可以完整生效；最后一名玩家离开时只清理房间场景和
 睡眠共识状态。
 
-床窗口回归已定位并修复两个明确故障：游戏原生 `SleepToTomorrow` 回调只调用
-`SetTime(3)`，所以 20:00 只会变成约 23:00 而不会换日；UcModLauncher 同时不允许直接构造
-新的 `ButtonClickedEvent`，导致联机接管抛错。Mod 现在复用按钮已有事件，通过 `AddListener`
-绑定并以启动器扩展作为回退；服务器批准后所有客户端明确执行“日期 +1、`timeOfDay = 0`”。游戏把睡眠
-按钮按晚间规则置灰后，Mod 会重新启用联机入口；克隆的手动保存按钮也改用独立的线上存档
-会话状态，不再继承“休息一下”的灰色状态。客户端短睡从时段 3 回到 0 时会同步换日。
+床窗口回归已通过 `GameAssembly.dll` 静态证据校正：游戏原生 `SleepToTomorrow` 回调只调用
+`SetTime(3)` 并添加 `SleepToTomorrow` 标记，原生短睡回调只调用 `AddTime()`。旧 Mod 额外调用
+`AddDay()`，会把同一天晚间剧情错误推进到第二天。现在服务器只批准选择，每个客户端严格执行
+上述原版时间事务；不再自行跨日、清零 `timeOffset` 或覆盖剧情时间。Mod 仍复用按钮已有事件，
+通过 `AddListener` 绑定并以启动器扩展作为回退；手动保存按钮使用独立的保存会话状态。
 
 正式构建在生成包之前还会强制执行运行时安全扫描：拒绝会落入注册表的游戏偏好接口、Windows 注册表 API、提权请求以及常见安装器/包管理器命令。当前源码、生成的 `mod/main.ts` 和已安装负载均不包含这些 API；发布桥接程序与安装目录桥接程序的 SHA-256 完全一致。
 
@@ -99,7 +98,7 @@ PASS client-owned detailed time, no server worldTime, permanent room, solo/unani
 | --- | --- | --- |
 | 两个真实游戏进程的局域网测试 | 分帧、握手、编号、双向状态/资料/实时数据和远端模型通过 | `artifacts/dual-instance/20260927-105653/evidence/summary.json` |
 | 整理后的双游戏回归 | 非空衣服、晒黑肤色、182 个衣服骨骼、移动/动作和跨场景跟随通过 | `artifacts/dual-instance/20260927-111836/evidence/summary.json` |
-| 暂停窗口可见测试 | UI 保持可见时 `Paused=false`、`timeScale=1`，世界继续运行，之后手机可正常打开 | `artifacts/dual-instance/20260927-111811/evidence/summary.json` |
+| 暂停窗口测试 | 联机页面可打开，Mod 不再写入 `Paused` 或 `timeScale`，保留游戏原版暂停行为 | 静态构建门禁与运行日志 |
 | 较早的线上存档生命周期 | 旧“保留 Active”设计下的 UUIDv7 创建/重进、退出保存、位置恢复和桥接退出通过 | `artifacts/online-save/20260927-102017/evidence/summary.json` |
 | NativeAOT 房间中继进程测试 | 两个客户端通过服务器权威创建/加入公开房间并交换数据 | `artifacts/room-relay-nativeaot-server.log` |
 
