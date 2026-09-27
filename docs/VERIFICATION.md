@@ -1,4 +1,7 @@
-# Verification — v0.14.4
+# Verification — v0.14.5
+
+- The complete 560×950 phone design now scales uniformly to 80% of the available window height, keeping native pages, labels, tabs, and hit areas in the same proportion.
+- Reopening an existing phone window recalculates the scale to account for resolution or UI-scale changes.
 
 - Rebuilt the phone window as a Phone 17-style front face with a rounded black body, clipped screen, Dynamic Island, status bar, three bottom tabs, and a home indicator.
 - Native Home, DM, chat, and post objects remain controlled by `XWindow`; the Mod only reparents their layout so their existing interactions are preserved.
