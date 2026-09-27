@@ -2,7 +2,7 @@
 
 This document records the exact identifiers used by Fallen Flower for the player profile synchronized by PlayerHostedMultiplayer. Field identifiers are never translated in the in-game profile card; only the card title follows the selected language.
 
-In v0.13.9 these packets travel through the public Ubuntu authority service. It validates packet type
+In v0.14.0 these packets travel through the public Ubuntu authority service. It validates packet type
 and authenticated member identity but does not interpret profile fields; extraction, chunking,
 field validation and application remain on player computers.
 

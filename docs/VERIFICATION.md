@@ -1,4 +1,4 @@
-# Verification — v0.13.9
+# Verification — v0.14.0
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
@@ -23,6 +23,11 @@ The dedicated runtime-log self-test also passes:
 ```text
 PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
+
+Public time is now a server-owned relative room phase. A legacy `serverTimeSeed` containing a player's
+nighttime save is ignored; the first clock remains morning at `roomCycle=0`. A joining player baselines
+the current cycle, so prior room days are not copied into their story date. When the final member leaves,
+the permanent room resets its phase, scene and cycle to a fresh morning session.
 
 The bed-window regression was traced to two concrete native/runtime faults and corrected: the game's
 `SleepToTomorrow` callback only calls `SetTime(3)`, which turns 20:00 into roughly 23:00 without advancing
@@ -56,10 +61,10 @@ The current room adapter self-test also passes when the test server is started w
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, a single player can sleep until the server-owned next day, the clock advances at 240 native period units per configured 3,600-second day, two ordinary clients fill the room, the server creates the next room, authority remains peer `0`, bidirectional relay and unanimous sleep work, a replacement receives the smallest released ID, a silent connection is removed by TCP inactivity cleanup, and a connection continuously sending a fixed position is removed as AFK. After all test players disconnect, the final list must contain exactly the empty permanent `public-1` room and no redundant empty shard. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
+With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, rejects a first player's nighttime clock seed, lets a single player sleep into room cycle 1, advances the phase at 240 native units per configured 3,600-second cycle, creates a new room when two ordinary clients fill the first, retains peer `0` authority, relays bidirectionally, approves unanimous sleep, reuses the smallest released ID, and removes inactive/AFK connections. After all test players disconnect, the final list contains exactly the empty permanent `public-1`; re-entering it produces `roomCycle=0` at morning rather than the prior session's time. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
 
 ```text
-PASS permanent public room, auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
+PASS server-owned room phase, player-seed rejection, empty-room morning reset, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
 ```
 
 ## Full-game evidence

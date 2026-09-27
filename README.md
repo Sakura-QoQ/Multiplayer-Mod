@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.9-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.0-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.13.9-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.14.0-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -34,14 +34,14 @@ For local direct play, use **Host** or **Join** with an address and port. A dire
 - `public-1` is the permanent server room and remains listed when every player leaves. When every joinable room is full the server creates another room automatically; only redundant non-permanent empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
 - `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
 - The Ubuntu service is logical authority peer `0`. Every public player receives the room's smallest available positive ordinary-member ID; released IDs are reused immediately, and the first player has no special authority.
-- The server owns membership, the 5 Hz shared clock, scene arbitration and unanimous sleep approval. One complete game day lasts 3,600 real seconds. It relays player-owned state but does not run Unity gameplay or store player saves.
+- The server owns membership, the 5 Hz shared room phase, scene arbitration and unanimous sleep approval. A fresh or newly emptied public room starts in the morning; one complete room cycle lasts 3,600 real seconds. Absolute story days remain in each player's save and are never copied into the room clock. It relays player-owned state but does not run Unity gameplay or store player saves.
 - No separate heartbeat traffic is generated. Existing TCP game/control frames refresh connection activity; after five minutes without a complete frame, the server closes the stale connection and releases the member through the same leave path used by a normal exit.
 - A connected player whose world position does not move by at least 0.05 units and does not change scene for five minutes is also treated as AFK and removed through that same cleanup path.
 - Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
 - Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
 - Opening the online pause menu does not pause the world. Its Multiplayer page is read-only and shows room identity, synchronized time, population and players. Hold `Tab` for the centered player list.
 - The main menu shows the Mod version immediately to the left of the game's version text; it reads the same `mod/info.json` version used for the player ZIP name.
-- Server-authoritative time continues while menus are open. Sleep advances after every connected player requests the same mode; a one-player room is therefore approved immediately, and “sleep until tomorrow” advances to the next day without a client clock write-back.
+- Server-authoritative room time continues while menus are open. A new player adopts the existing room phase without replacing it or inheriting another player's story day. Sleep advances after every connected player requests the same mode; each current player advances their own story day only when the shared room phase crosses midnight.
 
 The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and is absent from editable configuration and UI text. This prevents casual editing; it is not secret management because the client contains the decryption material.
 

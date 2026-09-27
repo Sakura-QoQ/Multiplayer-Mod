@@ -1,4 +1,4 @@
-# v0.13.9 验证报告
+# v0.14.0 验证报告
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
 - 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。
@@ -28,6 +28,11 @@ PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase com
 PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
 
+公开时间现已改为服务器持有的相对房间时段。旧客户端即使发送包含夜间存档的
+`serverTimeSeed` 也会被忽略，首个时钟仍为早晨的 `roomCycle=0`。新玩家加入时只建立当前
+周期基线，不会把房间以前经历的天数复制到自己的剧情日期。最后一名玩家离开后，常驻房间
+会把时段、场景和周期重置为新的早晨会话。
+
 床窗口回归已定位并修复两个明确故障：游戏原生 `SleepToTomorrow` 回调只调用
 `SetTime(3)`，所以 20:00 只会变成约 23:00 而不会换日；UcModLauncher 同时不允许直接构造
 新的 `ButtonClickedEvent`，导致联机接管抛错。Mod 现在复用按钮已有事件，通过 `AddListener`
@@ -56,10 +61,10 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、单人可睡到服务器权威的下一天、时钟按配置的 3,600 秒完整日以 240 个原生时段单位推进、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发及全员睡眠正常、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。全部测试玩家断开后，最终列表必须只包含空的常驻 `public-1`，不能变空，也不能残留多余空分片。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
+测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、拒绝首位玩家的夜间时钟种子、单人睡眠推进到房间周期 1、时段按配置的 3,600 秒周期以 240 个原生单位推进、坐满后建立下一间、权威仍为 Peer `0`、双向转发和全员睡眠正常、最小 ID 可复用，并清理静默/挂机连接。全部测试玩家断开后，最终列表只包含空的常驻 `public-1`；重新进入必须得到早晨的 `roomCycle=0`，不能继承上一会话时间。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
 
 ```text
-PASS permanent public room, auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
+PASS server-owned room phase, player-seed rejection, empty-room morning reset, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
 ```
 
 ## 真实游戏证据
