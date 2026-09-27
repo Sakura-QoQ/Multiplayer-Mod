@@ -238,8 +238,7 @@ internal static partial class Program
             endpoint.Host,
             endpoint.Port,
             values.GetValueOrDefault("room", string.Empty),
-            values.GetValueOrDefault("player", "Player"),
-            ReadInt(values, "max", 8));
+            values.GetValueOrDefault("player", "Player"));
     }
 
     private static int ListPublicRooms()

@@ -11,16 +11,20 @@ namespace FallenFlower.MultiplayerRoomServer;
 internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposable
 {
     private const int ProtocolVersion = 1;
-    private static readonly string[] PublicRoomIds = ["public-1", "public-2", "public-3"];
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _publicRoomsLock = new();
     private readonly TcpListener _listener = new(options.ListenAddress, options.Port);
     private readonly CancellationTokenSource _shutdown = new();
+    private int _nextPublicRoomNumber;
 
     [GeneratedRegex("^[A-Za-z0-9_-]{3,48}$", RegexOptions.CultureInvariant)]
     private static partial Regex RoomIdPattern();
 
     public async Task RunAsync()
     {
+        // 公开房间是服务器上的真实对象。启动时只建立一个；所有现有房间满员后再扩容。
+        if (EnsureJoinablePublicRoom() is null)
+            throw new InvalidOperationException("Unable to create the initial public room");
         _listener.Start(512);
         Console.WriteLine($"Fallen Flower room server listening on {options.ListenAddress}:{options.Port}");
         var clockTask = RunAuthoritativeClockAsync(_shutdown.Token);
@@ -171,42 +175,24 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         EnsureNotInRoom(client);
         var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
         if (!RoomIdPattern().IsMatch(roomId)) throw new ProtocolException("invalid_room_id", "roomId contains invalid characters");
-        if (!PublicRoomIds.Contains(roomId, StringComparer.OrdinalIgnoreCase))
+        if (!_rooms.TryGetValue(roomId, out var room) || room.IsClosed || !room.ServerAuthoritative)
             throw new ProtocolException("unknown_public_room", "public room is not available");
-        var roomName = FrameProtocol.OptionalString(root, "roomName", 80);
+        _ = FrameProtocol.OptionalString(root, "roomName", 80); // 兼容旧客户端字段，公开房间名称由服务器生成。
         var playerName = FrameProtocol.RequiredString(root, "playerName", 64);
-        var requestedCapacity = root.TryGetProperty("maxPlayers", out var capacityElement) && capacityElement.TryGetInt32(out var parsed)
-            ? parsed : options.MaxPlayersPerRoom;
-        var capacity = Math.Clamp(requestedCapacity, 2, options.MaxPlayersPerRoom);
-        var creator = false;
-
-        if (!_rooms.TryGetValue(roomId, out var room) || room.IsClosed)
-        {
-            if (_rooms.Count >= options.MaxRooms) throw new ProtocolException("server_full", "room limit reached");
-            var candidate = new Room(roomId, string.Empty, roomName, capacity, serverAuthoritative: true);
-            if (_rooms.TryAdd(roomId, candidate))
-            {
-                room = candidate;
-                creator = true;
-            }
-            else if (!_rooms.TryGetValue(roomId, out room) || room.IsClosed)
-                throw new ProtocolException("room_busy", "room is changing; retry");
-        }
         if (room.Key.Length != 0) throw new ProtocolException("private_room", "room requires an explicit key");
         if (!room.TryAdd(client, out var peerId)) throw new ProtocolException("room_full", "room is full");
         // 公开房间的最高权限固定属于服务器（逻辑 Peer 0），所有玩家都是普通参与者。
-        creator = false;
         client.Room = room;
         client.PeerId = peerId;
         client.PlayerName = playerName;
         await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId,
-            authorityPeerId = 0, creator, serverAuthority = true,
+            authorityPeerId = 0, creator = false, serverAuthority = true,
             players = room.Members.Count, capacity = room.Capacity,
             peerIds = room.Members.Keys.Where(id => id != peerId).OrderBy(id => id).ToArray() }, cancellationToken);
-        if (room.Members.Count == 1)
-            Console.WriteLine($"public room created id={roomId} capacity={room.Capacity}");
-        else
+        if (room.Members.Count > 1)
             await BroadcastAsync(room, new { type = "room.playerJoined", peerId, playerName }, client, cancellationToken);
+        // 当前房间刚满时立即准备下一个真实房间，下一次列表刷新即可看到。
+        _ = EnsureJoinablePublicRoom();
         var roster = room.Members.Values.OrderBy(member => member.PeerId)
             .Select(member => new { peerId = member.PeerId, playerName = member.PlayerName }).ToArray();
         await BroadcastServerPacketAsync(room, new { type = "serverRoster", players = roster }, cancellationToken);
@@ -329,16 +315,58 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
 
     private async Task SendRoomListAsync(ClientConnection client, CancellationToken cancellationToken)
     {
-        var rooms = PublicRoomIds.Select(roomId =>
-        {
-            var exists = _rooms.TryGetValue(roomId, out var room) && !room.IsClosed;
-            return new { roomId, roomName = roomId,
-                players = exists ? room!.Members.Count : 0,
-                capacity = exists ? room!.Capacity : options.MaxPlayersPerRoom };
-        })
+        _ = EnsureJoinablePublicRoom();
+        var rooms = _rooms.Values
+            .Where(room => room.ServerAuthoritative && !room.IsClosed)
+            .OrderBy(room => PublicRoomNumber(room.Id))
+            .Select(room => new { roomId = room.Id, roomName = room.Name,
+                players = room.Members.Count, capacity = room.Capacity })
             .ToArray();
         await client.SendAsync(new { type = "room.list", rooms }, cancellationToken);
     }
+
+    private Room? EnsureJoinablePublicRoom()
+    {
+        lock (_publicRoomsLock)
+        {
+            var available = _rooms.Values
+                .Where(room => room.ServerAuthoritative && !room.IsClosed && room.Members.Count < room.Capacity)
+                .OrderBy(room => PublicRoomNumber(room.Id))
+                .FirstOrDefault();
+            if (available is not null) return available;
+            if (_rooms.Count >= options.MaxRooms) return null;
+
+            while (_rooms.Count < options.MaxRooms)
+            {
+                var number = ++_nextPublicRoomNumber;
+                var roomId = $"public-{number}";
+                var room = new Room(roomId, string.Empty, $"Public Room {number}",
+                    options.MaxPlayersPerRoom, serverAuthoritative: true);
+                if (!_rooms.TryAdd(roomId, room)) continue;
+                Console.WriteLine($"public room created id={roomId} capacity={room.Capacity}");
+                return room;
+            }
+            return null;
+        }
+    }
+
+    private void RecycleEmptyPublicRooms()
+    {
+        lock (_publicRoomsLock)
+        {
+            var emptyRooms = _rooms.Values
+                .Where(room => room.ServerAuthoritative && !room.IsClosed && room.Members.IsEmpty)
+                .OrderBy(room => PublicRoomNumber(room.Id))
+                .ToArray();
+            // 始终保留编号最小的一个空房间供新玩家加入，其余空分片立即回收。
+            foreach (var room in emptyRooms.Skip(1))
+                if (_rooms.TryRemove(room.Id, out var removed)) removed.Close();
+        }
+        _ = EnsureJoinablePublicRoom();
+    }
+
+    private static int PublicRoomNumber(string roomId) =>
+        int.TryParse(roomId.AsSpan(roomId.LastIndexOf('-') + 1), out var number) ? number : int.MaxValue;
 
     private async Task SendRoomInfoAsync(ClientConnection client, CancellationToken cancellationToken)
     {
@@ -370,6 +398,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         if (room.ServerAuthoritative)
         {
             await BroadcastAsync(room, new { type = "room.playerLeft", peerId = client.PeerId }, null, cancellationToken);
+            RecycleEmptyPublicRooms();
             return;
         }
         // 游戏时间和场景以创建者为权威。创建者离开后关闭房间，避免剩余玩家进入分裂世界。

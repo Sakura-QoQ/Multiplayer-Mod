@@ -1,74 +1,78 @@
 # 开发指南
 
-本仓库生成两个交付物：Windows 玩家 Mod 与 Linux Docker 房间服务器。玩家电脑只需要 Mod ZIP
-和游戏启动器；生产联机流量经过房间服务器。
+本仓库生成自包含 Windows 玩家 Mod 和单独部署的 Linux 房间服务器。玩家电脑只需要生成的 ZIP 与游戏 Mod 启动器。
 
 ## 开发环境
 
-- .NET 8 SDK
-- 用于 NativeAOT 链接的 Visual Studio x64 C++ 构建工具
-- 使用 `-Install` 和真实游戏集成测试时，需要本机安装 Fallen Flower
-- 验证容器时需要 Docker Engine 与 Compose 插件
+| 任务 | 所需软件 |
+| --- | --- |
+| 构建 Windows 桥接程序 | .NET 8 SDK、Visual Studio x64 C++ NativeAOT 工具 |
+| 安装到开发用游戏 | 按仓库父目录布局安装的本地 Fallen Flower |
+| 构建房间服务器 | Docker Engine 与 Compose，或 .NET 8 SDK |
+| 使用玩家包 | 不需要开发软件，只需游戏和 Mod 启动器 |
 
-项目不使用 Node.js 或 TypeScript 编译器。游戏脚本在 UcModLauncher 的 Jint 环境中运行，
-构建时只是按照清单合并 TypeScript 风格的源码文本。
+项目不使用 Node.js 或 `tsc`。UcModLauncher 通过 Jint 执行 TypeScript 风格源码，`build.ps1` 只按顺序合并文本。
 
-桥接程序不会打开或修改 Windows 注册表。游戏到桥接的命令使用 Unity `Player.log` 中的专用标记行；
-桥接到游戏的状态使用 Mod `Bridge` 目录内的轮换 JSON 文件。
+桥接程序不使用 Windows 注册表。命令通过 Unity `Player.log` 的专用标记行传递；响应和事件使用安装目录 `Bridge` 下的轮换 JSON 状态文件。
 
-## 构建和安装
+## 构建玩家 Mod
 
 ```powershell
 ./build.ps1 -Install
 ```
 
-版本号从 `mod/info.json` 读取，输出文件为
-`artifacts/PlayerHostedMultiplayer-v<版本>-win-x64.zip`。`-Install` 会把同一份内容复制到游戏的
-`Mods/PlayerHostedMultiplayer`。依赖成功还原过以后，可以用
-`./build.ps1 -Install -NoRestore` 离线重建。
+脚本从 `mod/info.json` 读取版本，生成 `mod/main.ts`，复制六种运行语言包，发布自包含 NativeAOT 桥，创建 `artifacts/PlayerHostedMultiplayer-v<版本>-win-x64.zip`，并可把同一负载安装到 `Mods/PlayerHostedMultiplayer`。
 
-只修改 `src/GameMod` 下的源码；`mod/main.ts` 和运行语言包均由构建生成。新增模块时必须写入
-`src/GameMod/source-order.json`。如果存在清单遗漏/孤立模块、重复清单项、页面直接创建底层控件，
-或者任意语言与英语的翻译键不一致，构建会直接失败。
-
-在仓库根目录构建生产房间服务器：
-
-```bash
-cd server
-cp .env.example .env
-docker compose build
-docker compose up -d
-```
-
-## 运行验证
-
-构建两个 .NET 组件并运行存档自检：
+依赖至少成功还原一次后，可离线构建：
 
 ```powershell
-dotnet build ./src/MultiplayerBridgeHost/MultiplayerBridgeHost.csproj -c Release
-dotnet build ./src/MultiplayerRoomServer/MultiplayerRoomServer.csproj -c Release
+./build.ps1 -Install -NoRestore
+```
+
+只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。构建会拒绝遗漏/重复模块、页面直接创建底层 Unity 控件，以及语言包键不一致。
+
+## 验证功能
+
+构建并运行当前存档/隔离自检：
+
+```powershell
+./build.ps1 -SkipPackage -NoRestore
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
-验证房间中继时，先在测试端口启动 `MultiplayerRoomServer`，再执行：
+预期结果包含 `read-only load transaction`、`single-file online save`、`temporary load copy`、篡改拒绝和 `AutoSave isolation`。
+
+测试独立房间适配时，先在测试端口运行房间服务器，再执行：
 
 ```powershell
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-该测试会启动两名桥接客户端，双方都发送 `room.enter`，验证自动创建/加入公开房间、权威映射和
-双向转发。游戏级验证范围及仍未
-覆盖的部分见 `VERIFICATION.zh-CN.md`。
+测试会创建两个普通客户端、进入同一公开房间，并验证服务器权威 Peer `0`、双向转发、服务器时钟和全员睡眠批准。游戏级证据和限制见 [验证报告](../VERIFICATION.zh-CN.md)。
 
-`src/MultiplayerBridgeHost/PublicServerEndpoint.cs` 保存加密后的生产端点。更换地址时必须同时生成
-新的 AES-GCM nonce、tag 和密文；不得把明文写入 `mod/config.json`、GameMod 源码、UI 文本或玩家文档。
+修改存档代码时必须验证三条边界：
 
-## 发布包边界
+1. `prepareSave` 关闭桥接写入，只创建临时原生格式加载文件。
+2. `releaseSave` 删除该文件后，`enableSaveWrites` 才能开放保存。
+3. `SaveGame("AutoSave")` Hook 取消原版写入并从内存提交，不能触碰单机 `AutoSave.save`。
 
-玩家 ZIP 只包含生成后的 Mod 文件、六种语言包、中英文玩家说明、中英文许可、玩家资料字段映射，
-以及一个自包含 Windows 桥接程序。源码、测试、SDK、构建工具和单独部署的 Ubuntu 房间服务器都不会
-进入玩家包。
+## 构建服务器
 
-服务器部署只需要 `server/`、`src/MultiplayerRoomServer/` 和许可文件，不包含游戏、玩家存档、
-Mod 脚本或 Windows 开发工具。
+```bash
+cd server
+cp .env.example .env
+sudo docker compose up -d --build
+sudo docker compose ps
+sudo docker compose logs --tail=100 room-server
+```
+
+Docker 构建上下文是仓库根目录，因为镜像需要复制 `src/MultiplayerRoomServer/` 与许可文件。更新、防火墙和排错见 [服务器文档](../server/README.zh-CN.md)。
+
+`src/MultiplayerBridgeHost/PublicServerEndpoint.cs` 保存加密后的生产端点。更换地址必须同时生成新的 AES-GCM nonce、tag 与密文；不得把明文写进 `mod/config.json`、GameMod 源码、UI 文本或玩家文档。端点混淆不等于 TLS。
+
+## 发布内容
+
+玩家 ZIP 包含生成后的 Mod 文件、六种语言包、中英文玩家说明与许可、中英文资料字段映射，以及一个自包含 Windows 可执行程序；不包含源码、测试、SDK、构建工具或 Linux 服务器。
+
+服务器部署需要 `server/`、`src/MultiplayerRoomServer/`、`LICENSE` 和 `LICENSE.zh-CN`，不需要游戏、玩家存档、Mod 脚本或 Windows 工具链。

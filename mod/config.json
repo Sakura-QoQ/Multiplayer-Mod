@@ -2,7 +2,7 @@
   "mode": "off",
   "address": "",
   "port": 27777,
-  "maxPlayers": 8,
+  "localMaxPlayers": 8,
   "playerName": "Player",
   "bridgeChannel": "default"
 }

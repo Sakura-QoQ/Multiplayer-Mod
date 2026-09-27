@@ -1,7 +1,7 @@
 // 网络配置。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function loadConfig(): MultiplayerConfig {
-    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, maxPlayers: 8,
+    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, localMaxPlayers: 8,
         playerName: "Player", roomId: "fallen-flower", roomKey: "", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
         smokeTestSceneSync: false, smokeTestSleepConsensus: false, smokeTestAppearance: false,
         smokeTestPhone: false, smokeTestPauseMenu: false, smokeTestOnlineLifecycle: false,
@@ -15,7 +15,9 @@ function loadConfig(): MultiplayerConfig {
             mode: parsed.mode === "host" || parsed.mode === "client" ? parsed.mode : "off",
             address: typeof parsed.address === "string" ? parsed.address : defaults.address,
             port: typeof parsed.port === "number" ? parsed.port : defaults.port,
-            maxPlayers: typeof parsed.maxPlayers === "number" ? parsed.maxPlayers : defaults.maxPlayers,
+            // maxPlayers 是旧版字段，只作为本地直连人数上限兼容读取；公开房间容量由服务器决定。
+            localMaxPlayers: typeof parsed.localMaxPlayers === "number" ? parsed.localMaxPlayers :
+                typeof parsed.maxPlayers === "number" ? parsed.maxPlayers : defaults.localMaxPlayers,
             playerName: typeof parsed.playerName === "string" ? parsed.playerName : defaults.playerName,
             roomId: typeof parsed.roomId === "string" ? parsed.roomId : defaults.roomId,
             roomKey: typeof parsed.roomKey === "string" ? parsed.roomKey : defaults.roomKey,

@@ -1,54 +1,81 @@
 # 架构说明
 
-生产架构使用 Ubuntu 公开房间中继。每名玩家的桥接程序先解密内置端点，再向服务器建立出站
-TCP 连接。服务器持有逻辑 Peer `0`、房间成员、统一时钟、场景比较交换裁决、睡眠共识与数据转发；
-所有玩家都是正数 ID 的普通成员，并分别保存自己的线上存档。公开 UI 不再显示旧版玩家直连兼容入口。
+项目包含两条网络路径：生产使用 Ubuntu 权威/中继的公开房间，同时保留本地直连“建立/加入”。两者都使用随包 Windows 桥接程序，不向游戏注入 DLL。
 
-## 运行流程
+## 运行组件
 
 ```mermaid
 flowchart LR
-    PlayerA[玩家 A 游戏 + Mod] --> PlayerABridge[随包桥接程序]
-    PlayerB[玩家 B 游戏 + Mod] --> PlayerBBridge[随包桥接程序]
-    PlayerABridge <-->|出站 TCP| Server[Ubuntu 权威服务与中继]
-    PlayerBBridge <-->|出站 TCP| Server
-    PlayerA --> PlayerASave[玩家 A UUIDv7 线上存档]
-    PlayerB --> PlayerBSave[玩家 B UUIDv7 线上存档]
-    Server -->|经过校验的房间数据| PlayerABridge
-    Server -->|经过校验的房间数据| PlayerBBridge
+    GameA[游戏 + Jint Mod] -->|Player.log 标记命令| BridgeA[NativeAOT 桥]
+    BridgeA -->|轮换状态 JSON| GameA
+    GameB[游戏 + Jint Mod] -->|Player.log 标记命令| BridgeB[NativeAOT 桥]
+    BridgeB -->|轮换状态 JSON| GameB
+    BridgeA <-->|明文分帧 TCP| Server[Ubuntu 房间权威服务]
+    BridgeB <-->|明文分帧 TCP| Server
+    GameA --> SaveA[UUIDv7 MPOnline 存档]
+    GameB --> SaveB[UUIDv7 MPOnline 存档]
 ```
 
-- `src/GameMod/` 是可编辑游戏脚本，负责 UI、Hook、线上时间、玩家/资料同步和存档重定向。
-- `src/MultiplayerBridge/` 负责直连 TCP、独立房间协议适配和有界消息队列。
-- `src/MultiplayerBridgeHost/` 负责进程生命周期、IPC 状态快照、线上存档加密和自包含 Windows 桥接程序；`PublicServerEndpoint.cs` 解密内置端点。
-- `mod/main.ts` 与 `mod/i18n/` 是生成的运行副本，不应直接编辑。
-- `src/MultiplayerRoomServer/` 是单独部署的 Docker 房间中继，不进入玩家发布 ZIP。
+- `src/GameMod/`：Unity UI、Hook、存档生命周期、线上时间显示和玩家/资料同步。
+- `src/MultiplayerBridge/`：本地直连 TCP、独立房间客户端适配和有界队列。
+- `src/MultiplayerBridgeHost/`：进程生命周期、日志命令 IPC、轮换状态快照、端点解码和存档加密。
+- `src/MultiplayerRoomServer/`：公开房间成员、时钟/场景/睡眠控制和数据转发。
+- `mod/main.ts` 与 `mod/i18n/` 是生成的运行副本，应修改 `src/GameMod/`。
 
-## 同步数据归属
+桥接程序以当前普通用户启动，不使用注册表 IPC，也不申请提权。游戏到桥接的命令写成 Unity `Player.log` 中的单行专用标记；桥接到游戏使用三个轮换 JSON 快照，避免 Jint 读取与写入竞争。
 
-| 数据 | 权威来源 | 更新方式 |
+## 权威与同步
+
+| 数据 | 公开房间权威来源 | 频率/路径 |
 | --- | --- | --- |
-| 位置、旋转、动作、Animator 层 | 各玩家本人 | 20 Hz 快照，逐渲染帧显示 |
-| 衣服、捏脸、进度 | 各玩家本人 | 带修订号的完整资料包，过大时分片 |
-| 生命、耐力、金钱和场景 | 各玩家本人 | 小型实时资料包 |
-| 世界时间和日期 | Ubuntu 房间服务器 | 5 Hz 权威锚点 |
-| 房间场景 | Ubuntu 房间服务器 | 比较交换请求与权威广播 |
-| 睡眠导致的时间变化 | Ubuntu 房间服务器 | 收到全员相同请求后批准 |
-| 线上存档 | 本地玩家 | UUIDv7 文件、加密并原子写入 |
+| 成员与认证玩家 ID | Ubuntu 服务器 | 连接生命周期 |
+| 位置、旋转、动作、武器、Animator 层 | 玩家本人 | 20 Hz 快照；逐渲染帧插值 |
+| 衣服、捏脸、完整资料快照 | 玩家本人 | 每 2 秒修订资料；必要时分片 |
+| 生命、耐力、金钱、日期/时间显示和场景 | 玩家本人 | 每 0.5 秒实时资料 |
+| 世界时钟 | Ubuntu 服务器 Peer `0` | 5 Hz 锚点 |
+| 房间场景 | Ubuntu 服务器 Peer `0` | 比较交换请求/广播 |
+| 睡眠推进 | Ubuntu 服务器 Peer `0` | 全员相同请求、批准与提交 |
+| 线上存档 | 玩家本机 | UUIDv7 文件；不会作为文件发送给服务器 |
+
+服务器校验房间信封与已经认证的成员身份。公开流量中，它会替换玩家声明的 ID/名称、拒绝玩家时间权威，并处理时间/场景/睡眠控制包；它不模拟 Unity 物理、战斗、任务或背包。
+
+完整资料传输用于远端外观和玩家信息页面，不会把其他玩家的进度应用到本机存档。
 
 ## 房间生命周期
 
-1. 公开浏览页请求 `room.list`；服务器始终返回三个固定房间及实时人数/容量。本地直连建立/加入是独立 UI 路径。
-2. 每名玩家发送 `room.enter`；服务器原子地加入现有房间，或在房间为空时创建。
-3. 服务器始终是逻辑权威 Peer `0`；每名玩家只获得正数普通成员 ID。
-4. 服务器用已经认证的连接 ID 覆盖玩家数据包中的 ownerId，普通成员不能冒充其他玩家。
-5. 服务器只解析控制信封、强制成员身份并协调时间/场景/睡眠，不解释存档资料字段，也不运行游戏模拟。
-6. 玩家断开只移除自己；公开房间持续存在，直到管理员关闭或服务重启。
+1. 服务器启动时建立一个真实公开房间；`room.list` 只返回实际房间、实时人数和服务器指定的容量。
+2. `room.enter` 无密码加入列表中的房间；客户端不能指定公开房间容量。
+3. 服务器始终是逻辑 Peer `0`；包括第一名玩家在内，所有玩家都获得正数普通成员 ID。
+4. 全部公开房间满员后，服务器建立下一个编号房间；多余空房间会被回收，同时保留一个可加入的空房间。
+5. `room.create`/`room.join` 仍供显式房间和兼容客户端使用；游戏内本地“建立/加入”使用直连 `BridgeNode` TCP。
+6. 本地直连仍由玩家房主权威控制，并可能需要入站网络配置；公开模式不会把权威交给玩家。
 
-端点作为 AES-GCM 密文常量存在 NativeAOT 桥接程序内，不以明文配置发布。客户端同时包含密钥派生材料，所以这是静态隐藏和防止随手篡改，不是能够抵抗二进制分析的秘密管理。
+每帧由 4 字节大端长度和 UTF-8 JSON 构成，最大 64 KiB。传输是明文 TCP，不是 TLS。AES-GCM 端点混淆只隐藏可编辑配置，不会加密网络数据包。
+
+## 存档事务
+
+```mermaid
+sequenceDiagram
+    participant G as 游戏 Mod
+    participant B as 桥接程序
+    participant D as 存档目录
+    G->>B: prepareSave(MPOnline UUID)
+    B->>D: 认证并解密 MPOnline
+    B->>D: 创建临时 MPActive
+    Note over G,B: 写入锁保持关闭
+    G->>G: LoadGame(MPActive)
+    G->>B: releaseSave
+    B->>D: 删除 MPActive
+    G->>B: enableSaveWrites
+    G->>G: 拦截 SaveGame("AutoSave")
+    G->>B: 提交 GetSave JSON
+    B->>D: 原子替换 MPOnline
+```
+
+正常情况下只有 `MPOnline_<UUIDv7>.save` 持久存在。之所以短暂生成 `MPActive`，只是因为游戏无法读取 Mod 的认证外层容器。准备和加载期间，游戏脚本与桥接程序都会拒绝写入；加载失败时正式线上档逐字节保持不变。
+
+线上自动保存不会调用原版磁盘写入器。Mod 会取消 `SaveGame("AutoSave")`，捕获内存 JSON，然后提交双层加密线上档。线上流程不会读取、创建、备份或恢复单机 `AutoSave.save`。
 
 ## 源码合并
 
-UcModLauncher 只加载一个 Jint 脚本，不能解析 TypeScript 模块。`build.ps1` 会先检查
-`src/GameMod/source-order.json` 是否恰好包含每个 `.ts` 模块一次，再合并生成 `mod/main.ts`；
-同时检查所有语言包的键是否与英语一致。
+UcModLauncher 只加载一个 Jint 脚本，不能解析 TypeScript 模块。`build.ps1` 会检查 `src/GameMod/source-order.json` 是否恰好包含每个 `.ts` 文件一次，合并生成 `mod/main.ts`，校验页面/组件边界，并检查六种语言的翻译键完全一致。

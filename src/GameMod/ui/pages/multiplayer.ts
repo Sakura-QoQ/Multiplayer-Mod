@@ -50,13 +50,12 @@ function buildUi(font: any): void {
         uiPublicRoomsBody = makeSolidRect(shell.panel.transform, "PublicRoomsBody",
             new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
         makeText(uiPublicRoomsBody.transform, "PublicHint", tr("publicRoom.choose"), font, 30, 35, 660, 50, 27);
-        for (let index = 0; index < 3; index++) {
-            const roomId = "public-" + (index + 1);
-            uiPublicRoomButtons[roomId] = makeButton(uiPublicRoomsBody.transform, "PublicRoom" + (index + 1),
-                tr("publicRoom." + roomId), font, 55, 105 + index * 82, 610,
-                () => enterPublicRoomFromUi(roomId), 62);
-        }
-        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font, 215, 375, 290, requestPublicRoomListFromUi, 54);
+        uiPublicPreviousButton = makeButton(uiPublicRoomsBody.transform, "PublicPrevious",
+            tr("button.previous"), font, 55, 430, 190, () => changePublicRoomPage(-1), 52);
+        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font,
+            265, 430, 190, requestPublicRoomListFromUi, 52);
+        uiPublicNextButton = makeButton(uiPublicRoomsBody.transform, "PublicNext",
+            tr("button.next"), font, 475, 430, 190, () => changePublicRoomPage(1), 52);
         uiPublicRoomsBody.SetActive(false);
         refreshPublicRoomButtons();
 

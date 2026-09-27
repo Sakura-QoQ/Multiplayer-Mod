@@ -1,58 +1,81 @@
 # Architecture
 
-The production architecture uses an Ubuntu public-room relay. Every player bridge decrypts its embedded
-endpoint and opens an outbound TCP connection to the server. The server owns logical peer `0`, room
-membership, the shared clock, scene compare-and-swap arbitration, sleep consensus and packet routing.
-Every player is an ordinary positive-ID member and keeps an independent online save.
-The public UI does not expose the older direct TCP compatibility path.
+The project has two network paths: production public rooms through an Ubuntu authority/relay, and retained local direct Host/Join. Both use the bundled Windows bridge; neither injects a DLL into the game.
 
-## Runtime flow
+## Runtime components
 
 ```mermaid
 flowchart LR
-    PlayerA[Player A game + Mod] --> PlayerABridge[Bundled bridge]
-    PlayerB[Player B game + Mod] --> PlayerBBridge[Bundled bridge]
-    PlayerABridge <-->|outbound TCP| Server[Ubuntu authority + relay]
-    PlayerBBridge <-->|outbound TCP| Server
-    PlayerA --> PlayerASave[Player A UUIDv7 online save]
-    PlayerB --> PlayerBSave[Player B UUIDv7 online save]
-    Server -->|validated room payloads| PlayerABridge
-    Server -->|validated room payloads| PlayerBBridge
+    GameA[Game + Jint Mod] -->|marked Player.log commands| BridgeA[NativeAOT bridge]
+    BridgeA -->|rotating state JSON| GameA
+    GameB[Game + Jint Mod] -->|marked Player.log commands| BridgeB[NativeAOT bridge]
+    BridgeB -->|rotating state JSON| GameB
+    BridgeA <-->|plain framed TCP| Server[Ubuntu room authority]
+    BridgeB <-->|plain framed TCP| Server
+    GameA --> SaveA[MPOnline UUIDv7 save]
+    GameB --> SaveB[MPOnline UUIDv7 save]
 ```
 
-- `src/GameMod/` is the editable in-game source. It owns UI, hooks, online time, player/profile
-  synchronization and save redirection.
-- `src/MultiplayerBridge/` owns direct framed TCP transport, the dedicated-room protocol adapter and bounded queues.
-- `src/MultiplayerBridgeHost/` owns process lifecycle, IPC snapshots, online-save encryption and
-  the self-contained Windows bridge executable. `PublicServerEndpoint.cs` decrypts the embedded endpoint.
-- `mod/main.ts` and `mod/i18n/` are generated runtime copies. Do not edit them directly.
-- `src/MultiplayerRoomServer/` is the Docker room relay. It is deployed separately and is not included in the player ZIP.
+- `src/GameMod/` owns Unity UI, hooks, save lifecycle, online time presentation and player/profile synchronization.
+- `src/MultiplayerBridge/` contains direct TCP and the dedicated-room client adapter with bounded queues.
+- `src/MultiplayerBridgeHost/` owns process lifecycle, log-command IPC, rotating state snapshots, endpoint decoding and save cryptography.
+- `src/MultiplayerRoomServer/` owns public membership, clock/scene/sleep control and packet relay.
+- `mod/main.ts` and `mod/i18n/` are generated runtime copies; edit `src/GameMod/` instead.
 
-## Synchronization ownership
+The bridge launches as the current user without registry IPC or elevation. Game-to-bridge commands are marked single-line records in Unity `Player.log`. Bridge-to-game state uses three rotating JSON snapshots so the Jint reader does not race the writer.
 
-| Data | Authority | Update path |
+## Authority and synchronization
+
+| Data | Public-room authority | Frequency/path |
 | --- | --- | --- |
-| Position, rotation, actions, Animator layers | Each owning player | 20 Hz snapshots, rendered every frame |
-| Clothing, customization, progress | Each owning player | Revisioned profile packets with chunking |
-| Health, stamina, money and scene | Each owning player | Compact live-data packets |
-| World time and day | Ubuntu room server | 5 Hz authoritative anchors |
-| Room scene | Ubuntu room server | Compare-and-swap requests plus authoritative broadcast |
-| Sleep time changes | Ubuntu room server | Approval after unanimous matching player requests |
-| Online save | Local player only | UUIDv7 slot, encrypted and atomically written |
+| Membership and authenticated peer ID | Ubuntu server | Connection lifecycle |
+| Position, rotation, action, weapon, Animator layers | Owning player | 20 Hz snapshot; render-frame interpolation |
+| Clothing, customization, complete profile snapshot | Owning player | Revisioned 2 s profile update; chunked when required |
+| Health, stamina, money, day/time display and scene | Owning player | 0.5 s live-data update |
+| World clock | Ubuntu server peer `0` | 5 Hz anchor |
+| Room scene | Ubuntu server peer `0` | Compare-and-swap request/broadcast |
+| Sleep advancement | Ubuntu server peer `0` | Unanimous matching request, approval and commit |
+| Online save | Local player computer | UUIDv7 file; never sent to the room server as a file |
+
+The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names, rejects player clock authority, and handles time/scene/sleep control packets. It does not simulate Unity physics, combat, quests or inventory.
+
+Profile transfer is for remote appearance and player-information views. Receiving another player's complete profile does not apply that progress to the local save.
 
 ## Room lifecycle
 
-1. The public browser requests `room.list`; the server always returns the three fixed rooms with live population/capacity. Local direct Host/Join remains a separate UI path.
-2. Every player sends `room.enter`; the server atomically joins an existing room or creates it when empty.
-3. The server remains logical authority peer `0`; every player receives a positive ordinary-member ID.
-4. The server overwrites player-owned packet IDs with the authenticated connection ID, preventing member impersonation.
-5. The server parses only the control envelope, enforces member identity and coordinates time/scene/sleep. It does not interpret save-profile fields or run game simulation.
-6. A disconnect removes only that player. Public rooms persist until an administrator closes them or the service restarts.
+1. The server creates one real public room at startup; `room.list` returns only actual rooms with live population and server-defined capacity.
+2. `room.enter` joins the selected listed room without a password; public capacity is never supplied by a client.
+3. The server remains logical peer `0`; every player receives a positive member ID, including the first entrant.
+4. When all public rooms are full the server creates the next numbered room. Redundant empty rooms are reclaimed while one joinable empty room is retained.
+5. `room.create`/`room.join` remain available for explicit rooms and compatibility clients; the in-game local Host/Join page instead uses direct `BridgeNode` TCP.
+6. Direct mode retains player-host authority and may require inbound networking; public mode never grants authority to a player.
 
-The endpoint is an AES-GCM ciphertext constant in the NativeAOT bridge, not plaintext configuration. Because the client also contains the key derivation material, this is static obfuscation and tamper resistance, not a secret that can withstand binary analysis.
+Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB frame limit. The transport is plain TCP, not TLS. AES-GCM endpoint obfuscation only hides editable configuration; it does not secure packets on the wire.
+
+## Save transaction
+
+```mermaid
+sequenceDiagram
+    participant G as Game Mod
+    participant B as Bridge
+    participant D as Save directory
+    G->>B: prepareSave(MPOnline UUID)
+    B->>D: authenticate/decrypt MPOnline
+    B->>D: create temporary MPActive
+    Note over G,B: write gates remain disabled
+    G->>G: LoadGame(MPActive)
+    G->>B: releaseSave
+    B->>D: delete MPActive
+    G->>B: enableSaveWrites
+    G->>G: intercept SaveGame("AutoSave")
+    G->>B: commit GetSave JSON
+    B->>D: atomically replace MPOnline
+```
+
+Only `MPOnline_<UUIDv7>.save` persists normally. `MPActive` exists solely because the game cannot read the Mod's authenticated outer container. During preparation and loading, both the game script and bridge reject writes. If loading fails, the formal online file remains byte-for-byte unchanged.
+
+Online autosave never invokes the original disk writer. It cancels `SaveGame("AutoSave")`, captures the in-memory JSON and commits the double-encrypted online file. The online pipeline does not read, create, back up or restore single-player `AutoSave.save`.
 
 ## Source assembly
 
-UcModLauncher loads one Jint script and does not resolve TypeScript modules. `build.ps1` validates
-that `src/GameMod/source-order.json` contains every `.ts` module exactly once, then concatenates the
-modules into `mod/main.ts`. The build also verifies that every language has the same keys as English.
+UcModLauncher loads one Jint script and does not resolve TypeScript modules. `build.ps1` verifies that `src/GameMod/source-order.json` lists every `.ts` file exactly once, concatenates the files into `mod/main.ts`, checks page/component boundaries, and verifies identical translation keys across six languages.

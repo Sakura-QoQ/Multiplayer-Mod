@@ -6,7 +6,7 @@ type MultiplayerConfig = {
     mode: "off" | "host" | "client";
     address: string;
     port: number;
-    maxPlayers: number;
+    localMaxPlayers: number;
     playerName: string;
     roomId: string;
     roomKey: string;
@@ -46,7 +46,7 @@ function prefKey(baseName: string): string {
 
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
     localPeerId: number; authorityPeerId: number };
-type PublicRoomEntry = { roomId: string; players: number; capacity: number };
+type PublicRoomEntry = { roomId: string; roomName: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
     cloth: string[];

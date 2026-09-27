@@ -33,9 +33,12 @@ function processEvent(rawEvent: string): void {
             const payload = JSON.parse(event.message || "{}");
             publicRoomEntries = Array.isArray(payload.rooms) ? payload.rooms.map((room: any) => ({
                 roomId: String(room.roomId || ""),
+                roomName: String(room.roomName || ""),
                 players: Math.max(0, Math.trunc(Number(room.players) || 0)),
                 capacity: Math.max(0, Math.trunc(Number(room.capacity) || 0))
             })).filter((room: PublicRoomEntry) => room.roomId.length > 0) : [];
+            const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+            publicRoomPage = Math.min(publicRoomPage, maximumPage);
             refreshPublicRoomButtons();
             updateStatusText(tr("status.publicRoomsReady"));
         } catch (error) {

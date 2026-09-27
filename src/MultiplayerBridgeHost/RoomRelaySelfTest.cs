@@ -7,19 +7,21 @@ internal static partial class Program
 {
     private static async Task SelfTestRoomRelayAsync(string address, int port)
     {
+        var initialCapacity = 0;
         using (var browser = new RoomRelayClient())
         {
             if (browser.ListPublicRooms(address, port) != 0)
                 throw new InvalidOperationException("Could not request the public room list");
             var listEvent = await WaitForEventAsync(browser, "roomList", TimeSpan.FromSeconds(10));
             using var list = JsonDocument.Parse(listEvent.Message);
-            if (!list.RootElement.TryGetProperty("rooms", out var rooms) || rooms.GetArrayLength() < 3)
-                throw new InvalidOperationException("Public room list did not include the fixed rooms");
+            if (!list.RootElement.TryGetProperty("rooms", out var rooms) || rooms.GetArrayLength() != 1)
+                throw new InvalidOperationException("A fresh server did not expose exactly one real public room");
+            initialCapacity = rooms[0].GetProperty("capacity").GetInt32();
         }
         const string roomId = "public-1";
         using var creator = new RoomRelayClient();
         using var joiner = new RoomRelayClient();
-        if (creator.EnterPublicRoom(address, port, roomId, "Creator", 4) != 0)
+        if (creator.EnterPublicRoom(address, port, roomId, "Creator") != 0)
             throw new InvalidOperationException("Could not start the room creator relay");
         var creatorReady = await WaitForEventAsync(creator, "roomReady", TimeSpan.FromSeconds(10));
         if (creatorReady.PeerId <= 0) throw new InvalidOperationException("Creator received an invalid peer ID");
@@ -31,7 +33,7 @@ internal static partial class Program
                 throw new InvalidOperationException("Public room did not retain authority on the server");
         }
 
-        if (joiner.EnterPublicRoom(address, port, roomId, "Joiner", 4) != 0)
+        if (joiner.EnterPublicRoom(address, port, roomId, "Joiner") != 0)
             throw new InvalidOperationException("Could not start the room joiner relay");
         var joinerReady = await WaitForEventAsync(joiner, "roomReady", TimeSpan.FromSeconds(10));
         if (joinerReady.PeerId <= 0 || joinerReady.PeerId == creatorReady.PeerId)
@@ -47,6 +49,11 @@ internal static partial class Program
                 .FirstOrDefault(room => room.GetProperty("roomId").GetString() == roomId);
             if (listedRoom.ValueKind == JsonValueKind.Undefined || listedRoom.GetProperty("players").GetInt32() != 2)
                 throw new InvalidOperationException("Public room population did not update to two players");
+            if (initialCapacity == 2 && !populated.RootElement.GetProperty("rooms").EnumerateArray()
+                    .Any(room => room.GetProperty("roomId").GetString() == "public-2" &&
+                        room.GetProperty("players").GetInt32() == 0 &&
+                        room.GetProperty("capacity").GetInt32() == initialCapacity))
+                throw new InvalidOperationException("The server did not create the next real room after capacity was reached");
         }
 
         _ = await WaitForEventAsync(joiner, "connected", TimeSpan.FromSeconds(5));

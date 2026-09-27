@@ -1,84 +1,70 @@
 # Fallen Flower Multiplayer — dedicated server edition
 
-Public-server multiplayer for **Fallen Flower**. Every player connects to a Docker-hosted Ubuntu relay by selecting one of the built-in public-server buttons.
+Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and isolated per-player online saves.
 
-`PlayerHostedMultiplayer` remains the package and folder identifier for upgrade compatibility; it no longer describes the production network architecture.
+`PlayerHostedMultiplayer` remains the package identifier for upgrade compatibility. Public rooms use the separately deployed Ubuntu service; local Host/Join remains available from the main Multiplayer page.
 
-> **v0.12.0 deployment requirement:** update both the player Mod and Ubuntu service. Earlier servers do not provide the fixed public-room population list.
+> **Compatibility:** the player Mod and Ubuntu server must both be v0.13.0. All players need matching game and Mod versions.
+>
+> **Transport security:** the room protocol is length-prefixed JSON over plain TCP, not TLS. Endpoint obfuscation and save-file encryption do not encrypt network traffic. Do not reuse sensitive passwords as an administrator token.
 
-[简体中文说明](README.zh-CN.md) · [Documentation index](docs/README.md) · [Verification report](VERIFICATION.md) · [License](LICENSE)
+[简体中文说明](README.zh-CN.md) · [Documentation](docs/README.md) · [Verification](VERIFICATION.md) · [License](LICENSE)
 
-## Features
+## Install and play
 
-- The main Multiplayer page keeps local Host/Join controls and a separate Public servers entry. The public page lists each room's live population/capacity before the player chooses one; public addresses and passwords are never entered.
-- During an online session, the pause-menu entry opens a read-only room page showing role/public-room name, synchronized time, player count and player list. The world, physics, animation and online clock continue running behind it.
-- Up to eight players per room by default; the server limit is configurable from 2 to 32.
-- Every player connects as an ordinary participant. The Ubuntu service owns room membership, the logical authority identity, the shared clock, scene arbitration and sleep consensus; no player exposes a public port or receives host privileges.
-- Hold `Tab` in an online game to show the localized room-player list in the center of the screen.
-- Player model, position, rotation, movement, grounded state, weapon, action and all Animator layers are synchronized.
-- Clothing, skin tan, character customization, complete save-profile data and continuously changing player status are synchronized.
-- Player movement snapshots are sent at 20 Hz; remote transforms and clothing bones are still updated every render frame.
-- The server advances one authoritative clock and every player continuously calibrates to it. Sleeping advances only after the server observes the same request from every connected player.
-- Online saves use one persistent UUIDv7 per player and never appear in the single-player load/save UI.
-- Exiting online mode saves and verifies the online file before quitting.
+1. Import `PlayerHostedMultiplayer-v0.13.0-win-x64.zip` with the game's Mod launcher.
+2. Start the game through that launcher.
+3. Select **Multiplayer** above **New Game**.
+4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
 
-## Installation
+The ZIP contains a self-contained Windows x64 NativeAOT bridge. Players do not install Node.js, TypeScript, .NET, Visual Studio or a separate launcher script. Public play needs outbound TCP only; players do not open an inbound port.
 
-1. Import `PlayerHostedMultiplayer-v0.12.0-win-x64.zip` with the game's dedicated Mod launcher.
-2. Start the game through that Mod launcher.
-3. Select **Multiplayer** above **New Game** on the main menu.
+For local direct play, use **Host** or **Join** with an address and port. A direct host may need a Windows firewall rule and router port forwarding when players connect from outside its LAN.
 
-The package contains a Windows x64 NativeAOT bridge and all of its runtime dependencies. Players do **not** need Node.js, TypeScript, .NET, Visual Studio or a separate start script.
-The bridge runs with the current user's normal token and does not request administrator elevation.
-Dedicated-server players need outbound TCP access only. Windows inbound firewall and router port forwarding are not required.
+## Current behavior
 
-## Quick start
+- The server starts with one real public room. When every room is full it creates the next room automatically; redundant empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
+- `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
+- The Ubuntu service is logical authority peer `0`. Every public player receives a positive ordinary-member ID; the first player has no special authority.
+- The server owns membership, the 5 Hz shared clock, scene arbitration and unanimous sleep approval. It relays player-owned state but does not run Unity gameplay or store player saves.
+- Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
+- Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
+- Opening the online pause menu does not pause the world. Its Multiplayer page is read-only and shows room identity, synchronized time, population and players. Hold `Tab` for the centered player list.
+- Server-authoritative time continues while menus are open. Sleep advances only after every connected player requests the same sleep mode.
 
-1. Enter a player name.
-2. Select **Public servers**, review each room's live player count, then choose a room.
-3. The server atomically joins the existing public room or creates it when empty. No password is used.
-4. The Mod resumes the player's own UUIDv7 online save, or creates it from a clean game only when none exists.
+The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and is absent from editable configuration and UI text. This prevents casual editing; it is not secret management because the client contains the decryption material.
 
-The endpoint is stored as an AES-GCM-encrypted constant inside the native bridge, not in `config.json`, the UI or language files. This prevents casual plaintext discovery and configuration changes, but is obfuscation rather than secret management because a client must contain the decryption material. All players must use matching game and Mod versions. A player leaving removes only that participant; the server retains the public room until an administrator closes it or the service restarts.
+## Save isolation
 
-## Synchronization model
+Each player owns one persistent `MPOnline_<UUIDv7>.save`. The server never receives or stores this file.
 
-- Player state is sent at 20 Hz for responsive movement. Server-authoritative world time remains at 5 Hz because it changes much more slowly.
-- Online time advances from the Mod's unscaled authoritative clock, so opening pause/settings UI on any computer cannot stop or fork room time.
-- Rendering still runs every frame: remote positions, rotations, animation layers and clothing bones interpolate toward the newest snapshot.
-- Complete `GetSave()` profile data is chunked when necessary, reassembled with revision tracking and retained per remote player.
-- Frequently changing health, stamina, money, time and scene values use a smaller live-data message.
-- Remote avatars are visual-only clones. Input, camera, collision and gameplay scripts are removed before activation.
+1. On entry, the bridge authenticates and decrypts `MPOnline` into a temporary `MPActive_<UUIDv7>.save` because the game can only load its native `Encrypted` format.
+2. Loading is a read-only transaction. Game-side and bridge-side write gates reject autosaves until loading finishes.
+3. After `LoadGame` completes, the temporary `MPActive` file is deleted.
+4. Online autosave intercepts the game's `SaveGame("AutoSave")`, cancels the original disk write, reads `GameManager.GetSave()` from memory, and atomically replaces only `MPOnline`.
+5. Online exit saves and verifies `MPOnline` before quitting.
 
-The game save contains photo metadata but not the external PNG image bytes; those external image files are not transferred.
+The persistent file therefore remains `MPOnline` only. Single-player `AutoSave.save` is neither read nor written by the online-save pipeline, and online files are hidden from the original load/save UI.
 
-## Online-save isolation
+The inner layer matches the game's PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` format. The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption. This protects files at rest, not network traffic.
 
-- Formal file: `MPOnline_<player UUIDv7>.save`.
-- Recovery working copy: `MPActive_<player UUIDv7>.save`.
-- Both are filtered from the original single-player load/save pages.
-- The inner layer matches the game's `Encrypted` format: PBKDF2-SHA256, AES-256-CBC and HMAC-SHA256.
-- The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption.
-- Save writes are atomic. The working copy remains available for recovery, and the original `AutoSave*.save` files are not overwritten.
+## Build and deploy
 
-## Build and verification
-
-Development requires the .NET 8 SDK and Visual Studio x64 C++ tools for NativeAOT linking. See the
-[development guide](docs/DEVELOPMENT.md) and [architecture overview](docs/ARCHITECTURE.md).
+Developers need the .NET 8 SDK and Visual Studio x64 C++ tools:
 
 ```powershell
 ./build.ps1 -Install
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
-See [VERIFICATION.md](VERIFICATION.md) for the verified scope and evidence paths.
+Server administrators should follow [server/README.md](server/README.md). Contributors should start with the [development guide](docs/DEVELOPMENT.md) and [architecture](docs/ARCHITECTURE.md).
 
 ## Supported environment
 
-- Windows x64
+- Windows x64 player computers
 - Fallen Flower with the dedicated Mod launcher
-- Ubuntu/Linux server with Docker Engine and the Compose plugin
-- Matching game and Mod versions for every participant
+- Ubuntu/Linux server with Docker Engine and Compose
+- TCP/IPv4 or IPv6 connectivity to the configured room-server port
 
 ## License
 

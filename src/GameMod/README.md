@@ -4,9 +4,10 @@ This directory is the editable source for the in-game Mod. `build.ps1` concatena
 `source-order.json` into `mod/main.ts` because UcModLauncher loads one script entry and does not
 resolve TypeScript modules. The generated file must not be edited directly.
 
-The main page keeps local direct Host/Join. Public servers requests the fixed room list and live
-population/capacity through the bundled bridge before the player selects a room. The public endpoint
-and room IDs stay hidden from editable UI configuration.
+The main page keeps local direct Host/Join. Public servers requests the server-managed real room list
+and live population/capacity through the bundled bridge before the player selects a room. The public
+endpoint stays hidden from editable UI configuration. Public capacity is never supplied by the client;
+`localMaxPlayers` applies only to local direct hosting.
 
 - `core/`: shared protocol types, constants, state and runtime helpers.
 - `network/bridge/`: IPC state snapshots and bundled bridge process communication.
@@ -17,7 +18,7 @@ and room IDs stay hidden from editable UI configuration.
 - `player/info/`: player-information presentation models.
 - `player/profile/`: profile reading, storage and chunked transmission.
 - `player/state/`: frequent transform/action snapshots and per-frame remote rendering.
-- `save/`: online-save entry, redirection, protection and exit-save flow.
+- `save/`: UUIDv7 entry, read-only load transaction, temporary load-copy release, direct `MPOnline` commits and verified exit.
 - `ui/components/`: reusable Unity UI primitives. Pages construct controls through these helpers.
 - `ui/pages/`: local Host/Join, public-room browser, read-only pause room page and player lists.
 - `ui/i18n/<language>/strings.json`: UI translations, organized by language abbreviation.
@@ -26,3 +27,7 @@ and room IDs stay hidden from editable UI configuration.
 
 When adding a module, also add it to `source-order.json` after every file that declares symbols it
 uses. Runtime language files are copied to `mod/i18n` during the build.
+
+Online `SaveGame("AutoSave")` is intercepted only while `role !== "off"`: the original disk writer
+is cancelled and the in-memory snapshot is committed to `MPOnline`. Single-player mode returns from
+the Hook without interception. Do not reintroduce bridge-side `AutoSave.save` monitoring.

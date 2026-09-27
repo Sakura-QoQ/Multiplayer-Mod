@@ -2,7 +2,7 @@
 
 This document records the exact identifiers used by Fallen Flower for the player profile synchronized by PlayerHostedMultiplayer. Field identifiers are never translated in the in-game profile card; only the card title follows the selected language.
 
-In v0.12.0 these packets travel through the public Ubuntu authority service. It validates packet type
+In v0.13.0 these packets travel through the public Ubuntu authority service. It validates packet type
 and authenticated member identity but does not interpret profile fields; extraction, chunking,
 field validation and application remain on player computers.
 
@@ -49,11 +49,13 @@ There is no game save field named `Achievements`. Earlier Mod versions created t
 | `XContactData` | saved `XData.contactData` (`XData.ContactSaveStruct[]`) |
 | `Photo` | saved photo index/metadata; image files are separate |
 | `LastTakePhoto` | last captured-photo reference |
-| `Cloth` | equipped/unlocked clothing IDs used for the current appearance |
+| `Cloth` | equipped clothing IDs used for the current appearance |
 | `UnlockedCloth` | clothing unlock state |
 | `PlayFlag*` | individual game progression flags; each original key is preserved |
 
 The packet also keeps `PlayerProfile.cloth` and `PlayerProfile.customization` as convenient mirrors of `Cloth` and `CustomizationData` for remote-model rendering. `progress` remains the authoritative complete snapshot.
+
+“Synchronized” here means transferred for remote representation and player-information display. The receiver does not merge another player's quests, inventory, flags or other progress into its own local/online save.
 
 ## Evidence and version scope
 

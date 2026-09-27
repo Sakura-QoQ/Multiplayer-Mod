@@ -14,7 +14,9 @@ function refreshRoomInfoUi(force = false): void {
     try {
         const status = readBridgeStatus();
         const address = networkTransport === "server"
-            ? (currentPublicRoom ? tr("publicRoom." + currentPublicRoom) : tr("room.publicServer"))
+            ? (currentPublicRoom ? publicRoomDisplayName(
+                publicRoomEntries.find(item => item.roomId === currentPublicRoom) || null,
+                currentPublicRoom) : tr("room.publicServer"))
             : tr("room.thisComputer");
         const port = status.port;
         const rows = roomPlayerRows();

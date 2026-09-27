@@ -37,8 +37,8 @@ public sealed class RoomRelayClient : IDisposable
         => StartCore(host, port, createRoom ? "create" : "join", roomId, roomKey,
             roomName, playerName, maxPlayers);
 
-    public int EnterPublicRoom(string host, int port, string roomId, string playerName, int maxPlayers)
-        => StartCore(host, port, "enter", roomId, string.Empty, roomId, playerName, maxPlayers);
+    public int EnterPublicRoom(string host, int port, string roomId, string playerName)
+        => StartCore(host, port, "enter", roomId, string.Empty, roomId, playerName, 2);
 
     public int ListPublicRooms(string host, int port)
         => StartCore(host, port, "list", "public-list", string.Empty, string.Empty, "Player", 2);
@@ -144,8 +144,7 @@ public sealed class RoomRelayClient : IDisposable
                     ",\"playerName\":" + Quote(playerName) + ",\"maxPlayers\":" + maxPlayers + "}"
                 : _entryMode == "enter"
                     ? "{\"type\":\"room.enter\",\"roomId\":" + Quote(roomId) +
-                        ",\"roomName\":" + Quote(roomName) + ",\"playerName\":" + Quote(playerName) +
-                        ",\"maxPlayers\":" + maxPlayers + "}"
+                        ",\"roomName\":" + Quote(roomName) + ",\"playerName\":" + Quote(playerName) + "}"
                     : "{\"type\":\"room.join\",\"roomId\":" + Quote(roomId) +
                     ",\"roomKey\":" + Quote(roomKey) + ",\"playerName\":" + Quote(playerName) + "}";
             await SendFrameAsync(request, cancellationToken).ConfigureAwait(false);

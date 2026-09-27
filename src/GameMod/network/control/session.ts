@@ -71,7 +71,7 @@ function startBridge(): void {
     role = config.mode;
     if (role === "off") { log("Loaded; use the Multiplayer button above New Game"); return; }
     const result = role === "host"
-        ? bridgeCall("host?port=" + config.port + "&max=" + config.maxPlayers)
+        ? bridgeCall("host?port=" + config.port + "&max=" + config.localMaxPlayers)
         : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
     if (result !== "0") { log("Failed to start the network bridge; error code=" + result); role = "off"; return; }
     localNetworkId = role === "host" ? 0 : -1;
@@ -98,9 +98,10 @@ function enterPublicRoomFromUi(roomId: string): void {
     currentPublicRoom = roomId;
     localNetworkId = -1;
     clientEntryStarted = false;
-    updateStatusText(tr("status.enteringPublicRoom", { room: tr("publicRoom." + roomId) }));
+    const selectedRoom = publicRoomEntries.find(item => item.roomId === roomId) || null;
+    updateStatusText(tr("status.enteringPublicRoom", { room: publicRoomDisplayName(selectedRoom, roomId) }));
     const command = "publicEnter?room=" + encodeURIComponent(roomId) +
-        "&player=" + encodeURIComponent(currentPlayerName) + "&max=" + config.maxPlayers;
+        "&player=" + encodeURIComponent(currentPlayerName);
     const sequence = submitBridgeCommandTracked(command);
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.publicRoomFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
@@ -123,7 +124,7 @@ function startHostFromUi(): void {
     UnityEngine.PlayerPrefs.Save();
     networkTransport = "direct";
     updateStatusText(tr("status.startingHost", { port }));
-    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.localMaxPlayers);
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
         if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
@@ -166,14 +167,36 @@ function requestPublicRoomListFromUi(): void {
     if (sequence < 0) toast(tr("toast.publicRoomListFailed"));
 }
 
+function publicRoomDisplayName(entry: PublicRoomEntry | null, roomId: string): string {
+    const matched = /^(?:public-)(\d+)$/.exec(roomId);
+    if (matched) return tr("publicRoom.number", { number: matched[1] });
+    return entry && entry.roomName ? entry.roomName : roomId;
+}
+
+function changePublicRoomPage(delta: number): void {
+    const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+    publicRoomPage = Math.max(0, Math.min(maximumPage, publicRoomPage + delta));
+    refreshPublicRoomButtons();
+}
+
 function refreshPublicRoomButtons(): void {
-    for (const roomId of ["public-1", "public-2", "public-3"]) {
-        const entry = publicRoomEntries.find(item => item.roomId === roomId);
-        const label = tr("publicRoom." + roomId) + "    " +
-            tr("publicRoom.players", { players: entry ? entry.players : 0, capacity: entry ? entry.capacity : 8 });
-        const button = uiPublicRoomButtons[roomId];
-        const text = button ? findTextInChildren(button.transform) : null;
-        if (text) text.text = label;
+    if (!uiPublicRoomsBody || !uiFont) return;
+    for (const roomId of Object.keys(uiPublicRoomButtons)) {
+        const old = uiPublicRoomButtons[roomId];
+        if (old) UnityEngine.Object.Destroy(old);
+        delete uiPublicRoomButtons[roomId];
     }
+    const pageRooms = publicRoomEntries.slice(publicRoomPage * 5, publicRoomPage * 5 + 5);
+    for (let index = 0; index < pageRooms.length; index++) {
+        const entry = pageRooms[index];
+        const label = publicRoomDisplayName(entry, entry.roomId) + "    " +
+            tr("publicRoom.players", { players: entry.players, capacity: entry.capacity });
+        uiPublicRoomButtons[entry.roomId] = makeButton(uiPublicRoomsBody.transform,
+            "PublicRoom_" + entry.roomId, label, uiFont, 55, 88 + index * 66, 610,
+            () => enterPublicRoomFromUi(entry.roomId), 56);
+    }
+    const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+    if (uiPublicPreviousButton) uiPublicPreviousButton.SetActive(publicRoomPage > 0);
+    if (uiPublicNextButton) uiPublicNextButton.SetActive(publicRoomPage < maximumPage);
 }
 

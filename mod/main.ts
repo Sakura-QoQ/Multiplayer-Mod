@@ -10,7 +10,7 @@ type MultiplayerConfig = {
     mode: "off" | "host" | "client";
     address: string;
     port: number;
-    maxPlayers: number;
+    localMaxPlayers: number;
     playerName: string;
     roomId: string;
     roomKey: string;
@@ -50,7 +50,7 @@ function prefKey(baseName: string): string {
 
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
     localPeerId: number; authorityPeerId: number };
-type PublicRoomEntry = { roomId: string; players: number; capacity: number };
+type PublicRoomEntry = { roomId: string; roomName: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
     cloth: string[];
@@ -234,6 +234,9 @@ let uiAddress: UnityEngine.UI.InputField | null = null;
 let uiPort: UnityEngine.UI.InputField | null = null;
 const uiPublicRoomButtons: Record<string, UnityEngine.GameObject> = {};
 let publicRoomEntries: PublicRoomEntry[] = [];
+let publicRoomPage = 0;
+let uiPublicPreviousButton: UnityEngine.GameObject | null = null;
+let uiPublicNextButton: UnityEngine.GameObject | null = null;
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
 let pauseButtonLayout: { setting: UnityEngine.UI.Button; multiplayer: UnityEngine.UI.Button; load: UnityEngine.UI.Button;
@@ -636,7 +639,7 @@ function bridgeCall(command: string): string {
 // 网络配置。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function loadConfig(): MultiplayerConfig {
-    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, maxPlayers: 8,
+    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, localMaxPlayers: 8,
         playerName: "Player", roomId: "fallen-flower", roomKey: "", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
         smokeTestSceneSync: false, smokeTestSleepConsensus: false, smokeTestAppearance: false,
         smokeTestPhone: false, smokeTestPauseMenu: false, smokeTestOnlineLifecycle: false,
@@ -650,7 +653,9 @@ function loadConfig(): MultiplayerConfig {
             mode: parsed.mode === "host" || parsed.mode === "client" ? parsed.mode : "off",
             address: typeof parsed.address === "string" ? parsed.address : defaults.address,
             port: typeof parsed.port === "number" ? parsed.port : defaults.port,
-            maxPlayers: typeof parsed.maxPlayers === "number" ? parsed.maxPlayers : defaults.maxPlayers,
+            // maxPlayers 是旧版字段，只作为本地直连人数上限兼容读取；公开房间容量由服务器决定。
+            localMaxPlayers: typeof parsed.localMaxPlayers === "number" ? parsed.localMaxPlayers :
+                typeof parsed.maxPlayers === "number" ? parsed.maxPlayers : defaults.localMaxPlayers,
             playerName: typeof parsed.playerName === "string" ? parsed.playerName : defaults.playerName,
             roomId: typeof parsed.roomId === "string" ? parsed.roomId : defaults.roomId,
             roomKey: typeof parsed.roomKey === "string" ? parsed.roomKey : defaults.roomKey,
@@ -839,7 +844,7 @@ function startBridge(): void {
     role = config.mode;
     if (role === "off") { log("Loaded; use the Multiplayer button above New Game"); return; }
     const result = role === "host"
-        ? bridgeCall("host?port=" + config.port + "&max=" + config.maxPlayers)
+        ? bridgeCall("host?port=" + config.port + "&max=" + config.localMaxPlayers)
         : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
     if (result !== "0") { log("Failed to start the network bridge; error code=" + result); role = "off"; return; }
     localNetworkId = role === "host" ? 0 : -1;
@@ -866,9 +871,10 @@ function enterPublicRoomFromUi(roomId: string): void {
     currentPublicRoom = roomId;
     localNetworkId = -1;
     clientEntryStarted = false;
-    updateStatusText(tr("status.enteringPublicRoom", { room: tr("publicRoom." + roomId) }));
+    const selectedRoom = publicRoomEntries.find(item => item.roomId === roomId) || null;
+    updateStatusText(tr("status.enteringPublicRoom", { room: publicRoomDisplayName(selectedRoom, roomId) }));
     const command = "publicEnter?room=" + encodeURIComponent(roomId) +
-        "&player=" + encodeURIComponent(currentPlayerName) + "&max=" + config.maxPlayers;
+        "&player=" + encodeURIComponent(currentPlayerName);
     const sequence = submitBridgeCommandTracked(command);
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.publicRoomFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
@@ -891,7 +897,7 @@ function startHostFromUi(): void {
     UnityEngine.PlayerPrefs.Save();
     networkTransport = "direct";
     updateStatusText(tr("status.startingHost", { port }));
-    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.localMaxPlayers);
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
         if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
@@ -934,15 +940,37 @@ function requestPublicRoomListFromUi(): void {
     if (sequence < 0) toast(tr("toast.publicRoomListFailed"));
 }
 
+function publicRoomDisplayName(entry: PublicRoomEntry | null, roomId: string): string {
+    const matched = /^(?:public-)(\d+)$/.exec(roomId);
+    if (matched) return tr("publicRoom.number", { number: matched[1] });
+    return entry && entry.roomName ? entry.roomName : roomId;
+}
+
+function changePublicRoomPage(delta: number): void {
+    const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+    publicRoomPage = Math.max(0, Math.min(maximumPage, publicRoomPage + delta));
+    refreshPublicRoomButtons();
+}
+
 function refreshPublicRoomButtons(): void {
-    for (const roomId of ["public-1", "public-2", "public-3"]) {
-        const entry = publicRoomEntries.find(item => item.roomId === roomId);
-        const label = tr("publicRoom." + roomId) + "    " +
-            tr("publicRoom.players", { players: entry ? entry.players : 0, capacity: entry ? entry.capacity : 8 });
-        const button = uiPublicRoomButtons[roomId];
-        const text = button ? findTextInChildren(button.transform) : null;
-        if (text) text.text = label;
+    if (!uiPublicRoomsBody || !uiFont) return;
+    for (const roomId of Object.keys(uiPublicRoomButtons)) {
+        const old = uiPublicRoomButtons[roomId];
+        if (old) UnityEngine.Object.Destroy(old);
+        delete uiPublicRoomButtons[roomId];
     }
+    const pageRooms = publicRoomEntries.slice(publicRoomPage * 5, publicRoomPage * 5 + 5);
+    for (let index = 0; index < pageRooms.length; index++) {
+        const entry = pageRooms[index];
+        const label = publicRoomDisplayName(entry, entry.roomId) + "    " +
+            tr("publicRoom.players", { players: entry.players, capacity: entry.capacity });
+        uiPublicRoomButtons[entry.roomId] = makeButton(uiPublicRoomsBody.transform,
+            "PublicRoom_" + entry.roomId, label, uiFont, 55, 88 + index * 66, 610,
+            () => enterPublicRoomFromUi(entry.roomId), 56);
+    }
+    const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+    if (uiPublicPreviousButton) uiPublicPreviousButton.SetActive(publicRoomPage > 0);
+    if (uiPublicNextButton) uiPublicNextButton.SetActive(publicRoomPage < maximumPage);
 }
 
 // ===== 模块: save/lifecycle.ts =====
@@ -2506,9 +2534,12 @@ function processEvent(rawEvent: string): void {
             const payload = JSON.parse(event.message || "{}");
             publicRoomEntries = Array.isArray(payload.rooms) ? payload.rooms.map((room: any) => ({
                 roomId: String(room.roomId || ""),
+                roomName: String(room.roomName || ""),
                 players: Math.max(0, Math.trunc(Number(room.players) || 0)),
                 capacity: Math.max(0, Math.trunc(Number(room.capacity) || 0))
             })).filter((room: PublicRoomEntry) => room.roomId.length > 0) : [];
+            const maximumPage = Math.max(0, Math.ceil(publicRoomEntries.length / 5) - 1);
+            publicRoomPage = Math.min(publicRoomPage, maximumPage);
             refreshPublicRoomButtons();
             updateStatusText(tr("status.publicRoomsReady"));
         } catch (error) {
@@ -3057,6 +3088,8 @@ function refreshLocalizedUi(): void {
             Host: "button.host",
             Join: "button.join",
             PanelBack: "button.back",
+            PublicPrevious: "button.previous",
+            PublicNext: "button.next",
             RefreshRooms: "button.refresh",
             PublicHint: "publicRoom.choose",
             Privacy: "privacy",
@@ -3276,7 +3309,9 @@ function refreshRoomInfoUi(force = false): void {
     try {
         const status = readBridgeStatus();
         const address = networkTransport === "server"
-            ? (currentPublicRoom ? tr("publicRoom." + currentPublicRoom) : tr("room.publicServer"))
+            ? (currentPublicRoom ? publicRoomDisplayName(
+                publicRoomEntries.find(item => item.roomId === currentPublicRoom) || null,
+                currentPublicRoom) : tr("room.publicServer"))
             : tr("room.thisComputer");
         const port = status.port;
         const rows = roomPlayerRows();
@@ -3363,13 +3398,12 @@ function buildUi(font: any): void {
         uiPublicRoomsBody = makeSolidRect(shell.panel.transform, "PublicRoomsBody",
             new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
         makeText(uiPublicRoomsBody.transform, "PublicHint", tr("publicRoom.choose"), font, 30, 35, 660, 50, 27);
-        for (let index = 0; index < 3; index++) {
-            const roomId = "public-" + (index + 1);
-            uiPublicRoomButtons[roomId] = makeButton(uiPublicRoomsBody.transform, "PublicRoom" + (index + 1),
-                tr("publicRoom." + roomId), font, 55, 105 + index * 82, 610,
-                () => enterPublicRoomFromUi(roomId), 62);
-        }
-        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font, 215, 375, 290, requestPublicRoomListFromUi, 54);
+        uiPublicPreviousButton = makeButton(uiPublicRoomsBody.transform, "PublicPrevious",
+            tr("button.previous"), font, 55, 430, 190, () => changePublicRoomPage(-1), 52);
+        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font,
+            265, 430, 190, requestPublicRoomListFromUi, 52);
+        uiPublicNextButton = makeButton(uiPublicRoomsBody.transform, "PublicNext",
+            tr("button.next"), font, 475, 430, 190, () => changePublicRoomPage(1), 52);
         uiPublicRoomsBody.SetActive(false);
         refreshPublicRoomButtons();
 

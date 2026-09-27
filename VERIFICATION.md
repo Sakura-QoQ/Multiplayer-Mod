@@ -1,40 +1,66 @@
-# Public-server edition verification report — v0.12.0
+# Verification — v0.13.0
 
-Verified on 27 September 2026. Direct compatibility behavior used two real `FallenFlower.exe`
-processes and two isolated bridges; dedicated-server behavior used the published NativeAOT bridge,
-a real room-server process and the deployed public endpoint.
+Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
-## Verified behavior
+## Current automated checks
 
-- Both game processes connected through the machine's LAN adapter address `192.168.37.127`, not a loopback address.
-- TCP framing, protocol negotiation, peer assignment and bidirectional messages passed.
-- Both processes created remote player models and received full profile and live-status data.
-- Non-empty clothing, skin tan, all 182 clothing bones, actions, movement and cross-scene following passed.
-- Remote material restoration covered 14 renderers and 21 private material instances on each side; both reported zero invalid/error shaders, and both tan materials were applied.
-- Player-state scheduling is configured at 20 Hz. The end-to-end two-game stress run observed 17.43 Hz while both full game instances shared one machine; rendering interpolation continued every frame.
-- The Mod-owned authoritative clock advanced continuously on the host and calibrated the client throughout the session. Host time packets, unanimous sleep and client application all passed.
-- With the original `PauseWindow` kept visibly open, `GameManager.Paused` was false, `timeScale` was 1, and the authoritative clock advanced by 1.01 seconds during the one-second observation window.
-- The online pause menu remained visible while world time continued; its Multiplayer entry showed only the read-only room information/time/player page, and the phone window opened normally afterward.
-- The two-process test did not change any original `AutoSave*.save` hash.
-- The online-save lifecycle created a UUIDv7 file, saved on exit, reopened the same UUID, restored the saved position within collision correction tolerance, preserved the recovery copy, and released its bridge port.
-- The bridge save self-test passed encryption round-trip, tamper rejection, UUIDv7 migration, save retention and single-player restoration.
-- The published NativeAOT bridge sent `room.enter` from two ordinary clients through a real local server process, automatically created/joined one public room, kept logical peer zero on the server, preserved positive member identities, relayed payloads in both directions, received the server clock and completed server-approved unanimous sleep.
-- The deployed public endpoint accepted the framed protocol and returned a valid `pong` response; TCP reachability was also confirmed externally. The deployed container must be updated to v0.12.0 before clients use the live public-room list.
-- After testing, no game or bridge process and no test listening port remained.
+The current NativeAOT bridge passes:
 
-## Evidence
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
+```
 
-- Two-process LAN test: `artifacts/dual-instance/20260927-105653/evidence/summary.json`
-- Post-cleanup full two-process regression: `artifacts/dual-instance/20260927-111836/evidence/summary.json`
-- Visible online pause-menu/read-only-room-page/background-running test: `artifacts/dual-instance/20260927-111811/evidence/summary.json`
-- Online-save lifecycle, including recovery from an `MPActive_`-only state: `artifacts/online-save/20260927-102017/evidence/summary.json`
-- Dedicated-room NativeAOT server log: `artifacts/room-relay-nativeaot-server.log`
+```text
+PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+```
 
-The automated LAN test covers the retained direct-compatibility path on one Windows machine. The
-public-room relay protocol and public endpoint passed process-level tests. A two-game run through the
-public Ubuntu endpoint remains the final deployment verification and is not claimed as completed.
+This test verifies that:
+
+- `MPOnline_<UUIDv7>.save` is the only persistent normal save.
+- `MPActive` is a temporary native-format load copy and is released after loading.
+- `prepareSave` disables writes; an attempted incomplete snapshot returns `-8` and leaves the complete formal file byte-for-byte unchanged.
+- Saving commits directly and atomically to the double-encrypted `MPOnline` container.
+- The bridge does not monitor, redirect, back up, restore or otherwise modify `AutoSave.save`.
+- The Mod outer AES-GCM layer round-trips correctly and rejects tampering.
+- UUIDv7 migration, latest-save discovery and active-only legacy recovery work.
+- Clothing is included in load metadata so the runtime avatar can reapply the saved equipped list without editing the stored JSON.
+
+The room adapter self-test is available as:
+
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
+  --self-test-room-relay --address 127.0.0.1 --port 28783
+```
+
+With the test server capacity set to two, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, member IDs stay positive, bidirectional relay works, and clock/sleep approval remains server-owned.
+
+## Full-game evidence
+
+| Evidence | Finding | Path |
+| --- | --- | --- |
+| Two real game processes over the LAN | Framing, handshake, peer assignment, bidirectional state/profile/live-data transfer and remote models passed | `artifacts/dual-instance/20260927-105653/evidence/summary.json` |
+| Post-cleanup two-game regression | Non-empty clothing, skin tan, 182 clothing bones, movement/actions and cross-scene following passed | `artifacts/dual-instance/20260927-111836/evidence/summary.json` |
+| Visible online pause-window run | Pause UI stayed visible while `Paused=false`, `timeScale=1`; the world advanced and the phone opened afterward | `artifacts/dual-instance/20260927-111811/evidence/summary.json` |
+| Earlier online-save lifecycle run | UUIDv7 creation/reopen, exit save, position restoration and bridge shutdown passed for the former retained-active design | `artifacts/online-save/20260927-102017/evidence/summary.json` |
+| NativeAOT room-relay process run | Two clients created/joined a public room and exchanged payloads through server authority | `artifacts/room-relay-nativeaot-server.log` |
+
+The earlier online-save lifecycle evidence predates the single-persistent-file/read-only-load change. It remains useful for game integration and position loading, but it is **not** evidence that the new temporary-active lifecycle has completed a real-game regression. The current self-test covers the new file and write-gate semantics.
+
+Additional observed results from the two-game runs:
+
+- Player scheduling was configured for 20 Hz; two full game processes sharing one machine observed 17.43 Hz end-to-end while render interpolation continued each frame.
+- Material restoration covered 14 renderers and 21 private material instances per side with zero invalid/error shaders in that run.
+- The historical two-game test did not change original `AutoSave*.save` hashes. Current source strengthens this boundary by removing bridge AutoSave handling entirely and cancelling the original writer in online mode.
+- The public endpoint accepted the framed protocol and returned `pong`; TCP reachability was confirmed externally.
+
+## Remaining verification
+
+- Run two real game clients through the deployed Ubuntu public endpoint after both player and server builds are updated to the same commit.
+- Repeat the create/save/quit/reopen game lifecycle and verify the save directory contains only `MPOnline` after loading and after exit.
+- Hash `AutoSave.save` before and after an online autosave/exit regression to verify the game Hook on the target build.
+- Verify equipped clothing, inventory, quests, achievements/progression, position and phone behavior after reopening the same online UUID.
+- Network traffic is plain TCP and has not been penetration-tested or tested behind TLS termination.
 
 ## Package boundary
 
-The player ZIP contains only runtime configuration, the Mod script, localized strings, English and Chinese player documentation, proprietary license files, and one self-contained NativeAOT executable. Source projects, test tools, Node.js, the .NET SDK and Visual Studio are not included.
-The Linux server is built and deployed separately from `server/` and `src/MultiplayerRoomServer/`.
+The player ZIP contains runtime Mod files, six language packs, English/Chinese player instructions and licenses, profile maps, and one self-contained NativeAOT executable. It does not include source, tests, Node.js, the .NET SDK, Visual Studio or the Ubuntu server.

@@ -1,38 +1,66 @@
-# 公开服务器版 v0.12.0 验证报告
+# v0.13.0 验证报告
 
-验证日期：2026 年 9 月 27 日。直连兼容功能使用两个真实 `FallenFlower.exe` 进程和两个隔离
-桥接程序；独立服务器功能使用发布版 NativeAOT 桥接、真实房间服务器进程和已部署公网端点。
+状态更新于 2026 年 9 月 27 日。本文把当前自动化检查与较早的真实游戏证据分开，避免用旧结果证明刚修改的存档流程。
 
-## 已验证行为
+## 当前自动化检查
 
-- 两个游戏进程通过本机物理网卡地址 `192.168.37.127` 连接，不使用回环地址。
-- TCP 帧协议、版本握手、玩家编号和双向消息通过。
-- 两端都创建了远端玩家模型，并收到完整资料和实时状态。
-- 非空衣服、晒黑肤色、全部 182 个衣服骨骼、动作、移动和跨场景跟随通过。
-- 两端远端材质恢复均覆盖 14 个渲染器、21 个独立材质，无效/错误 Shader 数为 0，两个晒黑材质均正确应用。
-- 玩家状态排程配置为 20 Hz；两份完整游戏在同一电脑并行运行的端到端压力测试实测 17.43 Hz，画面插值仍逐帧执行。
-- Mod 权威时钟在房主端持续推进，并在整个会话中校准客户端；房主时间包、全员睡眠和客户端应用均通过。
-- 原版 `PauseWindow` 保持可见时，`GameManager.Paused=false`、`timeScale=1`，一秒观察窗口内权威时间推进了 1.01 秒。
-- 联机暂停菜单显示时世界时间继续；其中“联机”入口只显示只读的房间信息、时间和玩家页面，关闭后手机窗口可以正常打开。
-- 双进程测试前后所有原版 `AutoSave*.save` 哈希保持不变。
-- 线上存档测试成功创建 UUIDv7 文件、退出保存、用同一 UUID 重新进入、在碰撞修正容差内恢复位置、保留工作副本并释放桥接端口。
-- 桥接存档自检通过加密往返、篡改拒绝、UUIDv7 迁移、存档保留和单机存档恢复。
-- 发布版 NativeAOT 桥接程序的两个普通客户端已通过真实本地服务器发送 `room.enter`，自动创建/加入同一公开房间；逻辑 Peer 0 保留在服务器，两名玩家保持正数成员身份，完成双向数据转发、接收服务器时钟并通过服务器批准的全员睡眠。
-- 已部署公网端点成功接收带长度前缀的协议请求并返回有效 `pong`，外部 TCP 可达性也已确认；客户端使用实时公开房间列表前必须把部署容器更新到 v0.12.0。
-- 测试结束后没有残留游戏/桥接进程，也没有测试监听端口。
+当前 NativeAOT 桥通过：
 
-## 证据
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
+```
 
-- 双进程局域网测试：`artifacts/dual-instance/20260927-105653/evidence/summary.json`
-- 整理优化后的完整双进程回归：`artifacts/dual-instance/20260927-111836/evidence/summary.json`
-- 联机暂停菜单只读房间页保持显示且背景持续运行测试：`artifacts/dual-instance/20260927-111811/evidence/summary.json`
-- 线上存档生命周期（包含仅剩 `MPActive_` 时的恢复）：`artifacts/online-save/20260927-102017/evidence/summary.json`
-- 独立房间 NativeAOT 服务器日志：`artifacts/room-relay-nativeaot-server.log`
+```text
+PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+```
 
-自动化局域网测试覆盖一台 Windows 电脑上的直连兼容流程。公开房间中继协议和公网端点已经通过
-进程级测试；两个真实游戏通过公网 Ubuntu 地址联机仍是最终部署验证，本报告不声称已经完成。
+该测试验证：
+
+- `MPOnline_<UUIDv7>.save` 是正常情况下唯一持久存档。
+- `MPActive` 只是原生格式临时加载副本，加载后会释放。
+- `prepareSave` 会关闭写入；提交不完整快照返回 `-8`，正式完整文件逐字节不变。
+- 保存直接原子提交到双层加密 `MPOnline` 容器。
+- 桥接程序不再监视、转存、备份、恢复或修改 `AutoSave.save`。
+- Mod 外层 AES-GCM 能正确往返并拒绝篡改文件。
+- UUIDv7 迁移、最新存档发现和仅剩 Active 的旧版恢复通过。
+- 加载元数据包含衣服列表，运行时角色可以重新应用已装备衣服，而不修改存档 JSON。
+
+房间适配自检命令：
+
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
+  --self-test-room-relay --address 127.0.0.1 --port 28783
+```
+
+测试服务器容量设为 2 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、成员 ID 为正数、双向转发正常，并由服务器负责时钟和全员睡眠批准。
+
+## 真实游戏证据
+
+| 证据 | 结论 | 路径 |
+| --- | --- | --- |
+| 两个真实游戏进程的局域网测试 | 分帧、握手、编号、双向状态/资料/实时数据和远端模型通过 | `artifacts/dual-instance/20260927-105653/evidence/summary.json` |
+| 整理后的双游戏回归 | 非空衣服、晒黑肤色、182 个衣服骨骼、移动/动作和跨场景跟随通过 | `artifacts/dual-instance/20260927-111836/evidence/summary.json` |
+| 暂停窗口可见测试 | UI 保持可见时 `Paused=false`、`timeScale=1`，世界继续运行，之后手机可正常打开 | `artifacts/dual-instance/20260927-111811/evidence/summary.json` |
+| 较早的线上存档生命周期 | 旧“保留 Active”设计下的 UUIDv7 创建/重进、退出保存、位置恢复和桥接退出通过 | `artifacts/online-save/20260927-102017/evidence/summary.json` |
+| NativeAOT 房间中继进程测试 | 两个客户端通过服务器权威创建/加入公开房间并交换数据 | `artifacts/room-relay-nativeaot-server.log` |
+
+较早的线上存档证据早于“单一持久文件/只读加载事务”修改。它仍可证明游戏集成与位置加载，但**不能**证明新临时 Active 流程已经跑过真实游戏回归；新文件和写入锁语义目前由当前自检覆盖。
+
+双游戏运行的其他观察结果：
+
+- 玩家排程设置为 20 Hz；同机运行两份完整游戏时端到端实测 17.43 Hz，渲染插值仍逐帧执行。
+- 当次材质恢复每端覆盖 14 个渲染器、21 个独立材质，无效/错误 Shader 为零。
+- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码进一步删除桥接 AutoSave 处理，并在线上模式取消原版写入器。
+- 公网端点接受分帧协议并返回 `pong`，外部 TCP 可达性也已确认。
+
+## 待验证项目
+
+- 玩家端与 Ubuntu 服务更新到同一提交后，让两个真实游戏客户端通过已部署公网端点联机。
+- 重跑创建/保存/退出/重进流程，确认加载后和退出后存档目录都只保留 `MPOnline`。
+- 在线上自动保存与退出前后计算 `AutoSave.save` 哈希，验证目标游戏版本上的 Hook。
+- 重进同一线上 UUID 后核对已装备衣服、背包、任务、成就/进度、位置和手机功能。
+- 网络使用明文 TCP，尚未经过渗透测试，也未验证 TLS 终止方案。
 
 ## 发布包边界
 
-玩家 ZIP 只包含运行配置、Mod 脚本、语言包、英文和中文玩家文档、专有许可文件，以及一个自包含 NativeAOT 可执行程序。源码项目、测试工具、Node.js、.NET SDK 和 Visual Studio 均不进入发布包。
-Linux 服务器由 `server/` 与 `src/MultiplayerRoomServer/` 单独构建和部署。
+玩家 ZIP 包含运行 Mod 文件、六种语言包、中英文玩家说明与许可、资料字段映射，以及一个自包含 NativeAOT 可执行程序；不包含源码、测试、Node.js、.NET SDK、Visual Studio 或 Ubuntu 服务。

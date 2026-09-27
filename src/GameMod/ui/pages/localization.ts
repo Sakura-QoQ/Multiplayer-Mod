@@ -22,6 +22,8 @@ function refreshLocalizedUi(): void {
             Host: "button.host",
             Join: "button.join",
             PanelBack: "button.back",
+            PublicPrevious: "button.previous",
+            PublicNext: "button.next",
             RefreshRooms: "button.refresh",
             PublicHint: "publicRoom.choose",
             Privacy: "privacy",
