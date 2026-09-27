@@ -49,7 +49,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-This creates two ordinary clients, enters one public room, verifies server authority peer `0`, bidirectional relay, server clock and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](../VERIFICATION.md).
+This first verifies one-player “sleep until tomorrow” and the one-hour authoritative day rate, then creates a second ordinary client and verifies peer `0` authority, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](../VERIFICATION.md).
 
 When changing save code, verify all three boundaries:
 
