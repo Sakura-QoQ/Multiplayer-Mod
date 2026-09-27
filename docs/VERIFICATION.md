@@ -1,4 +1,4 @@
-# Verification — v0.13.5
+# Verification — v0.13.6
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
@@ -27,6 +27,8 @@ This test verifies that:
 - The Mod outer AES-GCM layer round-trips correctly and rejects tampering.
 - UUIDv7 migration, latest-save discovery and active-only legacy recovery work.
 - Clothing is included in load metadata so the runtime avatar can reapply the saved equipped list without editing the stored JSON.
+- Native `GameManager.AutoSaving()` is intercepted directly because its IL2CPP implementation tail-jumps to the native `SaveGame` address and bypasses a `SaveGame` entry hook. The complete native save is redirected through `MPActive` without filtering any JSON fields.
+- Remote clothing is instantiated only on the inactive visual clone; the local player's outfit is never temporarily replaced, and old proxies are hidden before deferred destruction.
 
 The current room adapter self-test also passes when the test server is started with capacity two, a test-only three-second TCP inactivity timeout and a ten-second AFK timeout:
 
