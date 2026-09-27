@@ -14,8 +14,11 @@ function buildUi(font: any): void {
         buildPlayerListPage(shell.root.transform, font);
         buildRoomInfoPage(shell.panel.transform, font);
 
-        uiTitle = makeText(shell.panel.transform, "Title", tr("panel.title"), font, 80, 4, 600, 72, 44);
+        uiTitle = makeText(shell.panel.transform, "Title", tr("panel.title"), font, 145, 4, 470, 72, 44);
         (uiTitle as any).alignment = 4;
+        uiBackButton = makeButton(shell.panel.transform, "PanelBack", tr("button.back"), font,
+            610, 18, 120, navigatePanelBack, 48);
+        uiBackButton.SetActive(false);
 
         const configBody = shell.body;
 
@@ -36,12 +39,12 @@ function buildUi(font: any): void {
         uiLocalBody = makeSolidRect(shell.panel.transform, "LocalBody",
             new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
         makeText(uiLocalBody.transform, "AddressLabel", tr("field.address"), font, 30, 55, 135, 46, 24);
-        uiAddress = makeInput(uiLocalBody.transform, "Address", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), "127.0.0.1"), tr("placeholder.address"), font, 170, 55, 520);
+        // 本地多人地址每次打开游戏默认留空，避免玩家误把回环地址当成另一台电脑。
+        uiAddress = makeInput(uiLocalBody.transform, "Address", "", tr("placeholder.address"), font, 170, 55, 520);
         makeText(uiLocalBody.transform, "PortLabel", tr("field.port"), font, 30, 125, 135, 46, 24);
         uiPort = makeInput(uiLocalBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 170, 125, 520);
         makeButton(uiLocalBody.transform, "Host", tr("button.host"), font, 30, 210, 319, startHostFromUi, 58);
         makeButton(uiLocalBody.transform, "Join", tr("button.join"), font, 370, 210, 319, joinFromUi, 58);
-        makeButton(uiLocalBody.transform, "LocalBack", tr("button.back"), font, 200, 505, 320, () => openPanelMode("config"), 56);
         uiLocalBody.SetActive(false);
 
         uiPublicRoomsBody = makeSolidRect(shell.panel.transform, "PublicRoomsBody",
@@ -53,8 +56,7 @@ function buildUi(font: any): void {
                 tr("publicRoom." + roomId), font, 55, 105 + index * 82, 610,
                 () => enterPublicRoomFromUi(roomId), 62);
         }
-        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font, 55, 375, 290, requestPublicRoomListFromUi, 54);
-        makeButton(uiPublicRoomsBody.transform, "PublicBack", tr("button.back"), font, 375, 375, 290, () => openPanelMode("config"), 54);
+        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font, 215, 375, 290, requestPublicRoomListFromUi, 54);
         uiPublicRoomsBody.SetActive(false);
         refreshPublicRoomButtons();
 
@@ -70,7 +72,7 @@ function buildUi(font: any): void {
 
 function handleUiInput(): void {
     try {
-        if (uiPanel && uiPanel.activeSelf && Input.GetKeyDown(KeyCode.Escape)) closePanel();
+        if (uiPanel && uiPanel.activeSelf && Input.GetKeyDown(KeyCode.Escape)) navigatePanelBack();
         handlePlayerListInput();
     } catch (error) { log("Failed to process the Escape key: " + error); }
 }

@@ -24,6 +24,9 @@ type MultiplayerConfig = {
     bridgeChannel: string;
 };
 
+// 联机面板页面类型。页面历史使用同一类型，保证右上角返回按钮和 ESC 行为一致。
+type MultiplayerPanelMode = "closed" | "config" | "local" | "public" | "room";
+
 function normalizeBridgeChannel(value: any): string {
     const normalized = String(value || "default").toLowerCase().replace(/[^a-z0-9_-]/g, "").substring(0, 32);
     return normalized || "default";

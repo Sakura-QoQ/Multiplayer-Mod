@@ -63,5 +63,5 @@ function beginOnlineExitSave(owner: UnityEngine.MonoBehaviour, beforeQuit?: () =
     }
 }
 
-// 联机模式下把游戏所有默认 AutoSave 读写改到专属 MPActive_ 名称。
-// Hook API 不能原地修改参数，因此先拦截原调用，再用防递归标记调用正确文件名。
+// 联机模式下原版默认 AutoSave 调用由 Hook 完全拦截；这里只提交内存快照到 MPOnline，
+// 不调用原版 SaveGame，也不读取、创建或恢复单机 AutoSave.save。

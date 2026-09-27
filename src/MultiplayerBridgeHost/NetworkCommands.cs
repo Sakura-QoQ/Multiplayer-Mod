@@ -261,7 +261,6 @@ internal static partial class Program
     private static int FlushOnlineSave()
     {
         if (!_onlineSaveWritesEnabled) return -8;
-        RedirectOnlineAutoSave();
         // 退出前不能“尽力而为”后仍返回成功。只有当前 MPActive_ 已经被完整封装为
         // MPOnline_，并且正式档确实存在且非空，游戏端才可以继续执行原版退出回调。
         // MPActive_ 始终保留，作为断电或外层加密失败时的恢复副本。

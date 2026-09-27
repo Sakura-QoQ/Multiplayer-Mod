@@ -10,6 +10,34 @@ namespace FallenFlower.MultiplayerBridgeHost;
 internal static partial class Program
 {
     // 线上存档会话与单机存档恢复。
+    private static void DiscardRedundantActiveSaves()
+    {
+        try
+        {
+            var saveDirectory = GetSaveDirectory();
+            if (!Directory.Exists(saveDirectory)) return;
+            foreach (var activePath in Directory.EnumerateFiles(saveDirectory,
+                         ActiveSavePrefix + "*.save", SearchOption.TopDirectoryOnly))
+            {
+                var activeName = Path.GetFileNameWithoutExtension(activePath);
+                var onlinePath = Path.Combine(saveDirectory, ToOnlineSaveName(activeName) + ".save");
+                if (!File.Exists(onlinePath)) continue;
+                try
+                {
+                    // 只有正式档通过外层认证和内层文件头验证，才丢弃旧版工作副本。
+                    _ = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
+                    File.Delete(activePath);
+                    ProtectedHashes.Remove(activePath);
+                }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                catch (CryptographicException) { }
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private static void EnsureActiveRecoveryCopy()
     {
         if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return;
@@ -149,67 +177,9 @@ internal static partial class Program
     private static void BeginOnlineSaveSession(string onlineName, string? saveDirectoryOverride = null)
     {
         if (_activeOnlineSaveName == onlineName) return;
-        RestoreSinglePlayerAutoSave();
         _activeOnlineSaveName = onlineName;
         _activeSaveDirectory = saveDirectoryOverride ?? GetSaveDirectory();
         Directory.CreateDirectory(_activeSaveDirectory);
-        var autoSavePath = Path.Combine(_activeSaveDirectory, "AutoSave.save");
-        _singlePlayerAutoSaveExisted = File.Exists(autoSavePath);
-        _singlePlayerAutoSaveBackup = _singlePlayerAutoSaveExisted ? File.ReadAllBytes(autoSavePath) : null;
-        _autoSaveObservedHash = _singlePlayerAutoSaveBackup is null
-            ? string.Empty
-            : Convert.ToHexString(SHA256.HashData(_singlePlayerAutoSaveBackup));
-    }
-
-    private static void RedirectOnlineAutoSave()
-    {
-        if (_activeOnlineSaveName.Length == 0 || !_onlineSaveWritesEnabled) return;
-        try
-        {
-            var saveDirectory = _activeSaveDirectory;
-            if (saveDirectory.Length == 0) return;
-            var autoSavePath = Path.Combine(saveDirectory, "AutoSave.save");
-            if (!File.Exists(autoSavePath)) return;
-            var current = File.ReadAllBytes(autoSavePath);
-            var hash = Convert.ToHexString(SHA256.HashData(current));
-            if (hash == _autoSaveObservedHash) return;
-            if (!current.AsSpan().StartsWith("Encrypted"u8)) return;
-
-            // 兼容旧版脚本或未经过 Hook 的原版自动保存：发现 AutoSave 改动时转存到临时线上档，
-            // 随后立即恢复玩家的线下 AutoSave，避免联机进度污染或覆盖单机进度。
-            var activePath = Path.Combine(saveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
-            WriteAtomic(activePath, current);
-            RestoreSinglePlayerAutoSaveFile(autoSavePath);
-            _autoSaveObservedHash = _singlePlayerAutoSaveBackup is null
-                ? string.Empty
-                : Convert.ToHexString(SHA256.HashData(_singlePlayerAutoSaveBackup));
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
-    }
-
-    private static void RestoreSinglePlayerAutoSave()
-    {
-        if (_activeOnlineSaveName.Length == 0) return;
-        try
-        {
-            RestoreSinglePlayerAutoSaveFile(Path.Combine(_activeSaveDirectory, "AutoSave.save"));
-        }
-        catch { }
-        _activeOnlineSaveName = string.Empty;
-        _activeSaveDirectory = string.Empty;
-        _onlineSaveWritesEnabled = false;
-        _singlePlayerAutoSaveBackup = null;
-        _singlePlayerAutoSaveExisted = false;
-        _autoSaveObservedHash = string.Empty;
-    }
-
-    private static void RestoreSinglePlayerAutoSaveFile(string autoSavePath)
-    {
-        if (_singlePlayerAutoSaveExisted && _singlePlayerAutoSaveBackup is not null)
-            WriteAtomic(autoSavePath, _singlePlayerAutoSaveBackup);
-        else if (File.Exists(autoSavePath))
-            File.Delete(autoSavePath);
     }
 
 }

@@ -137,9 +137,10 @@ function startHostFromUi(): void {
 function joinFromUi(): void {
     if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
     const config = loadConfig();
-    const address = valueOr(uiAddress, config.address || "127.0.0.1");
+    const address = valueOr(uiAddress, config.address);
     const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
+    if (!address) { toast(tr("toast.addressRequired")); return; }
     if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
     UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
     UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));

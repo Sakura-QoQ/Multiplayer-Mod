@@ -33,9 +33,6 @@ internal static partial class Program
     private static string _activeOnlineSaveName = string.Empty;
     private static string _activeSaveDirectory = string.Empty;
     private static bool _onlineSaveWritesEnabled;
-    private static byte[]? _singlePlayerAutoSaveBackup;
-    private static bool _singlePlayerAutoSaveExisted;
-    private static string _autoSaveObservedHash = string.Empty;
     private static long _gameLogPosition;
     private static string _gameLogRemainder = string.Empty;
     private static string _channel = "default";
@@ -93,9 +90,13 @@ internal static partial class Program
         var saveProtectionTimer = Stopwatch.StartNew();
         var stateWriteTimer = Stopwatch.StartNew();
         InitializeGameLogPosition();
-        // 兼容旧版遗留的工作档：先补做正式档封装，再删除工作档。
+        // 正式 MPOnline 是唯一权威来源；存在有效正式档时先丢弃同 UUID 的旧工作副本。
+        // 只有正式档缺失时，才把旧版 Active 当作崩溃恢复来源封装一次。
         if (!_networkOnly && Process.GetProcessesByName("FallenFlower").Length == 0)
+        {
+            DiscardRedundantActiveSaves();
             ProtectActiveSaves(deleteActive: true);
+        }
         WriteState(statePath);
 
         try
@@ -119,7 +120,6 @@ internal static partial class Program
                     // 已有存档处于只读加载阶段时，桥接层也禁止封装或替换正式档。
                     if (_activeOnlineSaveName.Length == 0 || _onlineSaveWritesEnabled)
                     {
-                        RedirectOnlineAutoSave();
                         ProtectActiveSaves(deleteActive: false);
                     }
                     saveProtectionTimer.Restart();
@@ -164,7 +164,6 @@ internal static partial class Program
             {
                 if (_onlineSaveWritesEnabled)
                 {
-                    RedirectOnlineAutoSave();
                     // 退出时封装可能由旧版自动保存留下的工作档；正式 MPOnline 是唯一持久存档。
                     ProtectActiveSaves(deleteActive: true);
                 }
@@ -173,7 +172,6 @@ internal static partial class Program
                     // 载入未完成就退出时只删除解密工作副本，绝不改写正式线上档。
                     _ = ReleasePreparedOnlineSave();
                 }
-                RestoreSinglePlayerAutoSave();
             }
             Node.Dispose();
             RoomRelay.Dispose();

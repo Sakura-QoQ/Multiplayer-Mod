@@ -190,14 +190,11 @@ internal static partial class Program
             File.WriteAllBytes(autoSavePath, singlePlayer);
             BeginOnlineSaveSession("MPOnline_selftest", testDirectory);
             _onlineSaveWritesEnabled = true;
-            File.WriteAllBytes(autoSavePath, onlineAutoSave);
-            RedirectOnlineAutoSave();
             var activePath = Path.Combine(testDirectory, "MPActive_selftest.save");
-            if (!File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
-                throw new InvalidOperationException("Online autosave was not redirected to the working copy");
-            if (!File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(singlePlayer))
-                throw new InvalidOperationException("Single-player AutoSave was not restored after online autosave redirection");
+            File.WriteAllBytes(activePath, onlineAutoSave);
             ProtectActiveSaves(deleteActive: false, saveDirectoryOverride: testDirectory);
+            if (!File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(singlePlayer))
+                throw new InvalidOperationException("Online-save protection touched the single-player AutoSave");
             var onlinePath = Path.Combine(testDirectory, "MPOnline_selftest.save");
             if (!File.Exists(activePath))
                 throw new InvalidOperationException("The online working copy was incorrectly deleted after formal-save wrapping");
@@ -250,13 +247,14 @@ internal static partial class Program
             if (PrepareOnlineSave(new Dictionary<string, string> { ["name"] = directName }, testDirectory) != 0)
                 throw new InvalidOperationException("Read-only online-save preparation failed");
             File.WriteAllBytes(autoSavePath, Encoding.UTF8.GetBytes("Encrypted-incomplete-runtime-state"));
-            RedirectOnlineAutoSave();
+            var autoSaveDuringReadOnlyLoad = File.ReadAllBytes(autoSavePath);
             RawSaveBuffer.Clear();
             RawSaveBuffer.Append("{\"Scene\":\"Incomplete\",\"Cloth\":[]}");
             _rawSaveExpectedChunks = 1;
             _rawSaveReceivedChunks = 1;
             if (CommitRawOnlineSave() != -8 ||
-                !File.ReadAllBytes(directOnlinePath).AsSpan().SequenceEqual(formalBeforeReadOnlyLoad))
+                !File.ReadAllBytes(directOnlinePath).AsSpan().SequenceEqual(formalBeforeReadOnlyLoad) ||
+                !File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(autoSaveDuringReadOnlyLoad))
                 throw new InvalidOperationException("The formal online save changed during its read-only loading phase");
             RawSaveBuffer.Clear();
             _rawSaveExpectedChunks = 0;
@@ -278,13 +276,12 @@ internal static partial class Program
             recoveryResult = PrepareOnlineSave(new Dictionary<string, string> { ["name"] = string.Empty }, testDirectory);
             if (recoveryResult != 0 || !File.Exists(recoveryOnlinePath))
                 throw new InvalidOperationException("The latest online save was not discovered and recovered when PlayerPrefs was missing");
-            RestoreSinglePlayerAutoSave();
         }
         finally
         {
             if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, true);
         }
-        Console.WriteLine("PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection, autosave redirect and single-player restore");
+        Console.WriteLine("PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation");
     }
 
     private static void WriteAtomic(string path, byte[] bytes)
