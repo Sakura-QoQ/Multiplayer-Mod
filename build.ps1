@@ -11,7 +11,7 @@ $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
-$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.6.0-win-x64.zip'
+$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.8.0-win-x64.zip'
 
 function Import-VisualCppEnvironment {
     # 当前终端没有 link.exe 时，从现有 Visual Studio 安装中载入 x64 编译环境。
@@ -72,7 +72,7 @@ function Copy-ModPayload([string] $destination) {
         Remove-ProjectPath $destination (Join-Path $destination $legacyName)
     }
 
-    # v0.6.0 已改为单文件自包含桥接程序，旧版注入 DLL 和代理目录不再参与运行。
+    # v0.8.0 使用单文件自包含桥接程序，旧版注入 DLL 和代理目录不再参与运行。
     foreach ($legacyDirectoryName in @('Native', 'Runtime')) {
         Remove-ProjectPath $destination (Join-Path $destination $legacyDirectoryName) -Recurse
     }

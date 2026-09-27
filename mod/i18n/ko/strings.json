@@ -32,5 +32,9 @@
   "toast.stopped": "연결을 중지했습니다.",
   "toast.playerJoined": "{player}님이 방에 참가했습니다.",
   "toast.joinedRoom": "방에 참가했습니다. 로컬 Peer: {peer}",
+  "toast.sleepWaiting": "모든 온라인 플레이어가 같은 수면 방식을 선택할 때까지 기다리는 중…",
+  "players.title": "온라인 플레이어 정보",
+  "players.summary": "{player}  의상 {cloth} | 퀘스트 {quests} | 업적 {achievements} | 연락처 {contacts}",
+  "players.live": "  체력 {health}/{maxHealth} | 스태미나 {stamina}/{maxStamina} | 소지금 {money} | {day}일 / 시간대 {time}",
   "save.notRead": "저장: 아직 읽지 않음"
 }

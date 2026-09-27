@@ -32,5 +32,9 @@
   "toast.stopped": "连接已停止。",
   "toast.playerJoined": "玩家 {player} 已加入。",
   "toast.joinedRoom": "已加入房间，本机 Peer：{peer}",
+  "toast.sleepWaiting": "正在等待所有在线玩家选择相同的睡眠方式…",
+  "players.title": "在线玩家资料",
+  "players.summary": "{player}　服装 {cloth}｜任务 {quests}｜成就 {achievements}｜联系人 {contacts}",
+  "players.live": "　生命 {health}/{maxHealth}｜耐力 {stamina}/{maxStamina}｜金钱 {money}｜第 {day} 天 / 时段 {time}",
   "save.notRead": "存档：尚未读取"
 }

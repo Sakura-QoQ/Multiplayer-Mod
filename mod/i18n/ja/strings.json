@@ -32,5 +32,9 @@
   "toast.stopped": "接続を停止しました。",
   "toast.playerJoined": "{player} がルームに参加しました。",
   "toast.joinedRoom": "ルームに参加しました。ローカルPeer：{peer}",
+  "toast.sleepWaiting": "全オンラインプレイヤーが同じ睡眠方法を選ぶのを待っています…",
+  "players.title": "オンラインプレイヤー情報",
+  "players.summary": "{player}　服 {cloth}｜クエスト {quests}｜実績 {achievements}｜連絡先 {contacts}",
+  "players.live": "　体力 {health}/{maxHealth}｜スタミナ {stamina}/{maxStamina}｜所持金 {money}｜{day}日目 / 時間帯 {time}",
   "save.notRead": "セーブ：未読"
 }

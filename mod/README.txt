@@ -1,4 +1,4 @@
-PlayerHostedMultiplayer v0.6.0（Windows x64 开发预览版）
+PlayerHostedMultiplayer v0.8.0（Windows x64 开发预览版）
 
 安装：
 1. 在游戏专用 Mod 启动器中导入 PlayerHostedMultiplayer。
@@ -21,3 +21,6 @@ Visual Studio、.NET、Node.js、TypeScript 或其他开发软件。
 
 联机界面不提供“选择存档”或“新建线上存档”按钮；建立房间时自动读取最近的联机存档，
 没有联机存档时才从零开始，单机读取页面不会显示联机存档。
+
+线上存档使用 MPOnline_<玩家UUIDv7>.save，退出时会先采集完整游戏数据并验证双层加密写盘，
+成功后才退出。MPActive_<玩家UUIDv7>.save 是保留的恢复工作副本，不会覆盖单机 AutoSave。

@@ -32,5 +32,9 @@
   "toast.stopped": "The connection has stopped.",
   "toast.playerJoined": "{player} joined the room.",
   "toast.joinedRoom": "Joined the room. Local peer: {peer}",
+  "toast.sleepWaiting": "Waiting for every online player to choose the same sleep option…",
+  "players.title": "Online player profiles",
+  "players.summary": "{player}  Clothes {cloth} | Quests {quests} | Achievements {achievements} | Contacts {contacts}",
+  "players.live": "  HP {health}/{maxHealth} | Stamina {stamina}/{maxStamina} | Money {money} | Day {day} / Time {time}",
   "save.notRead": "Save: not read yet"
 }

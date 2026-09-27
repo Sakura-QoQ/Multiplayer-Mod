@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
 using Microsoft.Win32;
 
@@ -12,14 +13,16 @@ internal static class Program
     private const string RegistryPath = @"Software\DefaultCompany\FallenFlower";
     private const string CommandValueName = "MPB.IpcCommand";
     private const string SequenceValueName = "MPB.IpcCommandSequence";
-    private const int ProtocolVersion = 4;
+    private const int ProtocolVersion = 8;
     private const int MaxRetainedEvents = 128;
     private const string OnlineSavePrefix = "MPOnline_";
     private const string ActiveSavePrefix = "MPActive_";
     private const string OnlineSaveMagic = "MPB2";
     private const string ModEncryptionPassword = "FallenFlower.PlayerHostedMultiplayer.Save.v1";
-    private const string LogCommandMarker = "[PlayerHostedMultiplayerIPC]";
+    private const string DefaultLogCommandMarker = "[PlayerHostedMultiplayerIPC]";
     private const int ModKeyIterations = 120_000;
+    private const int StateSlotCount = 3;
+    private const int StateSlotMilliseconds = 100;
 
     private static readonly BridgeNode Node = new();
     private static readonly List<StateEvent> Events = [];
@@ -35,6 +38,17 @@ internal static class Program
     private static string _autoSaveObservedHash = string.Empty;
     private static long _gameLogPosition;
     private static string _gameLogRemainder = string.Empty;
+    private static string _channel = "default";
+    private static string _commandValueName = CommandValueName;
+    private static string _sequenceValueName = SequenceValueName;
+    private static string _logCommandMarker = DefaultLogCommandMarker;
+    private static string? _gameLogPathOverride;
+    private static bool _networkOnly;
+    private static DateTime _lastClientTouchUtc;
+    private static bool _clientTouchSeen;
+    private static readonly StringBuilder RawSaveBuffer = new();
+    private static int _rawSaveExpectedChunks;
+    private static int _rawSaveReceivedChunks;
 
     private static async Task Main(string[] args)
     {
@@ -43,10 +57,14 @@ internal static class Program
             SelfTestOnlineSaveCrypto();
             return;
         }
-        // 全局互斥锁防止 Mod 重载或重复启动时出现两个桥接进程争用同一状态文件。
+        ConfigureInstance(args);
+        // 默认通道仍保持单例。测试通道按名称隔离，允许在同一台电脑运行两个真实游戏进程，
+        // 分别拥有自己的桥接状态和 IPC，不改变普通玩家的一机一桥行为。
         // Mutex 构造函数的 out 参数只表示“是否新建内核对象”，不表示当前进程是否持有锁；
         // 因此必须显式 WaitOne，才能正确处理残留句柄和上次进程异常退出后的 abandoned 状态。
-        using var singleton = new Mutex(false, @"Local\FallenFlower.PlayerHostedMultiplayer");
+        var mutexName = @"Local\FallenFlower.PlayerHostedMultiplayer" +
+            (_channel == "default" ? string.Empty : "." + _channel);
+        using var singleton = new Mutex(false, mutexName);
         var ownsMutex = false;
         try
         {
@@ -59,17 +77,22 @@ internal static class Program
         if (!ownsMutex) return;
 
         var bridgeDirectory = AppContext.BaseDirectory;
-        var statePath = Path.Combine(bridgeDirectory, "state.json");
+        var statePath = Path.Combine(bridgeDirectory,
+            _channel == "default" ? "state.json" : $"state.{_channel}.json");
         using var registry = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
         if (registry is null) return;
 
-        var lastCommandSequence = ReadInt(registry, SequenceValueName);
+        var lastCommandSequence = ReadInt(registry, _sequenceValueName);
         var startedAt = Stopwatch.StartNew();
         var gameWasSeen = false;
         var noProcessSince = Stopwatch.StartNew();
         var saveProtectionTimer = Stopwatch.StartNew();
+        var stateWriteTimer = Stopwatch.StartNew();
         InitializeGameLogPosition();
-        if (Process.GetProcessesByName("FallenFlower").Length == 0) ProtectActiveSaves(deleteActive: true);
+        // 上次游戏异常退出时也只补做正式档封装，不删除运行期工作档。
+        // 工作档是可恢复的最后一道保险，正式档写入失败时不能让玩家进度一起消失。
+        if (!_networkOnly && Process.GetProcessesByName("FallenFlower").Length == 0)
+            ProtectActiveSaves(deleteActive: false);
         WriteState(statePath);
 
         try
@@ -78,21 +101,27 @@ internal static class Program
             {
                 var dirty = DrainNetworkEvents();
                 if (DrainGameLogCommands()) dirty = true;
-                var currentSequence = ReadInt(registry, SequenceValueName);
+                var currentSequence = ReadInt(registry, _sequenceValueName);
                 if (currentSequence != lastCommandSequence)
                 {
                     lastCommandSequence = currentSequence;
-                    var command = ReadString(registry, CommandValueName);
+                    var command = ReadString(registry, _commandValueName);
                     HandleCommand(command, currentSequence);
                     dirty = true;
                 }
 
-                // 即使没有网络变化也定时改写心跳，游戏可据此识别桥接程序是否仍在运行。
-                if (dirty || startedAt.ElapsedMilliseconds % 1000 < 30) WriteState(statePath);
+                // 有大量位置包时最多 10 Hz 刷新状态；空闲时仍每秒刷新心跳。玩家状态本身为 5 Hz，
+                // 10 Hz 足以容纳双向批次，并进一步缩短与游戏 ReadModFile 竞争正式路径的概率。
+                // 又会放大与游戏 ReadModFile 同时访问时的 Windows 共享冲突。
+                if ((dirty && stateWriteTimer.ElapsedMilliseconds >= 100) || stateWriteTimer.ElapsedMilliseconds >= 1000)
+                {
+                    WriteState(statePath);
+                    stateWriteTimer.Restart();
+                }
 
                 // 游戏仍然写入原版加密的临时存档。桥接程序检测到变化后，再把完整原版密文
                 // 套入 Mod 的 AES-GCM 认证加密容器；这样磁盘上的正式线上存档始终是双层密文。
-                if (saveProtectionTimer.ElapsedMilliseconds >= 500)
+                if (!_networkOnly && saveProtectionTimer.ElapsedMilliseconds >= 500)
                 {
                     RedirectOnlineAutoSave();
                     ProtectActiveSaves(deleteActive: false);
@@ -100,6 +129,13 @@ internal static class Program
                 }
 
                 var gameRunning = Process.GetProcessesByName("FallenFlower").Length > 0;
+                if (!_networkOnly && _clientTouchSeen &&
+                    DateTime.UtcNow - _lastClientTouchUtc > TimeSpan.FromSeconds(8))
+                {
+                    // 只跟踪加载了当前 Mod 的游戏脚本；其他单机实例或 Mod 启动器不能让
+                    // 联机桥永久占用端口。finally 会先提交线上存档，再释放监听。
+                    break;
+                }
                 if (gameRunning)
                 {
                     gameWasSeen = true;
@@ -115,16 +151,64 @@ internal static class Program
                 await Task.Delay(25).ConfigureAwait(false);
             }
         }
+        catch (Exception exception)
+        {
+            // NativeAOT 的未处理托管异常会直接触发 fail-fast，Windows 事件里只留下 0xc0000409。
+            // 把真实异常写在桥旁边，双机测试和玩家现场都能给出可复现证据。
+            try
+            {
+                File.WriteAllText(statePath + ".crash.log", exception.ToString(), new UTF8Encoding(false));
+            }
+            catch { }
+        }
         finally
         {
-            RedirectOnlineAutoSave();
-            ProtectActiveSaves(deleteActive: true);
-            RestoreSinglePlayerAutoSave();
+            if (!_networkOnly)
+            {
+                RedirectOnlineAutoSave();
+                // 退出时生成/刷新双层加密的 MPOnline 正式档，同时保留 MPActive 工作档。
+                // 下一次联机优先继续同一 UUID，不能把一次正常退出变成“重新建档”。
+                ProtectActiveSaves(deleteActive: false);
+                EnsureActiveRecoveryCopy();
+                RestoreSinglePlayerAutoSave();
+            }
             Node.Dispose();
             WriteOfflineState(statePath);
             try { singleton.ReleaseMutex(); } catch { }
         }
     }
+
+    private static void ConfigureInstance(string[] args)
+    {
+        _channel = NormalizeChannel(ReadArgument(args, "--channel") ?? "default");
+        _commandValueName = ChannelName(CommandValueName);
+        _sequenceValueName = ChannelName(SequenceValueName);
+        _logCommandMarker = _channel == "default"
+            ? DefaultLogCommandMarker
+            : $"[PlayerHostedMultiplayerIPC:{_channel}]";
+        _gameLogPathOverride = ReadArgument(args, "--log-path");
+        _networkOnly = args.Contains("--network-only", StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string? ReadArgument(string[] args, string name)
+    {
+        for (var index = 0; index + 1 < args.Length; index++)
+        {
+            if (string.Equals(args[index], name, StringComparison.OrdinalIgnoreCase))
+                return args[index + 1];
+        }
+        return null;
+    }
+
+    private static string NormalizeChannel(string value)
+    {
+        var normalized = new string((value ?? string.Empty).Where(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '-' or '_').Take(32).ToArray());
+        return string.IsNullOrWhiteSpace(normalized) ? "default" : normalized.ToLowerInvariant();
+    }
+
+    private static string ChannelName(string baseName) =>
+        _channel == "default" ? baseName : baseName + "." + _channel;
 
     private static void HandleCommand(string command, int sequence)
     {
@@ -140,7 +224,12 @@ internal static class Program
                 "send" => Send(values),
                 "beginSave" => BeginOnlineSave(values),
                 "prepareSave" => PrepareOnlineSave(values),
+                "renameSave" => RenameOnlineSave(values),
                 "flushSave" => FlushOnlineSave(),
+                "beginRawSave" => BeginRawOnlineSave(values),
+                "appendRawSave" => AppendRawOnlineSave(values),
+                "commitRawSave" => CommitRawOnlineSave(),
+                "touch" => TouchClient(),
                 "stop" => Stop(),
                 _ => -1
             };
@@ -155,8 +244,68 @@ internal static class Program
         }
     }
 
+    private static int TouchClient()
+    {
+        _clientTouchSeen = true;
+        _lastClientTouchUtc = DateTime.UtcNow;
+        return 0;
+    }
+
+    private static int BeginRawOnlineSave(Dictionary<string, string> values)
+    {
+        var onlineName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
+        if (onlineName.Length == 0 ||
+            !int.TryParse(values.GetValueOrDefault("chunks", "0"), out var chunks) || chunks < 1 || chunks > 2048)
+            return -2;
+        BeginOnlineSaveSession(onlineName);
+        RawSaveBuffer.Clear();
+        _rawSaveExpectedChunks = chunks;
+        _rawSaveReceivedChunks = 0;
+        return 0;
+    }
+
+    private static int AppendRawOnlineSave(Dictionary<string, string> values)
+    {
+        if (_rawSaveExpectedChunks <= 0 ||
+            !int.TryParse(values.GetValueOrDefault("index", "-1"), out var index) || index != _rawSaveReceivedChunks)
+            return -2;
+        var data = values.GetValueOrDefault("data", string.Empty);
+        if (RawSaveBuffer.Length + data.Length > 16 * 1024 * 1024) return -7;
+        RawSaveBuffer.Append(data);
+        _rawSaveReceivedChunks++;
+        return 0;
+    }
+
+    private static int CommitRawOnlineSave()
+    {
+        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0 ||
+            _rawSaveExpectedChunks <= 0 || _rawSaveReceivedChunks != _rawSaveExpectedChunks)
+            return -2;
+        try
+        {
+            var json = RawSaveBuffer.ToString();
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) return -7;
+            var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
+            WriteAtomic(activePath, EncryptGameSave(json));
+            ProtectedHashes.Remove(activePath);
+            var result = FlushOnlineSave();
+            if (result == 0) AddEvent(new BridgeEvent("saveFlushed", 0, _activeOnlineSaveName));
+            return result;
+        }
+        catch (JsonException) { return -7; }
+        finally
+        {
+            RawSaveBuffer.Clear();
+            _rawSaveExpectedChunks = 0;
+            _rawSaveReceivedChunks = 0;
+        }
+    }
+
     private static string GetGameLogPath()
     {
+        if (!string.IsNullOrWhiteSpace(_gameLogPathOverride))
+            return Path.GetFullPath(_gameLogPathOverride);
         var localDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appDataDirectory = Directory.GetParent(localDirectory)?.FullName
             ?? throw new InvalidOperationException("无法确定 AppData 目录");
@@ -204,9 +353,9 @@ internal static class Program
             for (var index = 0; index < completeCount; index++)
             {
                 var line = lines[index].TrimEnd('\r');
-                var markerAt = line.IndexOf(LogCommandMarker, StringComparison.Ordinal);
+                var markerAt = line.IndexOf(_logCommandMarker, StringComparison.Ordinal);
                 if (markerAt < 0) continue;
-                var payload = line[(markerAt + LogCommandMarker.Length)..].TrimStart();
+                var payload = line[(markerAt + _logCommandMarker.Length)..].TrimStart();
                 var separator = payload.IndexOf(' ');
                 if (separator <= 0 || !int.TryParse(payload[..separator], NumberStyles.Integer,
                         CultureInfo.InvariantCulture, out var sequence)) continue;
@@ -249,8 +398,58 @@ internal static class Program
     private static int FlushOnlineSave()
     {
         RedirectOnlineAutoSave();
-        ProtectActiveSaves(deleteActive: false);
-        return 0;
+        // 退出前不能“尽力而为”后仍返回成功。只有当前 MPActive_ 已经被完整封装为
+        // MPOnline_，并且正式档确实存在且非空，游戏端才可以继续执行原版退出回调。
+        // MPActive_ 始终保留，作为断电或外层加密失败时的恢复副本。
+        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return -2;
+        var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
+        var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
+        ProtectedHashes.Remove(activePath);
+
+        // Unity 的 SaveGame 会先创建空文件，再在后续游戏帧完成加密写盘。桥接线程不能在这里
+        // 睡眠等待，否则游戏端同步等待响应时会阻塞那些帧。-6 表示“尚未写完”，脚本会让出
+        // 游戏帧后重试；只有完整原版 Encrypted 内容才会被封装并返回成功。
+        try
+        {
+            if (!File.Exists(activePath) || new FileInfo(activePath).Length == 0) return -6;
+            var active = File.ReadAllBytes(activePath);
+            if (!active.AsSpan().StartsWith("Encrypted"u8)) return -5;
+            ProtectActiveSaves(deleteActive: false);
+            if (File.Exists(onlinePath) && new FileInfo(onlinePath).Length > 0)
+            {
+                var unpacked = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
+                if (unpacked.AsSpan().SequenceEqual(active)) return 0;
+            }
+        }
+        catch (IOException) { return -6; }
+        catch (UnauthorizedAccessException) { return -6; }
+        catch (CryptographicException) { }
+
+        AddEvent(new BridgeEvent("error", 0, "退出前未能验证正式线上存档，已阻止退出以保护进度"));
+        return -5;
+    }
+
+    // 原版退出流程或其他 Mod 即使删除了当前槽位，也从刚验证过的正式线上档恢复
+    // MPActive_ 工作副本。这样退出后磁盘上始终同时保留正式档和可恢复副本。
+    private static void EnsureActiveRecoveryCopy()
+    {
+        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return;
+        var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
+        var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
+        if (File.Exists(activePath) || !File.Exists(onlinePath)) return;
+        try
+        {
+            var originalGameCiphertext = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
+            if (!originalGameCiphertext.AsSpan().StartsWith("Encrypted"u8)) return;
+            WriteAtomic(activePath, originalGameCiphertext);
+            ProtectedHashes[activePath] = Convert.ToHexString(SHA256.HashData(originalGameCiphertext));
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        catch (CryptographicException exception)
+        {
+            AddEvent(new BridgeEvent("error", 0, "恢复线上工作档失败: " + exception.Message));
+        }
     }
 
     private static int PrepareOnlineSave(Dictionary<string, string> values)
@@ -268,6 +467,7 @@ internal static class Program
         var originalGameCiphertext = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
         WriteAtomic(activePath, originalGameCiphertext);
         ProtectedHashes[activePath] = Convert.ToHexString(SHA256.HashData(originalGameCiphertext));
+        AddEvent(new BridgeEvent("saveMetadata", 0, BuildSaveMetadata(onlineName, originalGameCiphertext)));
         AddEvent(new BridgeEvent("savePrepared", 0, activeName));
         return 0;
     }
@@ -277,6 +477,26 @@ internal static class Program
         var onlineName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
         if (onlineName.Length == 0) return -2;
         BeginOnlineSaveSession(onlineName);
+        return 0;
+    }
+
+    // 旧版使用毫秒时间戳命名。升级时只改正式线上文件名，不解密、不改存档内容，
+    // 并且绝不覆盖已经存在的 UUIDv7 目标文件。
+    private static int RenameOnlineSave(Dictionary<string, string> values, string? saveDirectoryOverride = null)
+    {
+        var sourceName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
+        var targetName = NormalizeOnlineSaveName(values.GetValueOrDefault("target", string.Empty));
+        if (sourceName.Length == 0 || targetName.Length == 0) return -2;
+        if (sourceName.Equals(targetName, StringComparison.Ordinal)) return 0;
+        var saveDirectory = saveDirectoryOverride ?? GetSaveDirectory();
+        var sourcePath = Path.Combine(saveDirectory, sourceName + ".save");
+        var targetPath = Path.Combine(saveDirectory, targetName + ".save");
+        if (!File.Exists(sourcePath)) return -3;
+        if (File.Exists(targetPath)) return -4;
+        File.Move(sourcePath, targetPath, false);
+        if (_activeOnlineSaveName.Equals(sourceName, StringComparison.Ordinal))
+            _activeOnlineSaveName = targetName;
+        AddEvent(new BridgeEvent("saveRenamed", 0, targetName));
         return 0;
     }
 
@@ -309,8 +529,8 @@ internal static class Program
             if (hash == _autoSaveObservedHash) return;
             if (!current.AsSpan().StartsWith("Encrypted"u8)) return;
 
-            // 游戏的 AutoSaving() 固定传入 AutoSave。联机期间把这次写入立即转存到临时线上档，
-            // 随后恢复玩家原来的单机 AutoSave，避免联机进度污染或覆盖单机进度。
+            // 兼容旧版脚本或未经过 Hook 的原版自动保存：发现 AutoSave 改动时转存到临时线上档，
+            // 随后立即恢复玩家的线下 AutoSave，避免联机进度污染或覆盖单机进度。
             var activePath = Path.Combine(saveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
             WriteAtomic(activePath, current);
             RestoreSinglePlayerAutoSaveFile(autoSavePath);
@@ -403,9 +623,7 @@ internal static class Program
             json = builder.ToString();
         }
 
-        var temporary = path + ".tmp";
-        File.WriteAllText(temporary, json, new UTF8Encoding(false));
-        File.Move(temporary, path, true);
+        WriteStateSnapshots(path, json);
     }
 
     private static void WriteOfflineState(string path)
@@ -427,9 +645,53 @@ internal static class Program
         }
         builder.Append("],\"events\":[]}");
         var json = builder.ToString();
+        // 离线状态同步写入全部槽位，下次游戏启动无论先读到哪一槽都不会误判为在线。
+        TryWriteStateFile(path, json);
+        for (var slot = 0; slot < StateSlotCount; slot++)
+            TryWriteStateFile(GetStateSlotPath(path, slot), json);
+    }
+
+    private static void WriteStateSnapshots(string path, string json)
+    {
+        // 保留原路径供测试工具和人工诊断读取；游戏本身读取三槽轮转快照。
+        // 桥接只写当前 100ms 槽，游戏读取两个槽之前的文件，因此 ReadModFile 永远不会
+        // 与 File.Move 争用同一路径，同时保持 200~300ms 以内的事件延迟。
+        TryWriteStateFile(path, json);
+        var epoch = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / StateSlotMilliseconds;
+        var currentSlot = (int)(epoch % StateSlotCount);
+        for (var slot = 0; slot < StateSlotCount; slot++)
+        {
+            var slotPath = GetStateSlotPath(path, slot);
+            if (slot == currentSlot || !File.Exists(slotPath)) TryWriteStateFile(slotPath, json);
+        }
+    }
+
+    private static string GetStateSlotPath(string path, int slot)
+    {
+        var directory = Path.GetDirectoryName(path) ?? string.Empty;
+        var name = Path.GetFileNameWithoutExtension(path);
+        return Path.Combine(directory, $"{name}.{slot}.json");
+    }
+
+    private static void TryWriteStateFile(string path, string json)
+    {
         var temporary = path + ".tmp";
-        File.WriteAllText(temporary, json, new UTF8Encoding(false));
-        File.Move(temporary, path, true);
+        try
+        {
+            // 完整内容先写到临时文件，正式路径只经历一次极短的原子替换；游戏侧已经把
+            // 状态读取限制为 20 Hz，不再为每个事件重复打开文件。
+            File.WriteAllText(temporary, json, new UTF8Encoding(false));
+            File.Move(temporary, path, true);
+        }
+        catch (IOException)
+        {
+            // 状态快照允许丢一拍；网络节点和监听端口不能因此退出。
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
     }
 
     private static List<SaveEntry> ReadSaveEntries()
@@ -495,10 +757,11 @@ internal static class Program
                     // 第一层必须仍然是游戏自己的 Encrypted 存档，拒绝把损坏或明文文件封装成线上存档。
                     if (!originalGameCiphertext.AsSpan().StartsWith("Encrypted"u8)) continue;
                     var hash = Convert.ToHexString(SHA256.HashData(originalGameCiphertext));
-                    if (!ProtectedHashes.TryGetValue(activePath, out var previousHash) || previousHash != hash)
+                    var activeName = Path.GetFileNameWithoutExtension(activePath);
+                    var onlinePath = Path.Combine(saveDirectory, ToOnlineSaveName(activeName) + ".save");
+                    if (!File.Exists(onlinePath) ||
+                        !ProtectedHashes.TryGetValue(activePath, out var previousHash) || previousHash != hash)
                     {
-                        var activeName = Path.GetFileNameWithoutExtension(activePath);
-                        var onlinePath = Path.Combine(saveDirectory, ToOnlineSaveName(activeName) + ".save");
                         WriteAtomic(onlinePath, EncryptOuterLayer(originalGameCiphertext));
                         ProtectedHashes[activePath] = hash;
                     }
@@ -532,6 +795,77 @@ internal static class Program
         tag.CopyTo(result, 32);
         ciphertext.CopyTo(result, 48);
         return result;
+    }
+
+    private static byte[] EncryptGameSave(string json)
+    {
+        // 与游戏 EncryptHelper.Encrypt 完全一致："Encrypted" + Base64(HMAC || IV || AES-CBC)。
+        // 参数来自当前 GameAssembly.dll 的静态分析，并已用原版 AutoSave 做解密/再加密往返验证。
+        var salt = new byte[] { 0x04, 0x08, 0x41, 0x20, 0x49, 0x24, 0x00, 0x6d };
+        var key = Rfc2898DeriveBytes.Pbkdf2("Encrypt", salt, 10_000, HashAlgorithmName.SHA256, 32);
+        try
+        {
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+            aes.GenerateIV();
+            var plain = Encoding.UTF8.GetBytes(json);
+            using var encryptor = aes.CreateEncryptor();
+            var ciphertext = encryptor.TransformFinalBlock(plain, 0, plain.Length);
+            var authenticated = new byte[aes.IV.Length + ciphertext.Length];
+            Buffer.BlockCopy(aes.IV, 0, authenticated, 0, aes.IV.Length);
+            Buffer.BlockCopy(ciphertext, 0, authenticated, aes.IV.Length, ciphertext.Length);
+            using var hmac = new HMACSHA256(key);
+            var mac = hmac.ComputeHash(authenticated);
+            var payload = new byte[mac.Length + authenticated.Length];
+            Buffer.BlockCopy(mac, 0, payload, 0, mac.Length);
+            Buffer.BlockCopy(authenticated, 0, payload, mac.Length, authenticated.Length);
+            return Encoding.UTF8.GetBytes("Encrypted" + Convert.ToBase64String(payload));
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    private static string DecryptGameSave(byte[] encodedBytes)
+    {
+        var encoded = Encoding.UTF8.GetString(encodedBytes);
+        if (!encoded.StartsWith("Encrypted", StringComparison.Ordinal))
+            throw new CryptographicException("缺少游戏原版 Encrypted 文件头");
+        var payload = Convert.FromBase64String(encoded[9..]);
+        if (payload.Length < 64 || payload.Length % 16 != 0)
+            throw new CryptographicException("游戏原版密文长度无效");
+        var expectedMac = payload.AsSpan(0, 32);
+        var iv = payload.AsSpan(32, 16);
+        var ciphertext = payload.AsSpan(48);
+        var salt = new byte[] { 0x04, 0x08, 0x41, 0x20, 0x49, 0x24, 0x00, 0x6d };
+        var key = Rfc2898DeriveBytes.Pbkdf2("Encrypt", salt, 10_000, HashAlgorithmName.SHA256, 32);
+        try
+        {
+            using var hmac = new HMACSHA256(key);
+            var actualMac = hmac.ComputeHash(payload, 32, payload.Length - 32);
+            if (!CryptographicOperations.FixedTimeEquals(expectedMac, actualMac))
+                throw new CryptographicException("游戏原版存档 HMAC 验证失败");
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.IV = iv.ToArray();
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+            using var decryptor = aes.CreateDecryptor();
+            var plain = decryptor.TransformFinalBlock(ciphertext.ToArray(), 0, ciphertext.Length);
+            return Encoding.UTF8.GetString(plain);
+        }
+        finally { CryptographicOperations.ZeroMemory(key); }
+    }
+
+    private static string BuildSaveMetadata(string onlineName, byte[] originalGameCiphertext)
+    {
+        using var document = JsonDocument.Parse(DecryptGameSave(originalGameCiphertext));
+        var root = document.RootElement;
+        var scene = root.TryGetProperty("Scene", out var sceneElement) ? sceneElement.GetString() ?? string.Empty : string.Empty;
+        var position = root.TryGetProperty("PlayerPosition", out var positionElement) ? positionElement.GetRawText() : "null";
+        var rotation = root.TryGetProperty("PlayerRotation", out var rotationElement) ? rotationElement.GetRawText() : "null";
+        return "{\"save\":\"" + Escape(onlineName) + "\",\"scene\":\"" + Escape(scene) +
+            "\",\"position\":" + position + ",\"rotation\":" + rotation + "}";
     }
 
     private static byte[] DecryptOuterLayer(byte[] container)
@@ -579,20 +913,38 @@ internal static class Program
             if (!File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
                 throw new InvalidOperationException("线上自动保存没有转存到临时档");
             if (!File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(singlePlayer))
-                throw new InvalidOperationException("单机 AutoSave 没有恢复");
+                throw new InvalidOperationException("线上自动保存转存后没有恢复单机 AutoSave");
             ProtectActiveSaves(deleteActive: false, saveDirectoryOverride: testDirectory);
             var onlinePath = Path.Combine(testDirectory, "MPOnline_selftest.save");
+            if (!File.Exists(activePath))
+                throw new InvalidOperationException("正式档封装后错误删除了线上工作档");
             if (!File.Exists(onlinePath))
                 throw new InvalidOperationException("临时线上存档没有封装成正式线上存档");
             if (!DecryptOuterLayer(File.ReadAllBytes(onlinePath)).AsSpan().SequenceEqual(onlineAutoSave))
                 throw new InvalidOperationException("正式线上存档内容与临时档不一致");
+            File.Delete(activePath);
+            EnsureActiveRecoveryCopy();
+            if (!File.Exists(activePath) ||
+                !File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
+                throw new InvalidOperationException("原版退出删除工作档后没有从正式线上档恢复");
+            const string uuidV7Name = "MPOnline_01890f3e-7b00-7abc-8def-0123456789ab";
+            var renameResult = RenameOnlineSave(new Dictionary<string, string>
+            {
+                ["name"] = "MPOnline_selftest",
+                ["target"] = uuidV7Name
+            }, testDirectory);
+            var uuidV7Path = Path.Combine(testDirectory, uuidV7Name + ".save");
+            if (renameResult != 0 || File.Exists(onlinePath) || !File.Exists(uuidV7Path))
+                throw new InvalidOperationException("旧线上存档没有迁移到 UUIDv7 文件名");
+            if (!DecryptOuterLayer(File.ReadAllBytes(uuidV7Path)).AsSpan().SequenceEqual(onlineAutoSave))
+                throw new InvalidOperationException("UUIDv7 迁移改变了线上存档内容");
             RestoreSinglePlayerAutoSave();
         }
         finally
         {
             if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, true);
         }
-        Console.WriteLine("PASS online-save crypto, formal-save commit, tamper rejection, autosave redirect and single-player restore");
+        Console.WriteLine("PASS UUIDv7 rename, online-save crypto, active-save retention, formal-save commit, tamper rejection, autosave redirect and single-player restore");
     }
 
     private static void WriteAtomic(string path, byte[] bytes)

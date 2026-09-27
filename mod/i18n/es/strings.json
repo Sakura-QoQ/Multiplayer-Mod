@@ -32,5 +32,9 @@
   "toast.stopped": "Se detuvo la conexión.",
   "toast.playerJoined": "{player} se unió a la sala.",
   "toast.joinedRoom": "Te uniste a la sala. Peer local: {peer}",
+  "toast.sleepWaiting": "Esperando a que todos los jugadores elijan la misma opción de descanso…",
+  "players.title": "Perfiles de jugadores en línea",
+  "players.summary": "{player}  Ropa {cloth} | Misiones {quests} | Logros {achievements} | Contactos {contacts}",
+  "players.live": "  Vida {health}/{maxHealth} | Energía {stamina}/{maxStamina} | Dinero {money} | Día {day} / Hora {time}",
   "save.notRead": "Partida: aún no leída"
 }
