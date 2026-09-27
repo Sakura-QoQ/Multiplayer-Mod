@@ -1,4 +1,4 @@
-# Verification — v0.13.7
+# Verification — v0.13.8
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
@@ -12,6 +12,16 @@ The current NativeAOT bridge passes:
 
 ```text
 PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+```
+
+The dedicated runtime-log self-test also passes:
+
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
+```
+
+```text
+PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
 
 The bed-window regression was traced to two concrete native/runtime faults and corrected: the game's
@@ -82,4 +92,4 @@ Additional observed results from the two-game runs:
 
 ## Package boundary
 
-The player ZIP contains runtime Mod files, six language packs, English/Chinese player instructions and licenses, profile maps, and one self-contained NativeAOT executable. It does not include source, tests, installers, services, startup scripts, Node.js, the .NET SDK, Visual Studio or the Ubuntu server. Persistent output is limited to the Mod's JSON snapshots, an exceptional crash log beside them, and online files in the game's save directory; the Mod does not use the Windows registry.
+The player ZIP contains runtime Mod files, six language packs, English/Chinese player instructions and licenses, profile maps, and one self-contained NativeAOT executable. It does not include source, tests, installers, services, startup scripts, Node.js, the .NET SDK, Visual Studio or the Ubuntu server. Runtime diagnostics are written under the installed Mod's `Logs` directory, capped at 4 MiB with one previous file; exceptional bridge crashes use the same directory. Other persistent output is limited to rotating JSON snapshots and online files in the game's save directory. The Mod does not use the Windows registry.

@@ -15,6 +15,8 @@ Node.js and `tsc` are not used. UcModLauncher executes TypeScript-style Jint sou
 
 Neither the game script nor the bridge uses the Windows registry or Unity's registry-backed preference API. Commands travel through marked Unity `Player.log` lines; responses, events and current session identity use rotating JSON state files under the installed Mod's `Bridge` directory. The runtime does not elevate, install a service, run a package manager or download dependencies.
 
+The bridge filters ordinary `[PlayerHostedMultiplayer]` entries into `Logs/PlayerHostedMultiplayer.log` under the installed Mod. File output stays outside the Unity game thread; IPC marker lines are excluded. The current log rotates at 4 MiB and keeps one previous file.
+
 ## Build the player Mod
 
 ```powershell

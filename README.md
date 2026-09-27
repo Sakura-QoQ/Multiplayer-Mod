@@ -12,18 +12,20 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.7-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.8-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.13.7-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.13.8-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
 
 The ZIP contains a self-contained Windows x64 NativeAOT bridge. Players do not install Node.js, TypeScript, .NET, Visual Studio or a separate launcher script. The Mod never writes the Windows registry, installs a service, requests elevation or runs an installer. Runtime preferences stay in game memory; session identity is carried by the Mod's rotating JSON state files and online-save filenames. Public play needs outbound TCP only; players do not open an inbound port.
+
+The Mod keeps its own diagnostic log at `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log`. It is capped at 4 MiB and retains one `PlayerHostedMultiplayer.previous.log`; bridge crashes also create `PlayerHostedMultiplayer.crash.log` in that directory.
 
 For local direct play, use **Host** or **Join** with an address and port. A direct host may need a Windows firewall rule and router port forwarding when players connect from outside its LAN.
 

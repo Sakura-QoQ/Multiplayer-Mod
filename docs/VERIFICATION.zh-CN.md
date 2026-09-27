@@ -1,4 +1,4 @@
-# v0.13.7 验证报告
+# v0.13.8 验证报告
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
 - 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。
@@ -16,6 +16,16 @@
 
 ```text
 PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+```
+
+独立运行日志自检也已通过：
+
+```powershell
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
+```
+
+```text
+PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
 
 床窗口回归已定位并修复两个明确故障：游戏原生 `SleepToTomorrow` 回调只调用
@@ -82,4 +92,4 @@ PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inact
 
 ## 发布包边界
 
-玩家 ZIP 包含运行 Mod 文件、六种语言包、中英文玩家说明与许可、资料字段映射，以及一个自包含 NativeAOT 可执行程序；不包含源码、测试、安装器、系统服务、启动脚本、Node.js、.NET SDK、Visual Studio 或 Ubuntu 服务。持久输出仅限 Mod 自己的 JSON 快照、同目录下的异常崩溃日志，以及游戏存档目录中的线上文件；Mod 不使用 Windows 注册表。
+玩家 ZIP 包含运行 Mod 文件、六种语言包、中英文玩家说明与许可、资料字段映射，以及一个自包含 NativeAOT 可执行程序；不包含源码、测试、安装器、系统服务、启动脚本、Node.js、.NET SDK、Visual Studio 或 Ubuntu 服务。运行诊断写入安装目录的 `Logs` 文件夹，单个当前日志上限为 4 MiB 并保留一份旧日志，桥接异常报告也放在该目录。其他持久输出仅限 Mod 自己的轮换 JSON 快照和游戏存档目录中的线上文件；Mod 不使用 Windows 注册表。

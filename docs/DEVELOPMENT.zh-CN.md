@@ -15,6 +15,8 @@
 
 游戏脚本和桥接程序都不使用 Windows 注册表，也不调用 Unity 会落入注册表的偏好接口。命令通过 Unity `Player.log` 的专用标记行传递；响应、事件与当前会话身份使用安装目录 `Bridge` 下的轮换 JSON 状态文件。运行时不提权、不安装服务、不调用包管理器，也不下载依赖。
 
+桥接程序会把普通 `[PlayerHostedMultiplayer]` 记录筛选到安装目录内的 `Logs/PlayerHostedMultiplayer.log`。文件写入在 Unity 游戏线程之外完成，高频 IPC 标记不会进入该日志；当前日志达到 4 MiB 后轮换并保留一份旧文件。
+
 ## 构建玩家 Mod
 
 ```powershell
