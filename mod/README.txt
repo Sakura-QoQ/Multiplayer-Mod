@@ -25,6 +25,8 @@ time remains at 5 Hz. Time advances through sleep
 only when every connected player agrees on the same sleep mode.
 The Mod owns online time progression. Its unscaled host clock and the world behind the pause menu
 continue running while PauseWindow remains visible.
+The pause-menu Multiplayer entry is read-only and shows only the room role/address, synchronized
+time, online count and player list. Hosting and joining controls remain on the main menu.
 
 SAVES
 Online saves are named MPOnline_<player UUIDv7>.save. MPActive_<player UUIDv7>.save is the retained

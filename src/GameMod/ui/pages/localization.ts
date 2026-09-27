@@ -27,10 +27,16 @@ function refreshLocalizedUi(): void {
         try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
         try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
-        if (uiTitle) uiTitle.text = tr("panel.title");
+        if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" : "panel.title");
         refreshPlayerListUi(true);
+        if (uiPanelMode === "room") {
+            lastRoomInfoSignature = "";
+            refreshRoomInfoUi(true);
+        }
+        // 玩家资料卡也必须随游戏当前语言立即刷新，不能保留上一次语言的文本。
+        refreshPlayerInfoUi();
         updateStatusText();
-    } catch (error) { log("刷新联机界面语言失败: " + error); }
+    } catch (error) { log("Failed to refresh multiplayer UI localization: " + error); }
 }
 
 // 复制游戏自己的“新建游戏”按钮，因此背景、字体、悬停动画和缩放规则都与原界面一致。

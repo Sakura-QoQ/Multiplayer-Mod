@@ -31,7 +31,7 @@ function loadConfig(): MultiplayerConfig {
             bridgeChannel: normalizeBridgeChannel(parsed.bridgeChannel)
         };
     } catch (error) {
-        log("config.json 读取失败: " + error);
+        log("Failed to read config.json: " + error);
         return defaults;
     }
 }

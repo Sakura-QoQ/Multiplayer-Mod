@@ -17,7 +17,7 @@ function applyRemotePlayerProfile(packet: PlayerProfilePacket): void {
         const state = latestPlayerStates[key];
         if (state) createRemotePlayer(state);
     }
-    log("已接收玩家完整存档资料快照" + (appearanceChanged ? "并刷新外观" : "") + ": " +
+    log("Received complete player save-profile snapshot" + (appearanceChanged ? " and refreshed appearance" : "") + ": " +
         String(packet.playerName || packet.ownerId));
     refreshPlayerInfoUi();
 }

@@ -35,6 +35,7 @@
   "ui/pages/main-menu.ts",
   "ui/pages/pause-menu.ts",
   "ui/pages/player-list.ts",
+  "ui/pages/room-info.ts",
   "ui/pages/multiplayer.ts",
   "ui/pages/runtime.ts",
   "network/control/update-loop.ts",

@@ -33,7 +33,7 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
             // Instantiate 时 Unity 才能把该服装映射进远端克隆体。
             const diagnosticDress = Player.LocalPlayer.cloth.DressUp("Sailor");
             diagnosticAppearanceReadyAt = Number(UnityEngine.Time.unscaledTime) + 3;
-            log("诊断模式：已在内存中装备 Sailor 外观样本");
+            log("Diagnostics: equipped the Sailor appearance sample in memory");
             // 服装由 PlayerCloth 动态实例化，通常不在 Player.gameObject 子树内。记录真实层级与
             // copyFrom 骨骼源，供双实例测试确认远端克隆应该复制哪一个对象并绑定哪套骨骼。
             try {
@@ -46,11 +46,11 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
                     }
                     return names.join("/");
                 };
-                log("[双实例证据] 本地衣服对象 path=" +
+                log("[DualInstanceEvidence] Local clothing object path=" +
                     describeChain(diagnosticDress ? diagnosticDress.gameObject.transform : null) +
                     " copyFrom=" + describeChain(diagnosticDress ? diagnosticDress.copyFrom : null) +
                     " player=" + describeChain(Player.LocalPlayer.gameObject.transform));
-            } catch (error) { log("诊断衣服层级失败: " + error); }
+            } catch (error) { log("Failed to inspect the diagnostic clothing hierarchy: " + error); }
         }
         if (diagnosticAppearance && diagnosticAppearanceReadyAt > Number(UnityEngine.Time.unscaledTime))
             return null;
@@ -71,7 +71,7 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
             progress: data
         };
     } catch (error) {
-        log("采集玩家衣服和个人进度失败: " + error);
+        log("Failed to capture player clothing and personal progress: " + error);
         return null;
     }
 }

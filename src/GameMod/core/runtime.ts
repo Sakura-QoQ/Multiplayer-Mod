@@ -14,8 +14,7 @@ function advanceFixedDeadline(previous: number, now: number, interval: number): 
 }
 
 function toast(message: string): void {
-    log(message);
-    // 部分场景加载早期 Toast 单例尚未创建。此时只写日志，避免原版组件内部空引用。
+    // 本地化 UI 文本只显示在游戏中，不写入诊断日志；运行日志必须始终使用英语。
     try {
         if (Toast.Singleton) Toast.Show(tr("mod.name") + ": " + message, 5);
     } catch (_error) { }

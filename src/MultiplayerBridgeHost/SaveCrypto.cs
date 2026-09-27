@@ -49,7 +49,7 @@ internal static partial class Program
                 catch (UnauthorizedAccessException) { }
                 catch (CryptographicException exception)
                 {
-                    AddEvent(new BridgeEvent("error", 0, "线上存档加密失败: " + exception.Message));
+                    AddEvent(new BridgeEvent("error", 0, "Online-save encryption failed: " + exception.Message));
                 }
             }
         }
@@ -107,10 +107,10 @@ internal static partial class Program
     {
         var encoded = Encoding.UTF8.GetString(encodedBytes);
         if (!encoded.StartsWith("Encrypted", StringComparison.Ordinal))
-            throw new CryptographicException("缺少游戏原版 Encrypted 文件头");
+            throw new CryptographicException("Missing the game's original Encrypted header");
         var payload = Convert.FromBase64String(encoded[9..]);
         if (payload.Length < 64 || payload.Length % 16 != 0)
-            throw new CryptographicException("游戏原版密文长度无效");
+            throw new CryptographicException("Invalid original game ciphertext length");
         var expectedMac = payload.AsSpan(0, 32);
         var iv = payload.AsSpan(32, 16);
         var ciphertext = payload.AsSpan(48);
@@ -120,7 +120,7 @@ internal static partial class Program
             using var hmac = new HMACSHA256(key);
             var actualMac = hmac.ComputeHash(payload, 32, payload.Length - 32);
             if (!CryptographicOperations.FixedTimeEquals(expectedMac, actualMac))
-                throw new CryptographicException("游戏原版存档 HMAC 验证失败");
+                throw new CryptographicException("Original game-save HMAC verification failed");
             using var aes = Aes.Create();
             aes.Key = key;
             aes.IV = iv.ToArray();
@@ -151,7 +151,7 @@ internal static partial class Program
     private static byte[] DecryptOuterLayer(byte[] container)
     {
         if (container.Length < 49 || Encoding.ASCII.GetString(container, 0, 4) != OnlineSaveMagic)
-            throw new CryptographicException("不是有效的 MPB2 线上存档");
+            throw new CryptographicException("Not a valid MPB2 online save");
         var salt = container.AsSpan(4, 16);
         var nonce = container.AsSpan(20, 12);
         var tag = container.AsSpan(32, 16);
@@ -160,7 +160,7 @@ internal static partial class Program
         var key = Rfc2898DeriveBytes.Pbkdf2(ModEncryptionPassword, salt, ModKeyIterations, HashAlgorithmName.SHA256, 32);
         using (var aes = new AesGcm(key, 16)) aes.Decrypt(nonce, ciphertext, tag, plaintext, Encoding.ASCII.GetBytes(OnlineSaveMagic));
         CryptographicOperations.ZeroMemory(key);
-        if (!plaintext.AsSpan().StartsWith("Encrypted"u8)) throw new CryptographicException("内层不是游戏原版加密存档");
+        if (!plaintext.AsSpan().StartsWith("Encrypted"u8)) throw new CryptographicException("Inner payload is not an original encrypted game save");
         return plaintext;
     }
 
@@ -169,12 +169,12 @@ internal static partial class Program
         var original = Encoding.UTF8.GetBytes("Encrypted" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(128)));
         var wrapped = EncryptOuterLayer(original);
         var roundTrip = DecryptOuterLayer(wrapped);
-        if (!original.AsSpan().SequenceEqual(roundTrip)) throw new InvalidOperationException("线上存档加密往返不一致");
+        if (!original.AsSpan().SequenceEqual(roundTrip)) throw new InvalidOperationException("Online-save encryption round trip mismatch");
         wrapped[^1] ^= 0x01;
         try
         {
             _ = DecryptOuterLayer(wrapped);
-            throw new InvalidOperationException("被篡改的线上存档未被拒绝");
+            throw new InvalidOperationException("A tampered online save was not rejected");
         }
         catch (AuthenticationTagMismatchException) { }
 
@@ -191,22 +191,22 @@ internal static partial class Program
             RedirectOnlineAutoSave();
             var activePath = Path.Combine(testDirectory, "MPActive_selftest.save");
             if (!File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
-                throw new InvalidOperationException("线上自动保存没有转存到临时档");
+                throw new InvalidOperationException("Online autosave was not redirected to the working copy");
             if (!File.ReadAllBytes(autoSavePath).AsSpan().SequenceEqual(singlePlayer))
-                throw new InvalidOperationException("线上自动保存转存后没有恢复单机 AutoSave");
+                throw new InvalidOperationException("Single-player AutoSave was not restored after online autosave redirection");
             ProtectActiveSaves(deleteActive: false, saveDirectoryOverride: testDirectory);
             var onlinePath = Path.Combine(testDirectory, "MPOnline_selftest.save");
             if (!File.Exists(activePath))
-                throw new InvalidOperationException("正式档封装后错误删除了线上工作档");
+                throw new InvalidOperationException("The online working copy was incorrectly deleted after formal-save wrapping");
             if (!File.Exists(onlinePath))
-                throw new InvalidOperationException("临时线上存档没有封装成正式线上存档");
+                throw new InvalidOperationException("The online working copy was not wrapped into a formal online save");
             if (!DecryptOuterLayer(File.ReadAllBytes(onlinePath)).AsSpan().SequenceEqual(onlineAutoSave))
-                throw new InvalidOperationException("正式线上存档内容与临时档不一致");
+                throw new InvalidOperationException("Formal online-save content differs from the working copy");
             File.Delete(activePath);
             EnsureActiveRecoveryCopy();
             if (!File.Exists(activePath) ||
                 !File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
-                throw new InvalidOperationException("原版退出删除工作档后没有从正式线上档恢复");
+                throw new InvalidOperationException("The working copy was not recovered from the formal online save after game exit");
             const string uuidV7Name = "MPOnline_01890f3e-7b00-7abc-8def-0123456789ab";
             var renameResult = RenameOnlineSave(new Dictionary<string, string>
             {
@@ -215,9 +215,9 @@ internal static partial class Program
             }, testDirectory);
             var uuidV7Path = Path.Combine(testDirectory, uuidV7Name + ".save");
             if (renameResult != 0 || File.Exists(onlinePath) || !File.Exists(uuidV7Path))
-                throw new InvalidOperationException("旧线上存档没有迁移到 UUIDv7 文件名");
+                throw new InvalidOperationException("The legacy online save was not migrated to a UUIDv7 filename");
             if (!DecryptOuterLayer(File.ReadAllBytes(uuidV7Path)).AsSpan().SequenceEqual(onlineAutoSave))
-                throw new InvalidOperationException("UUIDv7 迁移改变了线上存档内容");
+                throw new InvalidOperationException("UUIDv7 migration changed the online-save content");
 
             // 即使正式档缺失或 PlayerPrefs 忘记上次选择，也必须优先恢复已有工作副本，
             // 不能把一次临时读取失败误判为首次游戏并创建空白角色。
@@ -228,11 +228,11 @@ internal static partial class Program
             File.WriteAllBytes(recoveryActivePath, recoveryCiphertext);
             var recoveryResult = PrepareOnlineSave(new Dictionary<string, string> { ["name"] = recoveryName }, testDirectory);
             if (recoveryResult != 0 || !File.Exists(recoveryOnlinePath))
-                throw new InvalidOperationException("正式档缺失时没有使用同 UUID 工作副本恢复");
+                throw new InvalidOperationException("The matching UUID working copy was not used when the formal save was missing");
             File.Delete(recoveryOnlinePath);
             recoveryResult = PrepareOnlineSave(new Dictionary<string, string> { ["name"] = string.Empty }, testDirectory);
             if (recoveryResult != 0 || !File.Exists(recoveryOnlinePath))
-                throw new InvalidOperationException("PlayerPrefs 丢失时没有扫描并恢复最近线上存档");
+                throw new InvalidOperationException("The latest online save was not discovered and recovered when PlayerPrefs was missing");
             RestoreSinglePlayerAutoSave();
         }
         finally

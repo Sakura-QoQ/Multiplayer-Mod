@@ -1,6 +1,7 @@
 ﻿param(
     [switch] $Install,
-    [switch] $SkipPackage
+    [switch] $SkipPackage,
+    [switch] $NoRestore
 )
 
 $ErrorActionPreference = 'Stop'
@@ -10,11 +11,14 @@ $bridgeProject = Join-Path $projectRoot 'src\MultiplayerBridgeHost\MultiplayerBr
 $gameModSourceRoot = Join-Path $projectRoot 'src\GameMod'
 $gameModManifest = Join-Path $gameModSourceRoot 'source-order.json'
 $gameModOutput = Join-Path $projectRoot 'mod\main.ts'
+$modInfoPath = Join-Path $projectRoot 'mod\info.json'
 $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
-$packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.9.0-win-x64.zip'
+$modVersion = ([string](Get-Content -LiteralPath $modInfoPath -Raw -Encoding UTF8 | ConvertFrom-Json).version).TrimStart('v')
+if ($modVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Mod version in info.json: $modVersion" }
+$packageZip = Join-Path $artifactsRoot "PlayerHostedMultiplayer-v$modVersion-win-x64.zip"
 
 function Build-GameModSource {
     # UcModLauncher 当前只加载单个 main.ts，不负责解析 TypeScript import。
@@ -29,6 +33,28 @@ function Build-GameModSource {
     }
     if (($sourceOrder | Select-Object -Unique).Count -ne $sourceOrder.Count) {
         throw 'Game Mod source manifest contains duplicate modules.'
+    }
+
+    # 清单必须覆盖每个源码模块，防止新增文件忘记进入单文件发布入口。
+    $listedSources = @($sourceOrder | ForEach-Object { ([string]$_).Replace('\', '/') } | Sort-Object)
+    $discoveredSources = @(Get-ChildItem -LiteralPath $gameModSourceRoot -Filter '*.ts' -File -Recurse |
+        ForEach-Object { $_.FullName.Substring($gameModSourceRoot.Length + 1).Replace('\', '/') } | Sort-Object)
+    $sourceDifference = @(Compare-Object $listedSources $discoveredSources)
+    if ($sourceDifference.Count -gt 0) {
+        throw "source-order.json does not exactly match src/GameMod modules: $($sourceDifference | Out-String)"
+    }
+
+    # 英语是回退语言；其他语言必须拥有完全相同的键，避免切换后显示键名或旧文本。
+    $i18nRoot = Join-Path $gameModSourceRoot 'ui\i18n'
+    $englishPath = Join-Path $i18nRoot 'en\strings.json'
+    $englishKeys = @((Get-Content -LiteralPath $englishPath -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties.Name | Sort-Object)
+    foreach ($languageDirectory in Get-ChildItem -LiteralPath $i18nRoot -Directory) {
+        $languagePath = Join-Path $languageDirectory.FullName 'strings.json'
+        $languageKeys = @((Get-Content -LiteralPath $languagePath -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties.Name | Sort-Object)
+        $keyDifference = @(Compare-Object $englishKeys $languageKeys)
+        if ($keyDifference.Count -gt 0) {
+            throw "Translation keys differ for $($languageDirectory.Name): $($keyDifference | Out-String)"
+        }
     }
 
     # 页面只能组合 ui/components 提供的构造函数，不能重新散落底层 Unity 控件创建代码。
@@ -52,7 +78,9 @@ function Build-GameModSource {
         [void]$builder.Append((Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8).TrimEnd())
         [void]$builder.AppendLine()
     }
-    [IO.File]::WriteAllText($gameModOutput, $builder.ToString(), [Text.UTF8Encoding]::new($false))
+    # 生成文件固定使用 LF，避免开发机 Git 配置造成整文件换行噪音。
+    $mergedSource = $builder.ToString().Replace("`r`n", "`n")
+    [IO.File]::WriteAllText($gameModOutput, $mergedSource, [Text.UTF8Encoding]::new($false))
 
     # 语言包属于 UI 源码；发布目录中的 mod/i18n 只是运行时副本。
     $sourceI18n = Join-Path $gameModSourceRoot 'ui\i18n'
@@ -142,7 +170,9 @@ function Copy-ModPayload([string] $destination) {
 Build-GameModSource
 Import-VisualCppEnvironment
 
-dotnet publish $bridgeProject -c Release -r win-x64 --self-contained -o $publishDir
+$publishArguments = @('publish', $bridgeProject, '-c', 'Release', '-r', 'win-x64', '--self-contained', '-o', $publishDir)
+if ($NoRestore) { $publishArguments += '--no-restore' }
+& dotnet @publishArguments
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
 }

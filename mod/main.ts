@@ -200,6 +200,12 @@ let updateFrames = 0;
 let uiRoot: UnityEngine.GameObject | null = null;
 let uiPanel: UnityEngine.GameObject | null = null;
 let uiConfigBody: UnityEngine.GameObject | null = null;
+let uiRoomInfoBody: UnityEngine.GameObject | null = null;
+let uiRoomSummary: UnityEngine.UI.Text | null = null;
+let uiRoomTime: UnityEngine.UI.Text | null = null;
+let uiRoomPlayers: UnityEngine.UI.Text | null = null;
+let uiPanelMode: "closed" | "config" | "room" = "closed";
+let lastRoomInfoSignature = "";
 let uiTitle: UnityEngine.UI.Text | null = null;
 let uiStatus: UnityEngine.UI.Text | null = null;
 let uiPlayerInfo: UnityEngine.UI.Text | null = null;
@@ -212,7 +218,6 @@ let uiPort: UnityEngine.UI.InputField | null = null;
 let uiName: UnityEngine.UI.InputField | null = null;
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
-let uiPauseLoadButton: UnityEngine.GameObject | null = null;
 let pauseButtonLayout: { setting: UnityEngine.UI.Button; multiplayer: UnityEngine.UI.Button; load: UnityEngine.UI.Button;
     secret: UnityEngine.UI.Button; bugFeedback: UnityEngine.UI.Button; exit: UnityEngine.UI.Button } | null = null;
 let lastPauseLayoutOnline: boolean | null = null;
@@ -254,7 +259,6 @@ let lastDiagnosticWorldTimeLogAt = -1;
 let onlineClockInitialized = false;
 let onlineClockGameTime = 0;
 let onlineClockLastUnscaledTime = 0;
-let gameManagerPausedField: any = null;
 let lastBridgeTouchAt = -1;
 let bedWindowInstance: BedWindow | null = null;
 let sleepConsensusExecuting = false;
@@ -292,7 +296,7 @@ function loadLanguageFile(code: string): Record<string, string> {
         const parsed = text ? JSON.parse(text) : null;
         return parsed && typeof parsed === "object" ? parsed : {};
     } catch (error) {
-        log("语言包读取失败 " + code + ": " + error);
+        log("Failed to load language pack " + code + ": " + error);
         return {};
     }
 }
@@ -342,7 +346,7 @@ function syncGameLanguage(force = false): void {
     if (Object.keys(englishMessages).length === 0) englishMessages = loadLanguageFile("en");
     messages = languageCode === "en" ? englishMessages : loadLanguageFile(languageCode);
     refreshLocalizedUi();
-    log("已切换联机界面语言: " + languageCode);
+    log("Multiplayer UI language changed to: " + languageCode);
 }
 
 // ===== 模块: core/runtime.ts =====
@@ -362,8 +366,7 @@ function advanceFixedDeadline(previous: number, now: number, interval: number): 
 }
 
 function toast(message: string): void {
-    log(message);
-    // 部分场景加载早期 Toast 单例尚未创建。此时只写日志，避免原版组件内部空引用。
+    // 本地化 UI 文本只显示在游戏中，不写入诊断日志；运行日志必须始终使用英语。
     try {
         if (Toast.Singleton) Toast.Show(tr("mod.name") + ": " + message, 5);
     } catch (_error) { }
@@ -448,15 +451,15 @@ function applyPreparedOnlineLocation(onApplied?: () => void): void {
                 if (metadata.rotation) player.transform.rotation = UnityEngine.Quaternion.Euler(
                     finiteNumber(metadata.rotation.x), finiteNumber(metadata.rotation.y), finiteNumber(metadata.rotation.z));
                 if (controller) controller.enabled = true;
-                log("已恢复线上存档场景位置: " + metadata.scene + " target=" +
+                log("Restored online-save scene position: " + metadata.scene + " target=" +
                     target.x.toFixed(4) + "," + target.y.toFixed(4) + "," + target.z.toFixed(4));
             }
-        } catch (error) { log("恢复线上存档位置失败: " + error); }
+        } catch (error) { log("Failed to restore the online-save position: " + error); }
         if (onApplied) onApplied();
     };
     if (metadata && metadata.scene && String(GameManager.NowSceneName || "") !== metadata.scene) {
         try { GameManager.MoveToScene(metadata.scene, applyTransform); return; }
-        catch (error) { log("恢复线上存档场景失败: " + error); }
+        catch (error) { log("Failed to restore the online-save scene: " + error); }
     }
     applyTransform();
 }
@@ -475,7 +478,7 @@ function launchBundledBridge(): void {
         // 非默认通道仅用于同机双游戏自动化验证，由测试工具带 --channel/--log-path
         // 参数预先启动桥接程序。生产包始终使用 default，仍保持零配置自动启动。
         if (BRIDGE_CHANNEL !== "default") {
-            log("等待测试通道桥接程序: " + BRIDGE_CHANNEL);
+            log("Waiting for the test-channel bridge: " + BRIDGE_CHANNEL);
             return;
         }
         // 启动器会给每个 Mod 提供 __dirname；这样即使玩家修改文件夹名称，也能找到随包桥接程序。
@@ -484,7 +487,7 @@ function launchBundledBridge(): void {
             // 兼容没有注入 __dirname 的旧版启动器，退回游戏默认 Mods 目录。
             const dataPath = String(UnityEngine.Application.dataPath || "").replace(/\\/g, "/");
             const separator = dataPath.lastIndexOf("/");
-            if (separator <= 0) throw new Error("无法确定游戏根目录: " + dataPath);
+            if (separator <= 0) throw new Error("Could not determine the game root directory: " + dataPath);
             modDirectory = dataPath.substring(0, separator) + "/Mods/PlayerHostedMultiplayer";
         }
         const bridgePath = modDirectory + "/Bridge/MultiplayerBridgeHost.exe";
@@ -500,14 +503,14 @@ function launchBundledBridge(): void {
             const process = System.Diagnostics.Process.Start(startInfo);
             startedDirectly = process !== null;
         } catch (error) {
-            log("普通权限直接启动联机桥失败，将使用兼容启动方式: " + error);
+            log("Direct bridge launch with standard user privileges failed; using the compatibility launcher: " + error);
         }
         if (!startedDirectly) UnityEngine.Application.OpenURL(bridgePath);
         UnityEngine.PlayerPrefs.SetInt(BRIDGE_STATE_READY_KEY, 1);
         UnityEngine.PlayerPrefs.Save();
-        log("已使用普通用户权限启动联机桥: " + bridgePath);
+        log("Started the bridge with standard user privileges: " + bridgePath);
     } catch (error) {
-        log("自动启动联机桥失败: " + error);
+        log("Failed to start the bridge automatically: " + error);
     }
 }
 
@@ -520,7 +523,7 @@ function submitBridgeCommandTracked(command: string): number {
         print(IPC_LOG_MARKER + " " + sequence + " " + command);
         return sequence;
     } catch (error) {
-        log("提交桥接命令失败: " + error);
+        log("Failed to submit a bridge command: " + error);
         return -1;
     }
 }
@@ -622,7 +625,7 @@ function loadConfig(): MultiplayerConfig {
             bridgeChannel: normalizeBridgeChannel(parsed.bridgeChannel)
         };
     } catch (error) {
-        log("config.json 读取失败: " + error);
+        log("Failed to read config.json: " + error);
         return defaults;
     }
 }
@@ -685,9 +688,7 @@ function playerLiveLine(profile: PlayerProfile | undefined): string {
         ? progress.PlayerStatusData : {};
     return tr("players.live", {
         health: Math.round(finiteNumber(status.health) * finiteNumber(status.maxHealth, 100)),
-        maxHealth: Math.round(finiteNumber(status.maxHealth, 100)),
         stamina: Math.round(finiteNumber(status.stamina) * finiteNumber(status.maxStamina, 100)),
-        maxStamina: Math.round(finiteNumber(status.maxStamina, 100)),
         // PlayerData.money 在存档内使用游戏自己的 XOR_KEY；资料卡显示 PlayerStatus.Money 的运行时值。
         money: typeof status.money === "number" ? (Math.trunc(status.money) ^ PLAYER_STATUS_XOR_KEY) : 0,
         day: Math.trunc(finiteNumber(status.day)),
@@ -734,7 +735,7 @@ function startBridge(): void {
                     bridgeAvailable = true;
                     initialized = false;
                     bridgeStartupGraceFrames = 0;
-                    log("已接管当前运行的联机桥，不再重复请求系统启动权限");
+                    log("Attached to the running multiplayer bridge without requesting another launch");
                 }
             } catch (_error) { }
         }
@@ -744,7 +745,7 @@ function startBridge(): void {
         initialized = true;
         bridgeStartupGraceFrames = 60;
         launchBundledBridge();
-        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
+        log("The multiplayer bridge is not running yet; waiting for the bundled bridge to start");
         return;
         }
     }
@@ -763,7 +764,7 @@ function startBridge(): void {
     catch (_error) { bridgeAvailable = false; }
     if (!bridgeAvailable) {
         launchBundledBridge();
-        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
+        log("The multiplayer bridge is not running yet; waiting for the bundled bridge to start");
         return;
     }
 
@@ -774,26 +775,26 @@ function startBridge(): void {
     if (existing.state === "hosting") {
         role = "host";
         localNetworkId = 0;
-        log("接管场景切换前的主机连接，端口=" + existing.port);
+        log("Reattached to the host connection from the previous scene on port " + existing.port);
         return;
     }
     if (existing.state === "connecting" || existing.state === "connected") {
         role = "client";
         localNetworkId = -1;
-        log("接管场景切换前的客户端连接");
+        log("Reattached to the client connection from the previous scene");
         // 场景切换会重新载入脚本；重新握手可恢复本代脚本丢失的 peerId 和玩家名映射。
         if (existing.state === "connected") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         return;
     }
 
     role = config.mode;
-    if (role === "off") { log("已加载，可使用“新建游戏”上方的“联机”按钮"); return; }
+    if (role === "off") { log("Loaded; use the Multiplayer button above New Game"); return; }
     const result = role === "host"
         ? bridgeCall("host?port=" + config.port + "&max=" + config.maxPlayers)
         : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
-    if (result !== "0") { log("启动网络桥接失败，错误码=" + result); role = "off"; return; }
+    if (result !== "0") { log("Failed to start the network bridge; error code=" + result); role = "off"; return; }
     localNetworkId = role === "host" ? 0 : -1;
-    log(role === "host" ? "正在监听 0.0.0.0:" + config.port : "正在连接 " + config.address + ":" + config.port);
+    log(role === "host" ? "Listening on 0.0.0.0:" + config.port : "Connecting to " + config.address + ":" + config.port);
 }
 
 function valueOr(input: UnityEngine.UI.InputField | null, fallback: string): string {
@@ -992,16 +993,16 @@ function enterOnlineSave(): void {
                 selectedSaveName = migratedName;
                 UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
                 UnityEngine.PlayerPrefs.Save();
-                log("已将旧线上存档迁移为玩家 UUIDv7 专属 ID: " + selectedSaveName);
+                log("Migrated the legacy online save to the player's UUIDv7 slot: " + selectedSaveName);
                 enterOnlineSave();
                 return;
             }
             if (result === "-3") {
-                log("旧线上存档已不存在，将使用玩家 UUIDv7 创建首个线上档");
+                log("The legacy online save no longer exists; creating the player's first UUIDv7 online save");
                 createInitialOnlineSave(menu);
                 return;
             }
-            log("迁移 UUIDv7 线上存档失败，错误码=" + result);
+            log("Failed to migrate the UUIDv7 online save; error code=" + result);
             toast(tr("toast.onlineSaveFailed"));
         });
         return;
@@ -1016,18 +1017,18 @@ function enterOnlineSave(): void {
     if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
     waitForBridgeResponse(menu, sequence, result => {
             if (result === "-3") {
-                log("磁盘上没有正式线上档或恢复副本，将创建首个线上存档");
+                log("No formal online save or recovery copy exists; creating the first online save");
                 createInitialOnlineSave(menu);
                 return;
             }
-            if (result !== "0") { log("准备线上存档失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
+            if (result !== "0") { log("Failed to prepare the online save; error code=" + result); toast(tr("toast.onlineSaveFailed")); return; }
             try {
                 preparedOnlineSaveMetadata = readPreparedSaveMetadata(requestedSaveName);
                 if (!preparedOnlineSaveMetadata || !hasUuidV7OnlineName(preparedOnlineSaveMetadata.save))
-                    throw new Error("桥接程序没有返回有效的 UUIDv7 线上存档元数据");
+                    throw new Error("The bridge did not return valid UUIDv7 online-save metadata");
                 selectedSaveName = preparedOnlineSaveMetadata.save;
                 const activeName = activeSaveName(selectedSaveName);
-                if (!activeName) throw new Error("无法生成线上工作副本名称");
+                if (!activeName) throw new Error("Could not create the online working-copy name");
                 // 桥接实际选中的磁盘文件具有最高优先级，同时修复被清除或过期的 PlayerPrefs。
                 UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
                 UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY,
@@ -1043,18 +1044,18 @@ function enterOnlineSave(): void {
                     GameManager.SaveName = activeName;
                     manager.LoadGame(activeName);
                     closePanel();
-                    log("已载入线上存档: " + selectedSaveName);
+                    log("Loaded online save: " + selectedSaveName);
                     // 原版晚加载不会再执行初始化阶段的 PlayerPosition；等订阅组件收尾后补应用场景位置。
                     JintCoroutine.WaitForSeconds(manager, 2, () => {
                         applyPreparedOnlineLocation(() => {
                             if (config.smokeTestOnlineLifecycle) waitForSavableGame(manager, () => {
                                 onlineSaveSessionReady = true;
-                                log("诊断模式：线上续档已进入可玩状态 save=" + selectedSaveName);
+                                log("Diagnostics: resumed online save reached a playable state save=" + selectedSaveName);
                             });
                         });
                     });
                 });
-            } catch (error) { log("载入线上存档失败: " + error); toast(tr("toast.onlineSaveFailed")); }
+            } catch (error) { log("Failed to load the online save: " + error); toast(tr("toast.onlineSaveFailed")); }
     });
 }
 
@@ -1067,7 +1068,7 @@ function createInitialOnlineSave(menu: MainMenu): void {
     const sequence = submitBridgeCommandTracked("beginSave?name=" + encodeURIComponent(selectedSaveName));
     if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
     waitForBridgeResponse(menu, sequence, result => {
-        if (result !== "0") { log("创建线上存档会话失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
+        if (result !== "0") { log("Failed to create the online-save session; error code=" + result); toast(tr("toast.onlineSaveFailed")); return; }
         try {
             GameManager.SaveName = activeName;
             menu.StartGame();
@@ -1078,13 +1079,13 @@ function createInitialOnlineSave(menu: MainMenu): void {
                 const saveResult = writeOnlineSaveSnapshot(manager);
                 if (saveResult === "0") {
                     if (loadConfig().smokeTestOnlineLifecycle) onlineSaveSessionReady = true;
-                    log("诊断模式：首个线上档已写入正式加密容器 save=" + selectedSaveName);
-                } else log("首个线上档提交失败，错误码=" + saveResult);
+                    log("Diagnostics: first online save was committed to the formal encrypted container save=" + selectedSaveName);
+                } else log("Failed to commit the first online save; error code=" + saveResult);
                 closePanel();
                 toast(tr("toast.onlineSaveCreated"));
-                log("已从零创建线上存档: " + selectedSaveName);
+                log("Created the first online save from a clean game: " + selectedSaveName);
             });
-        } catch (error) { log("创建线上存档失败: " + error); toast(tr("toast.onlineSaveFailed")); }
+        } catch (error) { log("Failed to create the online save: " + error); toast(tr("toast.onlineSaveFailed")); }
     });
 }
 
@@ -1118,7 +1119,8 @@ function stopFromUi(): void {
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];
-    if (uiPauseLoadButton) uiPauseLoadButton.SetActive(true);
+    // 下一帧统一布局函数会恢复原版“读取”按钮并重新计算间距。
+    lastPauseLayoutOnline = null;
     updateStatusText(tr("status.offline"));
     toast(tr("toast.stopped"));
 }
@@ -1152,7 +1154,7 @@ function sendPlayerProfilePacket(peerId: number, packet: PlayerProfilePacket): v
     }
     const count = Math.ceil(serialized.length / PLAYER_PROFILE_CHUNK_SIZE);
     if (count > MAX_PLAYER_PROFILE_CHUNKS) {
-        log("玩家完整资料超过同步上限，已跳过: " + serialized.length);
+        log("The complete player profile exceeds the synchronization limit and was skipped: " + serialized.length);
         return;
     }
     const transferId = packet.ownerId + "-" + packet.revision + "-" + Date.now();
@@ -1195,7 +1197,7 @@ function receivePlayerProfileChunk(packet: PlayerProfileChunkPacket, sourcePeerI
         const completed = JSON.parse(pending.parts.join(""));
         return validPlayerProfile(completed) ? completed : null;
     } catch (error) {
-        log("重组玩家完整资料失败: " + error);
+        log("Failed to reassemble the complete player profile: " + error);
         return null;
     }
 }
@@ -1218,7 +1220,7 @@ function flushOutgoingMessage(): void {
         if (index < 0) index = 0;
         const item = outgoingMessages.splice(index, 1)[0];
         const result = bridgeCall("send?peer=" + item.peerId + "&data=" + encodeURIComponent(item.data));
-        if (result !== "0") log("发送失败，错误码=" + result);
+        if (result !== "0") log("Send failed; error code=" + result);
     }
 }
 
@@ -1341,12 +1343,12 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
             const now = Number(UnityEngine.Time.unscaledTime);
             if (lastDiagnosticWorldTimeLogAt < 0 || now - lastDiagnosticWorldTimeLogAt >= 2) {
                 lastDiagnosticWorldTimeLogAt = now;
-                log("[双实例证据] 已应用房主时间 seq=" + packet.sequence + " gameTime=" +
+                log("[DualInstanceEvidence] Applied host time seq=" + packet.sequence + " gameTime=" +
                     Number(packet.gameTime).toFixed(2) + " day=" + Math.trunc(Number(packet.day)) +
                     " timeOfDay=" + Math.trunc(Number(packet.timeOfDay)));
             }
         }
-    } catch (error) { log("应用房主游戏时间失败: " + error); }
+    } catch (error) { log("Failed to apply host game time: " + error); }
     finally { applyingAuthoritativeTime = false; }
 }
 
@@ -1363,9 +1365,9 @@ function adoptLatestRoomDay(profile: PlayerProfile): void {
         if (!Number.isFinite(peerDay) || peerDay <= hostDay) return;
         applyingAuthoritativeTime = true;
         for (let guard = 0; hostDay < peerDay && guard < 4096; guard++, hostDay++) status.AddDay();
-        log("房间日期已推进到较晚玩家的进度: 第 " + peerDay + " 天");
+        log("Room day advanced to the later player's progress: day " + peerDay);
         sendAuthoritativeWorldTime(true);
-    } catch (error) { log("合并房间日期失败: " + error); }
+    } catch (error) { log("Failed to merge the room day: " + error); }
     finally { applyingAuthoritativeTime = false; }
 }
 
@@ -1382,7 +1384,7 @@ function invokeApprovedSleep(mode: SleepMode): void {
         // 又被睡眠前的旧锚点覆盖。
         resetOnlineWorldClockFromGame();
     }
-    catch (error) { log("执行全员睡觉失败: " + error); }
+    catch (error) { log("Failed to execute unanimous sleep: " + error); }
     finally { sleepConsensusExecuting = false; }
 }
 
@@ -1409,7 +1411,7 @@ function tryApproveSleep(): void {
         packet, createdAt: now, acknowledged: {}, nextSendAt: now + 0.5
     };
     send(0, packet);
-    log("全员睡眠共识已批准: " + mode + "，序号=" + packet.sequence);
+    log("Unanimous sleep approved: " + mode + "; sequence=" + packet.sequence);
     invokeApprovedSleep(mode);
     // 睡觉回调可能通过协程推进时间；随后正常的房主时间包会持续把结果同步给所有玩家。
     sendAuthoritativeWorldTime(true);
@@ -1422,12 +1424,12 @@ function resendPendingSleepApproval(): void {
     const now = Number(UnityEngine.Time.unscaledTime);
     const peerIds = Object.keys(peerNames);
     if (peerIds.every(peerId => pendingSleepApproval!.acknowledged[peerId])) {
-        log("全部客户端已确认睡眠批准: " + pendingSleepApproval.packet.sequence);
+        log("All clients acknowledged sleep approval: " + pendingSleepApproval.packet.sequence);
         pendingSleepApproval = null;
         return;
     }
     if (now - pendingSleepApproval.createdAt > 10) {
-        log("睡眠批准确认超时，本轮已结束: " + pendingSleepApproval.packet.sequence);
+        log("Sleep approval acknowledgement timed out: " + pendingSleepApproval.packet.sequence);
         pendingSleepApproval = null;
         return;
     }
@@ -1475,7 +1477,7 @@ function bindRemoteClothBones(dressRoot: UnityEngine.Transform, armature: UnityE
         preserved: number; missingNames: string[] } {
     const result = { renderers: 0, mapped: 0, total: 0, missing: 0, preserved: 0, missingNames: [] as string[] };
     const dress = dressRoot.gameObject.GetComponent("Dress") as Dress;
-    if (!dress) throw new Error("衣服根节点缺少 Dress 组件");
+    if (!dress) throw new Error("The clothing root has no Dress component");
 
     const belongsToClone = (bone: UnityEngine.Transform | null): boolean => {
         let node = bone;
@@ -1537,7 +1539,7 @@ function collectRemoteClothBonePairs(clone: UnityEngine.GameObject, armature: Un
         for (let index = 0; index < node.childCount; index++) collectDriven(node.GetChild(index));
     };
     if (clothRoot) collectDriven(clothRoot);
-    log("远端衣服骨骼驱动映射完成: " + pairs.length + " 对");
+    log("Remote clothing bone driver mapping complete: " + pairs.length + " pairs");
     return pairs;
 }
 
@@ -1594,24 +1596,24 @@ function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerPro
                 dress.gameObject.SetActive(true);
                 if (!remoteArmature) {
                     dress.gameObject.SetActive(false);
-                    log("远端衣服缺少目标 Armature，已禁用: " + id);
+                    log("Remote clothing has no target Armature and was disabled: " + id);
                     continue;
                 }
                 const binding = bindRemoteClothBones(dress.gameObject.transform, remoteArmature, clone.transform);
                 if (binding.renderers <= 0 || binding.missing > 0 || binding.mapped !== binding.total) {
                     dress.gameObject.SetActive(false);
-                    log("远端衣服骨骼重绑失败 dress=" + id + " renderers=" + binding.renderers +
+                    log("Remote clothing bone rebind failed dress=" + id + " renderers=" + binding.renderers +
                         " bones=" + binding.mapped + "/" + binding.total + " missing=" + binding.missing +
                         " names=" + binding.missingNames.slice(0, 24).join(","));
                     continue;
                 }
                 appliedCloth += 1;
-                log("远端衣服骨骼绑定完成 dress=" + id + " renderers=" + binding.renderers +
+                log("Remote clothing bone rebind complete dress=" + id + " renderers=" + binding.renderers +
                     " bones=" + binding.mapped + "/" + binding.total + " local=" + binding.preserved +
                     " missing=0 root=" + remoteArmature.name);
-            } else log("远端衣服 ID 在本机资源中不存在: " + id);
+            } else log("Remote clothing ID is unavailable in local resources: " + id);
         }
-        log("远端衣服映射完成: " + appliedCloth + "/" + profile.cloth.length);
+        log("Remote clothing mapping complete: " + appliedCloth + "/" + profile.cloth.length);
 
         const customization = clonedPlayer ? clonedPlayer.customization : null;
         const data = profile.customization || {};
@@ -1629,7 +1631,7 @@ function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerPro
                     customization.body.SetBlendShapeWeight(index, finiteNumber(data[key]) * 100);
             }
         }
-    } catch (error) { log("应用远端玩家衣服/外观失败: " + error); }
+    } catch (error) { log("Failed to apply remote-player clothing or appearance: " + error); }
 }
 
 // 原版 PlayerSkin.OnDestroy 会清理它缓存的实例材质。远端克隆剥离脚本前，必须先从
@@ -1678,17 +1680,18 @@ function restoreRemoteMaterials(snapshots: RemoteMaterialSnapshot[], skinTan: bo
             const propertyIndex = shader.FindPropertyIndex("_Tan");
             const propertyType = propertyIndex >= 0 ? Number(shader.GetPropertyType(propertyIndex)) : -1;
             if (propertyType === 2 || propertyType === 3) {
-                material.SetFloat("_Tan", skinTan ? 1 : 0);
+                // 原版 PlayerSkin.Update 使用 0.4 表示开启晒黑；写成 1 会让皮肤过度偏红。
+                material.SetFloat("_Tan", skinTan ? 0.4 : 0);
                 tanMaterials += 1;
             } else unsupportedTanProperties += 1;
         }
         snapshot.renderer.sharedMaterials = snapshot.materials;
     }
-    log("远端材质恢复完成: 渲染器=" + snapshots.length + "，材质=" + owned.length +
-        "，tan=" + skinTan + "/" + tanMaterials + "，无效Shader=" + invalidShaders +
-        "，跳过非浮点Tan=" + unsupportedTanProperties);
+    log("Remote material restoration complete: renderers=" + snapshots.length + "; materials=" + owned.length +
+        "; tan=" + skinTan + "/" + tanMaterials + "; invalidShaders=" + invalidShaders +
+        "; unsupportedTanProperties=" + unsupportedTanProperties);
     if (BRIDGE_CHANNEL !== "default") {
-        log("[双实例证据] 远端材质检查 invalid=" + invalidShaders + " tan=" + tanMaterials +
+        log("[DualInstanceEvidence] Remote material check invalid=" + invalidShaders + " tan=" + tanMaterials +
             " unsupported=" + unsupportedTanProperties);
     }
     return owned;
@@ -1711,8 +1714,8 @@ function setRuntimeClothes(cloth: PlayerCloth, ids: string[]): void {
         const id = String(rawId);
         try {
             const dress = cloth.DressUp(id);
-            if (!dress) log("本机不存在远端衣服资源: " + id);
-        } catch (error) { log("准备衣服资源失败 " + id + ": " + error); }
+            if (!dress) log("Remote clothing resource is unavailable locally: " + id);
+        } catch (error) { log("Failed to prepare clothing resource " + id + ": " + error); }
     }
 }
 
@@ -1794,8 +1797,8 @@ function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
         clone = UnityEngine.Object.Instantiate(source) as UnityEngine.GameObject;
         clone.name = "MPB_RemotePlayer_" + packet.ownerId;
         const animator = clone.GetComponent("Animator") as UnityEngine.Animator;
-        if (!animator) throw new Error("远端玩家克隆体缺少 Animator");
-        log("正在准备远端玩家可视模型: " + String(packet.playerName || packet.ownerId));
+        if (!animator) throw new Error("The remote-player clone has no Animator");
+        log("Preparing remote-player visual model: " + String(packet.playerName || packet.ownerId));
         // 剥离脚本和未启用节点之前，按该玩家的资料启用衣服、发型和脸型。
         applyRemoteAppearance(clone, remoteProfile);
         const materialSnapshots = captureRemoteMaterials(clone.transform);
@@ -1825,17 +1828,17 @@ function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
             ownedMaterials
         };
         remotePlayers[String(packet.ownerId)] = remote;
-        log("已创建远端玩家模型: " + remote.name + " (peer=" + packet.ownerId + ")");
+        log("Created remote player model: " + remote.name + " (peer=" + packet.ownerId + ")");
         return remote;
     } catch (error) {
         if (clone) UnityEngine.Object.Destroy(clone);
-        log("创建远端玩家模型失败: " + error);
+        log("Failed to create the remote player model: " + error);
         return null;
     } finally {
         if (wasActive && !source.activeSelf) source.SetActive(true);
         if (sourceAppearanceChanged && local.cloth) {
             try { setRuntimeClothes(local.cloth, originalClothes); }
-            catch (error) { log("恢复本地玩家衣服失败: " + error); }
+            catch (error) { log("Failed to restore local-player clothing: " + error); }
         }
         // 防御性恢复：即使未来游戏版本改变 Awake 时机，也不能让克隆体替换本地玩家单例。
         Player.LocalPlayer = local;
@@ -1855,7 +1858,7 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
         if (role === "client" && packet.ownerId === 0 && GameManager.InGame && packet.scene &&
             pendingHostScene !== packet.scene) {
             pendingHostScene = packet.scene;
-            log("正在跟随房主切换场景: " + packet.scene);
+            log("Following the host to scene: " + packet.scene);
             try {
                 GameManager.MoveToScene(packet.scene, () => {
                     pendingHostScene = "";
@@ -1865,11 +1868,11 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
                                 packet.position.x + 1.0, packet.position.y, packet.position.z);
                         }
                     } catch (_error) { }
-                    log("已进入房主场景: " + packet.scene);
+                    log("Entered the host scene: " + packet.scene);
                 });
             } catch (error) {
                 pendingHostScene = "";
-                log("跟随房主场景失败: " + error);
+                log("Failed to follow the host scene: " + error);
             }
         }
         return;
@@ -1906,7 +1909,7 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
             const actionKey = packet.animations.map(layer => layer.hash).join(",") + ":" + packet.action + ":" + packet.handAction + ":" + packet.attack;
             const moved = UnityEngine.Vector3.Distance(remote.diagnosticPosition, remote.targetPosition) >= 0.1;
             if (moved || actionKey !== remote.diagnosticActionKey) {
-                log("[双实例证据] 远端状态 peer=" + packet.ownerId + " seq=" + packet.sequence +
+                log("[DualInstanceEvidence] Remote state peer=" + packet.ownerId + " seq=" + packet.sequence +
                     " pos=" + packet.position.x.toFixed(2) + "," + packet.position.y.toFixed(2) + "," + packet.position.z.toFixed(2) +
                     " anim=" + packet.animationHash + " action=" + packet.action + "/" + packet.handAction + "/" + packet.attack);
                 remote.diagnosticPosition = remote.targetPosition;
@@ -1939,7 +1942,7 @@ function applyRemotePlayerProfile(packet: PlayerProfilePacket): void {
         const state = latestPlayerStates[key];
         if (state) createRemotePlayer(state);
     }
-    log("已接收玩家完整存档资料快照" + (appearanceChanged ? "并刷新外观" : "") + ": " +
+    log("Received complete player save-profile snapshot" + (appearanceChanged ? " and refreshed appearance" : "") + ": " +
         String(packet.playerName || packet.ownerId));
     refreshPlayerInfoUi();
 }
@@ -1980,7 +1983,7 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
             // Instantiate 时 Unity 才能把该服装映射进远端克隆体。
             const diagnosticDress = Player.LocalPlayer.cloth.DressUp("Sailor");
             diagnosticAppearanceReadyAt = Number(UnityEngine.Time.unscaledTime) + 3;
-            log("诊断模式：已在内存中装备 Sailor 外观样本");
+            log("Diagnostics: equipped the Sailor appearance sample in memory");
             // 服装由 PlayerCloth 动态实例化，通常不在 Player.gameObject 子树内。记录真实层级与
             // copyFrom 骨骼源，供双实例测试确认远端克隆应该复制哪一个对象并绑定哪套骨骼。
             try {
@@ -1993,11 +1996,11 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
                     }
                     return names.join("/");
                 };
-                log("[双实例证据] 本地衣服对象 path=" +
+                log("[DualInstanceEvidence] Local clothing object path=" +
                     describeChain(diagnosticDress ? diagnosticDress.gameObject.transform : null) +
                     " copyFrom=" + describeChain(diagnosticDress ? diagnosticDress.copyFrom : null) +
                     " player=" + describeChain(Player.LocalPlayer.gameObject.transform));
-            } catch (error) { log("诊断衣服层级失败: " + error); }
+            } catch (error) { log("Failed to inspect the diagnostic clothing hierarchy: " + error); }
         }
         if (diagnosticAppearance && diagnosticAppearanceReadyAt > Number(UnityEngine.Time.unscaledTime))
             return null;
@@ -2018,7 +2021,7 @@ function captureLocalPlayerProfile(): PlayerProfile | null {
             progress: data
         };
     } catch (error) {
-        log("采集玩家衣服和个人进度失败: " + error);
+        log("Failed to capture player clothing and personal progress: " + error);
         return null;
     }
 }
@@ -2076,7 +2079,7 @@ function applyRemotePlayerLiveData(packet: PlayerLiveDataPacket): void {
     profile.progress.TimeOffset = Number(packet.timeOffset);
     profile.progress.Scene = String(packet.scene);
     if (BRIDGE_CHANNEL !== "default" && sequence % 4 === 0)
-        log("[双实例证据] 已应用玩家实时资料 peer=" + packet.ownerId + " seq=" + sequence +
+        log("[DualInstanceEvidence] Applied player live data peer=" + packet.ownerId + " seq=" + sequence +
             " health=" + finiteNumber(packet.status.health) + " stamina=" + finiteNumber(packet.status.stamina) +
             " money=" + finiteNumber(packet.status.money));
     refreshPlayerInfoUi();
@@ -2124,7 +2127,7 @@ function captureLocalPlayerState(player: Player): PlayerStatePacket | null {
             animations
         };
     } catch (error) {
-        log("采集本地玩家状态失败: " + error);
+        log("Failed to capture local-player state: " + error);
         return null;
     }
 }
@@ -2148,10 +2151,10 @@ function runSmokeTestDiagnostics(player: Player): void {
                 player.transform.position = new UnityEngine.Vector3(current.x + 3.25, current.y, current.z);
             }
             const savedPosition = player.transform.position;
-            beginOnlineExitSave(player, () => log("[线上存档生命周期] phase=" + config.smokeTestLifecyclePhase +
+            beginOnlineExitSave(player, () => log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
                 " save=" + selectedSaveName + " position=" + savedPosition.x.toFixed(4) + "," +
                 savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4)));
-        } catch (error) { log("诊断模式：线上存档生命周期失败: " + error); }
+        } catch (error) { log("Diagnostics: online-save lifecycle failed: " + error); }
         return;
     }
     if (config.smokeTestPhone && localNetworkId >= 0 && !smokePhoneChecked && GameManager.Singleton) {
@@ -2164,12 +2167,12 @@ function runSmokeTestDiagnostics(player: Player): void {
             GameManager.PauseGame(false);
             keepOnlineWorldRunning();
             if (GameManager.Paused || Number(UnityEngine.Time.timeScale) <= 0)
-                throw new Error("解除暂停后游戏仍处于暂停状态");
+                throw new Error("The game remained paused after online pause release");
             const phone = WindowManager.OpenWindow("XWindow");
-            if (!phone || !WindowManager.IsOpened("XWindow")) throw new Error("XWindow 未能打开");
-            log("诊断模式：线上暂停后手机窗口已正常打开，游戏时间未暂停");
+            if (!phone || !WindowManager.IsOpened("XWindow")) throw new Error("XWindow did not open");
+            log("Diagnostics: phone window opened after online pause while game time remained active");
             WindowManager.CloseWindow("XWindow");
-        } catch (error) { log("诊断模式：线上手机窗口验证失败: " + error); }
+        } catch (error) { log("Diagnostics: online phone-window verification failed: " + error); }
     }
     if (config.smokeTestPauseMenu && localNetworkId >= 0 && !smokePauseMenuOpened && GameManager.Singleton) {
         smokePauseMenuOpened = true;
@@ -2177,25 +2180,32 @@ function runSmokeTestDiagnostics(player: Player): void {
             // 无人值守测试不能可靠抢占 Windows 前台焦点，因此直接调用游戏原生窗口管理器。
             // 这会实例化和显示与玩家按 ESC 完全相同的 PauseWindow，并执行其原生 Start。
             const pause = WindowManager.OpenWindow("PauseWindow");
-            if (!pause || !WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow 未能打开");
+            if (!pause || !WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow did not open");
             GameManager.PauseGame(true);
             smokePauseMenuOpenedAt = now;
             smokePauseMenuGameTime = Number(GameManager.Singleton.gameTime);
-            log("诊断模式：已通过原生 WindowManager 打开 PauseWindow");
-        } catch (error) { log("诊断模式：打开原版暂停菜单失败: " + error); }
+            log("Diagnostics: opened PauseWindow through the native WindowManager");
+        } catch (error) { log("Diagnostics: failed to open the native pause menu: " + error); }
     }
     if (config.smokeTestPauseMenu && smokePauseMenuOpened && !smokePauseBackgroundVerified &&
         smokePauseMenuOpenedAt >= 0 && now - smokePauseMenuOpenedAt >= 1 && GameManager.Singleton) {
         try {
-            if (!WindowManager.IsOpened("PauseWindow")) throw new Error("验证期间 PauseWindow 已关闭");
+            if (!WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow closed during verification");
             const elapsedGameTime = Number(GameManager.Singleton.gameTime) - smokePauseMenuGameTime;
             if (GameManager.Paused || Number(UnityEngine.Time.timeScale) !== 1 || elapsedGameTime < 0.5)
-                throw new Error("暂停背景未持续运行 paused=" + GameManager.Paused +
+                throw new Error("The world behind the pause menu did not remain active; paused=" + GameManager.Paused +
                     " timeScale=" + UnityEngine.Time.timeScale + " delta=" + elapsedGameTime);
+            // 同一条无人值守测试同时打开暂停菜单里的联机入口，确认它显示的是只读房间页，
+            // 而不是主菜单使用的地址、端口与建房配置页。
+            openRoomInfoPanel();
+            if (!uiPanel || !uiPanel.activeSelf || uiPanelMode !== "room" || !uiRoomInfoBody || !uiRoomInfoBody.activeSelf)
+                throw new Error("The pause-menu multiplayer room information page was not visible");
+            if (uiConfigBody && uiConfigBody.activeSelf) throw new Error("The pause menu incorrectly displayed connection settings");
             smokePauseBackgroundVerified = true;
-            log("[双实例证据] PauseWindow 保持显示且背景持续运行 paused=false timeScale=1 delta=" +
+            log("[DualInstanceEvidence] PauseWindow remained visible while the world continued paused=false timeScale=1 delta=" +
                 elapsedGameTime.toFixed(2));
-        } catch (error) { log("诊断模式：暂停背景持续运行验证失败: " + error); }
+            log("[DualInstanceEvidence] Pause-menu Multiplayer page contains only room information, synchronized time and players");
+        } catch (error) { log("Diagnostics: pause-background verification failed: " + error); }
     }
     if (config.smokeTestSleepConsensus && localNetworkId >= 0 && smokeSleepStartedAt < 0) {
         // 房主必须等至少一个客户端完成 hello 登记；否则“当前只有房主一人”会合法地立即批准。
@@ -2209,10 +2219,10 @@ function runSmokeTestDiagnostics(player: Player): void {
             smokeSleepRequested = true;
             if (role === "host") {
                 sleepReady["0"] = { mode: "tomorrow", at: now };
-                log("诊断模式：房主已请求睡到明天，等待其他玩家");
+                log("Diagnostics: host requested sleep until tomorrow and is waiting for other players");
                 tryApproveSleep();
             } else {
-                log("诊断模式：客户端已请求睡到明天");
+                log("Diagnostics: client requested sleep until tomorrow");
                 send(0, { type: "sleepRequest", mode: "tomorrow" } as SleepRequestPacket);
             }
         }
@@ -2233,15 +2243,15 @@ function runSmokeTestDiagnostics(player: Player): void {
         // 的远端模型创建后仍能收到非零动作，而不是只验证一个转瞬即逝的包。
         smokeActionOverrideUntil = now + 15;
         smokeMotionCompletedAt = now;
-        log("诊断模式：房主已移动两米并发送动作状态 target=" +
+        log("Diagnostics: host moved two meters and sent the action state target=" +
             target.x.toFixed(2) + "," + target.y.toFixed(2) + "," + target.z.toFixed(2));
     }
     if (config.smokeTestSceneSync && smokeMotionCompletedAt >= 0 && !smokeSceneRequested &&
         now - smokeMotionCompletedAt >= 3 && String(GameManager.NowSceneName || "") === "RoomScene") {
         smokeSceneRequested = true;
-        log("诊断模式：房主切换到 StreetScene");
-        try { GameManager.MoveToScene("StreetScene", () => log("诊断模式：房主已进入 StreetScene")); }
-        catch (error) { log("诊断模式场景切换失败: " + error); }
+        log("Diagnostics: host is switching to StreetScene");
+        try { GameManager.MoveToScene("StreetScene", () => log("Diagnostics: host entered StreetScene")); }
+        catch (error) { log("Diagnostics: scene transition failed: " + error); }
     }
 }
 
@@ -2249,12 +2259,12 @@ function scheduleSmokeOnlineLifecycle(menu: MainMenu, remaining = 900): void {
     if (!isCurrentGeneration() || smokeOnlineLifecycleStarted) return;
     if (bridgeAvailable && role === "host") {
         smokeOnlineLifecycleStarted = true;
-        log("诊断模式：开始真实线上存档生命周期");
+        log("Diagnostics: starting the real online-save lifecycle");
         enterOnlineSave();
         return;
     }
     if (remaining <= 0) {
-        log("诊断模式：等待线上存档桥接超时");
+        log("Diagnostics: timed out while waiting for the online-save bridge");
         return;
     }
     JintCoroutine.WaitForNextFrame(menu, () => scheduleSmokeOnlineLifecycle(menu, remaining - 1));
@@ -2313,7 +2323,7 @@ function processEvent(rawEvent: string): void {
         return;
     }
     if (event.type === "connected") {
-        log("连接建立，peer=" + event.peerId);
+        log("Connection established peer=" + event.peerId);
         // 客户端建立 TCP 连接后先发送协议版本和玩家名，由房主确认兼容性。
         if (role === "client") {
             localNetworkId = -1;
@@ -2325,9 +2335,10 @@ function processEvent(rawEvent: string): void {
     if (event.type === "message") {
         const packet = JSON.parse(event.message);
         if (role === "host" && packet.type === "hello") {
-            if (packet.protocol !== PROTOCOL_VERSION) { log("客户端协议不兼容，peer=" + event.peerId); return; }
+            if (packet.protocol !== PROTOCOL_VERSION) { log("Client protocol mismatch peer=" + event.peerId); return; }
             const isNewPeer = peerNames[String(event.peerId)] === undefined;
             peerNames[String(event.peerId)] = String(packet.playerName || "Player");
+            log("Player joined: " + peerNames[String(event.peerId)] + " peer=" + event.peerId);
             send(event.peerId, { type: "welcome", protocol: PROTOCOL_VERSION, peerId: event.peerId });
             // 新玩家需要立即收到房主和已在线玩家的完整外观/个人进度，而不是等待资料变化。
             if (isNewPeer) {
@@ -2389,7 +2400,7 @@ function processEvent(rawEvent: string): void {
             flushOutgoingMessage();
             if (sequence > lastSleepApprovalSequence) {
                 lastSleepApprovalSequence = sequence;
-                log("已收到全员睡眠批准: " + packet.mode + "，序号=" + sequence);
+                log("Received unanimous sleep approval: " + packet.mode + "; sequence=" + sequence);
                 invokeApprovedSleep(packet.mode);
             }
             // 重复批准同样会在上方立即 ACK，但绝不重复执行睡眠。
@@ -2411,9 +2422,9 @@ function processEvent(rawEvent: string): void {
         }
         return;
     }
-    if (event.type === "error") { log("网络错误: " + event.message); updateStatusText(tr("status.networkError", { error: event.message })); }
+    if (event.type === "error") { log("Network error: " + event.message); updateStatusText(tr("status.networkError", { error: event.message })); }
     else if (event.type === "disconnected") {
-        log("连接断开，peer=" + event.peerId);
+        log("Connection disconnected peer=" + event.peerId);
         if (role === "host") {
             destroyRemotePlayer(Number(event.peerId));
             delete peerNames[String(event.peerId)];
@@ -2443,24 +2454,34 @@ function processPlayerProfilePacket(packet: PlayerProfilePacket, sourcePeerId: n
 }
 
 // ===== 模块: ui/pages/panel-state.ts =====
-// 页面开关状态。
+// 联机面板状态统一由这里切换，避免配置页和只读房间页各自修改可见性。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
-function closePanel(): void {
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-    if (uiPanel) uiPanel.SetActive(false);
+function setPanelMode(mode: "closed" | "config" | "room"): void {
+    uiPanelMode = mode;
+    const roomVisible = mode === "room";
+    if (uiConfigBody) uiConfigBody.SetActive(mode === "config");
+    if (uiRoomInfoBody) uiRoomInfoBody.SetActive(roomVisible);
+    if (uiTitle) uiTitle.text = tr(roomVisible ? "room.title" : "panel.title");
+    if (uiPanel) uiPanel.SetActive(mode !== "closed");
+
+    if (mode === "config") {
+        // 面板可能在桥接启动后才首次打开，不能继续显示 buildUi 时缓存的状态。
+        updateStatusText();
+        refreshPlayerInfoUi();
+    } else if (roomVisible) {
+        lastRoomInfoSignature = "";
+        refreshRoomInfoUi(true);
+    }
 }
 
-function openPanel(): void {
+function openPanelMode(mode: "config" | "room"): void {
     if (!uiPanel) return;
     syncGameLanguage();
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-    // 面板可能在桥接启动后才首次打开；不能继续显示 buildUi 时缓存的“未联机”。
-    updateStatusText();
-    refreshPlayerInfoUi();
-    uiPanel.SetActive(true);
+    setPanelMode(mode);
 }
+
+function closePanel(): void { setPanelMode("closed"); }
+function openPanel(): void { openPanelMode("config"); }
 
 // ===== 模块: ui/components/layout.ts =====
 // 布局基础组件。
@@ -2715,14 +2736,14 @@ function cloneNativeButton(template: UnityEngine.UI.Button, parent: UnityEngine.
     const root = UnityEngine.Object.Instantiate(template.gameObject, parent) as UnityEngine.GameObject;
     root.name = name;
     const button = root.GetComponent("Button") as UnityEngine.UI.Button;
-    if (!button) throw new Error("复制后的按钮缺少 Button 组件");
+    if (!button) throw new Error("The cloned object does not contain a Button component");
     button.onClick.RemoveAllListeners();
     let listenerAdded = false;
     try { button.onClick.AddListener(onClick); listenerAdded = true; } catch (_error) { }
     if (!listenerAdded) {
         try { Extensions.SetListener(button.onClick, onClick); listenerAdded = true; } catch (_error) { }
     }
-    if (!listenerAdded) throw new Error("无法绑定复制按钮的点击事件");
+    if (!listenerAdded) throw new Error("Could not bind the cloned button click handler");
     const label = findTextInChildren(root.transform);
     if (label) label.text = labelText;
     return { root, button, label };
@@ -2788,10 +2809,16 @@ function refreshLocalizedUi(): void {
         try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
         try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
-        if (uiTitle) uiTitle.text = tr("panel.title");
+        if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" : "panel.title");
         refreshPlayerListUi(true);
+        if (uiPanelMode === "room") {
+            lastRoomInfoSignature = "";
+            refreshRoomInfoUi(true);
+        }
+        // 玩家资料卡也必须随游戏当前语言立即刷新，不能保留上一次语言的文本。
+        refreshPlayerInfoUi();
         updateStatusText();
-    } catch (error) { log("刷新联机界面语言失败: " + error); }
+    } catch (error) { log("Failed to refresh multiplayer UI localization: " + error); }
 }
 
 // 复制游戏自己的“新建游戏”按钮，因此背景、字体、悬停动画和缩放规则都与原界面一致。
@@ -2801,13 +2828,13 @@ function refreshLocalizedUi(): void {
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function buildMainMenuButton(menu: MainMenu): void {
     if (!menu.newGame || !menu.newGame.gameObject || !uiPanel) return;
-    let stage = "准备";
+    let stage = "prepare";
     try {
         const parent = menu.newGame.transform.parent;
         const old = findNamedChild(parent, MENU_BUTTON_NAME);
         if (old) UnityEngine.Object.Destroy(old.gameObject);
 
-        stage = "复制按钮";
+        stage = "clone button";
         const clonedButton = cloneNativeButton(menu.newGame, parent, MENU_BUTTON_NAME,
             tr("menu.multiplayer"), () => {
             if (!isCurrentGeneration() || !uiPanel) return;
@@ -2817,7 +2844,7 @@ function buildMainMenuButton(menu: MainMenu): void {
         });
         const cloned = clonedButton.root;
 
-        stage = "计算按钮位置";
+        stage = "calculate button position";
         const sourceRect = menu.newGame.transform as any;
         const clonedRect = cloned.transform as any;
         const loadRect = menu.LoadGame ? menu.LoadGame.transform as any : null;
@@ -2829,14 +2856,14 @@ function buildMainMenuButton(menu: MainMenu): void {
         }
         clonedRect.anchoredPosition = new UnityEngine.Vector2(Number(sourcePosition.x), Number(sourcePosition.y) + spacing);
         // 如果原菜单使用 VerticalLayoutGroup，兄弟序号会让布局系统把它排在“新建游戏”正上方。
-        stage = "设置菜单顺序";
+        stage = "set menu order";
         cloned.transform.SetSiblingIndex(menu.newGame.transform.GetSiblingIndex());
         cloned.SetActive(true);
         uiMenuButton = cloned;
-        log("已在“新建游戏”上方创建原生样式的“联机”按钮");
+        log("Created the native-style Multiplayer button above New Game");
     } catch (error) {
         uiMenuButton = null;
-        log("创建主菜单联机按钮失败（" + stage + "）: " + error);
+        log("Failed to create the main-menu Multiplayer button (" + stage + "): " + error);
     }
 }
 
@@ -2847,23 +2874,28 @@ function buildMainMenuButton(menu: MainMenu): void {
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function buildPauseMenuButton(pause: PauseWindow): void {
     if (!pause.setting || !pause.setting.gameObject) return;
-    let stage = "准备";
+    let stage = "prepare";
     try {
         const parent = pause.setting.transform.parent;
         const old = findNamedChild(parent, PAUSE_BUTTON_NAME);
         if (old) UnityEngine.Object.Destroy(old.gameObject);
 
-        stage = "复制设置按钮";
+        stage = "clone settings button";
         const clonedButton = cloneNativeButton(pause.setting, parent, PAUSE_BUTTON_NAME,
-            tr("menu.multiplayer"), () => { if (isCurrentGeneration()) openPanel(); });
+            tr("menu.multiplayer"), () => {
+                if (!isCurrentGeneration()) return;
+                // 已进入联机会话后，暂停菜单只提供只读房间状态，不允许在游戏中改地址、
+                // 建房或停止连接；主菜单入口仍保留完整联机配置。
+                if (role !== "off") openRoomInfoPanel();
+                else openPanel();
+            });
         const cloned = clonedButton.root;
         const button = clonedButton.button;
 
-        stage = "重新排列暂停菜单";
+        stage = "rearrange pause menu";
         cloned.transform.SetSiblingIndex(pause.setting.transform.GetSiblingIndex() + 1);
         // 原菜单的五个按钮已经占满竖向空间。插入“联机”后，把六个按钮等距放进
         // 原来“设置”到“退出”的世界坐标范围。原版按钮分属不同容器，不能比较 anchoredPosition。
-        uiPauseLoadButton = pause.load ? pause.load.gameObject : null;
         pauseButtonLayout = {
             setting: pause.setting, multiplayer: button, load: pause.load,
             secret: pause.secret, bugFeedback: pause.bugFeedback, exit: pause.exit
@@ -2872,10 +2904,10 @@ function buildPauseMenuButton(pause: PauseWindow): void {
         refreshPauseMenuLayout();
         cloned.SetActive(true);
         uiPauseButton = cloned;
-        log("已在 ESC 暂停菜单中创建原生样式的“联机”按钮，并重新等距排列菜单");
+        log("Created the native-style Multiplayer button in the ESC pause menu and evenly spaced the menu items");
     } catch (error) {
         uiPauseButton = null;
-        log("创建暂停菜单联机按钮失败（" + stage + "）: " + error);
+        log("Failed to create the pause-menu Multiplayer button (" + stage + "): " + error);
     }
 }
 
@@ -2936,15 +2968,23 @@ function roomPlayerRows(): { id: number; name: string; tag: string }[] {
     return rows;
 }
 
+function roomPlayerRowsSignature(rows: { id: number; name: string; tag: string }[]): string {
+    return rows.map(row => row.id + ":" + row.name + ":" + row.tag).join("|");
+}
+
+function formatRoomPlayerRows(rows: { id: number; name: string; tag: string }[]): string {
+    return rows.map(row => "• " + row.name + (row.tag ? "  " + row.tag : "")).join("\n");
+}
+
 function refreshPlayerListUi(force = false): void {
     if (!uiPlayerListTitle || !uiPlayerListCount || !uiPlayerListBody) return;
     const rows = roomPlayerRows();
-    const signature = languageCode + "|" + role + "|" + rows.map(row => row.id + ":" + row.name + ":" + row.tag).join("|");
+    const signature = languageCode + "|" + role + "|" + roomPlayerRowsSignature(rows);
     if (!force && signature === lastPlayerListSignature) return;
     lastPlayerListSignature = signature;
     uiPlayerListTitle.text = tr("playerList.title");
     uiPlayerListCount.text = tr("playerList.count", { count: rows.length });
-    uiPlayerListBody.text = rows.map(row => "• " + row.name + (row.tag ? "  " + row.tag : "")).join("\n");
+    uiPlayerListBody.text = formatRoomPlayerRows(rows);
 }
 
 function handlePlayerListInput(): void {
@@ -2957,6 +2997,58 @@ function handlePlayerListInput(): void {
     } catch (_error) { visible = false; }
     if (visible) refreshPlayerListUi(updateFrames % 15 === 0);
     if (uiPlayerListPanel.activeSelf !== visible) uiPlayerListPanel.SetActive(visible);
+}
+
+// ===== 模块: ui/pages/room-info.ts =====
+// 游戏内暂停菜单使用的只读房间信息页。
+// 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
+function buildRoomInfoPage(parent: UnityEngine.Transform, font: any): void {
+    uiRoomInfoBody = makeSolidRect(parent, "RoomInfoBody",
+        new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
+    uiRoomSummary = makeText(uiRoomInfoBody.transform, "RoomSummary", "", font, 30, 28, 660, 105, 27);
+    uiRoomTime = makeText(uiRoomInfoBody.transform, "RoomTime", "", font, 30, 150, 660, 82, 27);
+    uiRoomPlayers = makeText(uiRoomInfoBody.transform, "RoomPlayers", "", font, 30, 250, 660, 330, 25);
+    uiRoomInfoBody.SetActive(false);
+}
+
+function refreshRoomInfoUi(force = false): void {
+    if (!uiRoomSummary || !uiRoomTime || !uiRoomPlayers || uiPanelMode !== "room") return;
+    try {
+        const status = readBridgeStatus();
+        const config = loadConfig();
+        const address = role === "host" ? tr("room.thisComputer") :
+            UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), config.address);
+        const port = status.port > 0 ? status.port :
+            Number(UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)));
+        const rows = roomPlayerRows();
+        const playerStatus = Player.LocalPlayer ? Player.LocalPlayer.status : null;
+        const data = playerStatus ? playerStatus.Data : null;
+        const day = data ? Math.trunc(Number(data.day)) : 0;
+        const timeOfDay = data ? Math.trunc(Number(data.timeOfDay)) : 0;
+        const gameTime = GameManager.Singleton ? Number(GameManager.Singleton.gameTime) : onlineClockGameTime;
+        const roleLabel = role === "host" ? tr("room.host") : tr("room.client");
+        const signature = languageCode + "|" + role + "|" + status.state + "|" + address + "|" + port +
+            "|" + day + "|" + timeOfDay + "|" + Math.trunc(gameTime) + "|" +
+            roomPlayerRowsSignature(rows);
+        if (!force && signature === lastRoomInfoSignature) return;
+        lastRoomInfoSignature = signature;
+        uiRoomSummary.text = tr("room.summary", {
+            role: roleLabel,
+            address,
+            port,
+            count: rows.length
+        });
+        uiRoomTime.text = tr("room.time", {
+            day,
+            timeOfDay,
+            gameTime: Math.max(0, Math.trunc(gameTime))
+        });
+        uiRoomPlayers.text = tr("room.players") + "\n" + formatRoomPlayerRows(rows);
+    } catch (error) { log("Failed to refresh pause-menu room information: " + error); }
+}
+
+function openRoomInfoPanel(): void {
+    openPanelMode("room");
 }
 
 // ===== 模块: ui/pages/multiplayer.ts =====
@@ -2974,6 +3066,7 @@ function buildUi(font: any): void {
         uiFont = font;
         selectedSaveName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.SelectedSave"), "");
         buildPlayerListPage(shell.root.transform, font);
+        buildRoomInfoPage(shell.panel.transform, font);
 
         uiTitle = makeText(shell.panel.transform, "Title", tr("panel.title"), font, 80, 4, 600, 72, 44);
         (uiTitle as any).alignment = 4;
@@ -3001,11 +3094,11 @@ function buildUi(font: any): void {
 
         makeButton(shell.panel.transform, "Cancel", tr("button.cancel"), font, 130, 740, 500, closePanel, 64);
         shell.panel.SetActive(false);
-        log("游戏内联机界面已创建：原版读取窗口样式、半透明灰黑面板和白色四角框线");
+        log("Created the in-game multiplayer UI with the native load-window style");
     } catch (error) {
         uiRoot = null;
         coroutineRunner = null;
-        log("创建联机界面失败: " + error);
+        log("Failed to create the multiplayer UI: " + error);
     }
 }
 
@@ -3013,7 +3106,7 @@ function handleUiInput(): void {
     try {
         if (uiPanel && uiPanel.activeSelf && Input.GetKeyDown(KeyCode.Escape)) closePanel();
         handlePlayerListInput();
-    } catch (error) { log("检测 ESC 键失败: " + error); }
+    } catch (error) { log("Failed to process the Escape key: " + error); }
 }
 
 function startMainMenuInputLoop(owner: UnityEngine.MonoBehaviour): void {
@@ -3036,22 +3129,6 @@ function ensureUi(font?: any): void {
     if (inheritedFont) buildUi(inheritedFont);
 }
 
-function setOnlinePausedFlag(paused: boolean): boolean {
-    const manager = GameManager.Singleton;
-    if (!manager) return false;
-    try {
-        // BindingFlags.Instance | BindingFlags.NonPublic = 4 | 32 = 36。
-        if (!gameManagerPausedField)
-            gameManagerPausedField = manager.GetType().GetField("_isPaused", 36);
-        if (!gameManagerPausedField) return false;
-        gameManagerPausedField.SetValue(manager, paused);
-        return GameManager.Paused === paused;
-    } catch (error) {
-        log("设置联机暂停标志失败: " + error);
-        return false;
-    }
-}
-
 function keepOnlineWorldRunning(): void {
     if (!bridgeAvailable || role === "off") return;
     try {
@@ -3061,21 +3138,24 @@ function keepOnlineWorldRunning(): void {
         let pauseVisible = false;
         try { pauseVisible = WindowManager.IsOpened("PauseWindow"); } catch (_error) { }
         if (pauseVisible) {
-            // PauseGame(false) 会顺带关闭 PauseWindow。直接清除原版私有暂停标志，保留窗口、
-            // 光标和按钮，同时让 NPC、物理、Animator、场景脚本与 Mod 权威时钟继续更新。
-            const released = setOnlinePausedFlag(false);
+            // PauseGame(false) 会清理原版私有暂停状态，但同时关闭 PauseWindow。紧接着通过
+            // WindowManager 重新显示同一个原版窗口，因此菜单仍在，NPC、物理、Animator、
+            // 场景脚本和玩家模型却会按真正的“未暂停”状态继续更新。
+            if (GameManager.Paused) {
+                GameManager.PauseGame(false);
+                WindowManager.OpenWindow("PauseWindow");
+                pauseVisible = WindowManager.IsOpened("PauseWindow");
+            }
             if (Number(UnityEngine.Time.timeScale) !== 1) UnityEngine.Time.timeScale = 1;
-            if (BRIDGE_CHANNEL !== "default" && !pauseVisibleEvidenceLogged && released) {
+            if (BRIDGE_CHANNEL !== "default" && !pauseVisibleEvidenceLogged && !GameManager.Paused) {
                 pauseVisibleEvidenceLogged = true;
                 onlinePauseReleaseCount += 1;
-                log("[双实例证据] 联机暂停菜单背景持续运行 count=" + onlinePauseReleaseCount +
+                log("[DualInstanceEvidence] Online pause menu visible while world remains active count=" + onlinePauseReleaseCount +
                     " pauseVisible=true paused=" + GameManager.Paused + " timeScale=" +
                     Number(UnityEngine.Time.timeScale).toFixed(1));
             }
         } else {
             pauseVisibleEvidenceLogged = false;
-            // 窗口已关闭但某个原版回调仍留下暂停标志时，恢复完整游戏状态。
-            if (GameManager.Paused) GameManager.PauseGame(false);
         }
         if (Number(UnityEngine.Time.timeScale) !== 1) UnityEngine.Time.timeScale = 1;
     } catch (_error) { }
@@ -3108,12 +3188,14 @@ function updateBridge(player: Player | null): void {
                 buildPauseMenuButton(pause);
             }
         }
-    } catch (error) { log("发现已打开暂停菜单失败: " + error); }
+    } catch (error) { log("Failed to discover the open pause menu: " + error); }
     // 暂停窗口可能先于联机状态变化创建；每帧按当前模式同步原版“读取”按钮。
     // 联机时隐藏，停止联机后恢复，避免永久修改原版菜单。
     refreshPauseMenuLayout();
     updateFrames += 1;
     if (updateFrames % 120 === 0) updateStatusText();
+    // 房间时钟和玩家名单会变化，只读暂停页保持实时刷新。
+    if (uiPanelMode === "room" && updateFrames % 10 === 0) refreshRoomInfoUi();
     updateRemotePlayers();
     if (!bridgeAvailable || role === "off") return;
     // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
@@ -3128,7 +3210,7 @@ function updateBridge(player: Player | null): void {
         try {
             collectBridgeEvents(readBridgeState());
         } catch (error) {
-            log("轮询网络桥接暂时失败，将自动重试: " + error);
+            log("Bridge polling failed temporarily and will retry automatically: " + error);
         }
     }
     // 每帧最多处理 32 个已入内存事件，防止网络洪峰长时间占用 Unity 主线程。
@@ -3159,29 +3241,29 @@ function writeOnlineSaveSnapshot(manager: GameManager): string {
     if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
     try {
         const raw = manager.GetSave() || "";
-        if (!raw) { log("线上存档快照无内容"); return "-7"; }
+        if (!raw) { log("Online-save snapshot is empty"); return "-7"; }
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            log("线上存档快照根类型无效 type=" + typeof parsed + " array=" + Array.isArray(parsed));
+            log("Online-save snapshot root type is invalid type=" + typeof parsed + " array=" + Array.isArray(parsed));
             return "-7";
         }
         const json = JSON.stringify(parsed);
-        if (BRIDGE_CHANNEL !== "default") log("诊断模式：线上存档规范 JSON 长度=" + json.length);
+        if (BRIDGE_CHANNEL !== "default") log("Diagnostics: canonical online-save JSON length=" + json.length);
         const chunkSize = 6000;
         const chunks = Math.max(1, Math.ceil(json.length / chunkSize));
         let result = submitBridgeCommandAndWait("beginRawSave?name=" + encodeURIComponent(selectedSaveName) +
             "&chunks=" + chunks);
-        if (result !== "0") { log("beginRawSave 失败 code=" + result); return result; }
+        if (result !== "0") { log("beginRawSave failed code=" + result); return result; }
         for (let index = 0; index < chunks; index++) {
             const part = json.substring(index * chunkSize, Math.min(json.length, (index + 1) * chunkSize));
             result = submitBridgeCommandAndWait("appendRawSave?index=" + index + "&data=" + encodeURIComponent(part));
-            if (result !== "0") { log("appendRawSave 失败 index=" + index + " code=" + result); return result; }
+            if (result !== "0") { log("appendRawSave failed index=" + index + " code=" + result); return result; }
         }
         result = submitBridgeCommandAndWait("commitRawSave");
-        if (result !== "0") log("commitRawSave 失败 code=" + result);
+        if (result !== "0") log("commitRawSave failed code=" + result);
         return result;
     } catch (error) {
-        log("采集并写入线上存档失败: " + error);
+        log("Failed to capture and write the online save: " + error);
         return "-1";
     }
 }
@@ -3193,23 +3275,23 @@ function beginOnlineExitSave(owner: UnityEngine.MonoBehaviour, beforeQuit?: () =
     exitSaveInProgress = true;
     try {
         const manager = GameManager.Singleton;
-        if (!manager) throw new Error("GameManager 尚未初始化");
+        if (!manager) throw new Error("GameManager is not initialized");
         const saveName = activeSaveName(selectedSaveName);
-        if (!saveName) throw new Error("没有有效的线上临时存档名");
+        if (!saveName) throw new Error("No valid online working-copy name is available");
         GameManager.SaveName = saveName;
         const result = writeOnlineSaveSnapshot(manager);
         if (result === "0") {
-            log("退出前已自动保存并验证: " + saveName);
+            log("Autosaved and verified before exit: " + saveName);
             try { if (beforeQuit) beforeQuit(); } catch (_error) { }
             UnityEngine.Application.Quit();
         } else {
             exitSaveInProgress = false;
-            log("退出前自动保存失败，错误码=" + result);
+            log("Autosave before exit failed; error code=" + result);
             toast(tr("toast.exitSaveFailed"));
         }
     } catch (error) {
         exitSaveInProgress = false;
-        log("退出前自动保存失败: " + error);
+        log("Autosave before exit failed: " + error);
         toast(tr("toast.exitSaveFailed"));
     }
 }
@@ -3231,7 +3313,7 @@ RegisterHook("System.Void GameManager::LoadGame(System.String)",
             GameManager.SaveName = onlineName;
             onlineLoadRedirectedDuringStart = true;
             self.LoadGame(onlineName);
-            log("已将默认存档读取重定向到联机专属存档: " + onlineName);
+            log("Redirected the default load request to the online save: " + onlineName);
         } finally {
             saveNameRedirectInProgress = false;
         }
@@ -3245,8 +3327,8 @@ RegisterHook("System.Void GameManager::SaveGame(System.String)",
         ctx.Intercept();
         GameManager.SaveName = onlineName;
         const result = writeOnlineSaveSnapshot(self);
-        if (result === "0") log("已将默认自动保存写入联机专属存档: " + onlineName);
-        else log("联机自动保存失败，错误码=" + result);
+        if (result === "0") log("Redirected the default autosave to the online save: " + onlineName);
+        else log("Online autosave failed; error code=" + result);
     });
 
 // Player.Update 是进入存档后的稳定逐帧入口，用于处理网络队列和刷新界面状态。
@@ -3286,7 +3368,7 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             // 联机暂停菜单只打开 UI，不冻结世界时间；其他玩家和网络状态继续更新。
             keepOnlineWorldRunning();
             syncGameLanguage();
-        } catch (error) { log("暂停菜单 UI 初始化失败: " + error); }
+        } catch (error) { log("Pause-menu UI initialization failed: " + error); }
     });
 });
 // PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
@@ -3306,24 +3388,24 @@ RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
         ensureUi(nativeLabel ? (nativeLabel as any).font : (self.version ? (self.version as any).font : null));
         buildMainMenuButton(self);
         startMainMenuInputLoop(self);
-    } catch (error) { log("主菜单 UI 初始化失败: " + error); }
+    } catch (error) { log("Main-menu UI initialization failed: " + error); }
     const config = loadConfig();
     if (config.smokeTestOnlineLifecycle) {
         if (!smokeTestScheduled) {
             smokeTestScheduled = true;
-            log("诊断模式：等待真实线上存档生命周期测试");
+            log("Diagnostics: waiting for the real online-save lifecycle test");
             scheduleSmokeOnlineLifecycle(self);
         }
         return;
     }
     if (!config.smokeTestAutoLoad || smokeTestScheduled) return;
     smokeTestScheduled = true;
-    log("诊断模式：等待主菜单初始化");
+    log("Diagnostics: waiting for main-menu initialization");
     if (config.smokeTestUiOpen) {
         JintCoroutine.WaitForSeconds(self, 1, () => {
             if (!isCurrentGeneration()) return;
             openPanel();
-            log("诊断模式：已打开联机界面供截图");
+            log("Diagnostics: opened the multiplayer UI for capture");
         });
     }
     JintCoroutine.WaitForSeconds(self, config.smokeTestUiOpen ? 7 : 2, () => {
@@ -3332,10 +3414,10 @@ RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
             closePanel();
             self.StartGame();
             if (GameManager.Singleton) {
-                log("诊断模式：加载 AutoSave");
+                log("Diagnostics: loading AutoSave");
                 GameManager.Singleton.LoadGame("AutoSave");
-            } else log("诊断模式：StartGame 后仍无 GameManager");
-        } catch (error) { log("诊断模式加载失败: " + error); }
+            } else log("Diagnostics: GameManager is still unavailable after StartGame");
+        } catch (error) { log("Diagnostics: game loading failed: " + error); }
     });
 });
 
@@ -3349,7 +3431,7 @@ RegisterHook("System.Void LoadSaveWindow::CreateLoadSlot(System.String,System.IO
 RegisterHook("System.Void LoadSaveWindow::Load(System.String)",
     (_self: LoadSaveWindow, saveName: string, ctx: IHookContext) => {
         if (isOnlineSaveSlot(saveName)) {
-            log("已阻止单机读取窗口加载联机存档: " + saveName);
+            log("Blocked the single-player load window from opening an online save: " + saveName);
             ctx.Intercept();
         }
     });
@@ -3361,7 +3443,7 @@ RegisterHook("System.Void SaveTab::CreateSlotUI(System.String,System.IO.FileInfo
 RegisterHook("System.Void SaveTab::ExecuteSave(System.String)",
     (_self: SaveTab, saveName: string, ctx: IHookContext) => {
         if (isOnlineSaveSlot(saveName)) {
-            log("已阻止单机保存页面覆盖联机存档: " + saveName);
+            log("Blocked the single-player save window from overwriting an online save: " + saveName);
             ctx.Intercept();
         }
     });
@@ -3370,7 +3452,7 @@ RegisterHook("System.Void SaveTab::ExecuteSave(System.String)",
 RegisterHook("System.Void SaveTab::DeleteSave(System.String)",
     (_self: SaveTab, saveName: string, ctx: IHookContext) => {
         if (role !== "off" || isOnlineSaveSlot(saveName)) {
-            log("已阻止暂停菜单删除存档: " + saveName);
+            log("Blocked the pause menu from deleting a save during online mode: " + saveName);
             ctx.Intercept();
         }
     });
@@ -3388,5 +3470,5 @@ RegisterHook("System.Void MainMenu::Translate(UnityEngine.Transform,System.Boole
 });
 
 syncGameLanguage(true);
-log("脚本初始化完成，协议版本=" + PROTOCOL_VERSION + "，UI 代次=" + SCRIPT_GENERATION);
+log("Script initialized; protocol=" + PROTOCOL_VERSION + "; UI generation=" + SCRIPT_GENERATION);
 startBridge();

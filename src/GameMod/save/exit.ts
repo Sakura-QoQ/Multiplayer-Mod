@@ -4,29 +4,29 @@ function writeOnlineSaveSnapshot(manager: GameManager): string {
     if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
     try {
         const raw = manager.GetSave() || "";
-        if (!raw) { log("线上存档快照无内容"); return "-7"; }
+        if (!raw) { log("Online-save snapshot is empty"); return "-7"; }
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            log("线上存档快照根类型无效 type=" + typeof parsed + " array=" + Array.isArray(parsed));
+            log("Online-save snapshot root type is invalid type=" + typeof parsed + " array=" + Array.isArray(parsed));
             return "-7";
         }
         const json = JSON.stringify(parsed);
-        if (BRIDGE_CHANNEL !== "default") log("诊断模式：线上存档规范 JSON 长度=" + json.length);
+        if (BRIDGE_CHANNEL !== "default") log("Diagnostics: canonical online-save JSON length=" + json.length);
         const chunkSize = 6000;
         const chunks = Math.max(1, Math.ceil(json.length / chunkSize));
         let result = submitBridgeCommandAndWait("beginRawSave?name=" + encodeURIComponent(selectedSaveName) +
             "&chunks=" + chunks);
-        if (result !== "0") { log("beginRawSave 失败 code=" + result); return result; }
+        if (result !== "0") { log("beginRawSave failed code=" + result); return result; }
         for (let index = 0; index < chunks; index++) {
             const part = json.substring(index * chunkSize, Math.min(json.length, (index + 1) * chunkSize));
             result = submitBridgeCommandAndWait("appendRawSave?index=" + index + "&data=" + encodeURIComponent(part));
-            if (result !== "0") { log("appendRawSave 失败 index=" + index + " code=" + result); return result; }
+            if (result !== "0") { log("appendRawSave failed index=" + index + " code=" + result); return result; }
         }
         result = submitBridgeCommandAndWait("commitRawSave");
-        if (result !== "0") log("commitRawSave 失败 code=" + result);
+        if (result !== "0") log("commitRawSave failed code=" + result);
         return result;
     } catch (error) {
-        log("采集并写入线上存档失败: " + error);
+        log("Failed to capture and write the online save: " + error);
         return "-1";
     }
 }
@@ -38,23 +38,23 @@ function beginOnlineExitSave(owner: UnityEngine.MonoBehaviour, beforeQuit?: () =
     exitSaveInProgress = true;
     try {
         const manager = GameManager.Singleton;
-        if (!manager) throw new Error("GameManager 尚未初始化");
+        if (!manager) throw new Error("GameManager is not initialized");
         const saveName = activeSaveName(selectedSaveName);
-        if (!saveName) throw new Error("没有有效的线上临时存档名");
+        if (!saveName) throw new Error("No valid online working-copy name is available");
         GameManager.SaveName = saveName;
         const result = writeOnlineSaveSnapshot(manager);
         if (result === "0") {
-            log("退出前已自动保存并验证: " + saveName);
+            log("Autosaved and verified before exit: " + saveName);
             try { if (beforeQuit) beforeQuit(); } catch (_error) { }
             UnityEngine.Application.Quit();
         } else {
             exitSaveInProgress = false;
-            log("退出前自动保存失败，错误码=" + result);
+            log("Autosave before exit failed; error code=" + result);
             toast(tr("toast.exitSaveFailed"));
         }
     } catch (error) {
         exitSaveInProgress = false;
-        log("退出前自动保存失败: " + error);
+        log("Autosave before exit failed: " + error);
         toast(tr("toast.exitSaveFailed"));
     }
 }

@@ -15,7 +15,7 @@ resolve TypeScript modules. The generated file must not be edited directly.
 - `player/state/`: frequent transform/action snapshots and per-frame remote rendering.
 - `save/`: online-save entry, redirection, protection and exit-save flow.
 - `ui/components/`: reusable Unity UI primitives. Pages construct controls through these helpers.
-- `ui/pages/`: multiplayer panel, main-menu entry and pause-menu integration.
+- `ui/pages/`: main-menu connection settings, the read-only pause-menu room page and player lists.
 - `ui/i18n/<language>/strings.json`: UI translations, organized by language abbreviation.
 - `hooks/`: the only game-hook registration and startup entry.
 - `diagnostics/`: dual-instance verification behavior; inactive on the default channel.

@@ -19,7 +19,7 @@ function bindRemoteClothBones(dressRoot: UnityEngine.Transform, armature: UnityE
         preserved: number; missingNames: string[] } {
     const result = { renderers: 0, mapped: 0, total: 0, missing: 0, preserved: 0, missingNames: [] as string[] };
     const dress = dressRoot.gameObject.GetComponent("Dress") as Dress;
-    if (!dress) throw new Error("衣服根节点缺少 Dress 组件");
+    if (!dress) throw new Error("The clothing root has no Dress component");
 
     const belongsToClone = (bone: UnityEngine.Transform | null): boolean => {
         let node = bone;
@@ -81,7 +81,7 @@ function collectRemoteClothBonePairs(clone: UnityEngine.GameObject, armature: Un
         for (let index = 0; index < node.childCount; index++) collectDriven(node.GetChild(index));
     };
     if (clothRoot) collectDriven(clothRoot);
-    log("远端衣服骨骼驱动映射完成: " + pairs.length + " 对");
+    log("Remote clothing bone driver mapping complete: " + pairs.length + " pairs");
     return pairs;
 }
 

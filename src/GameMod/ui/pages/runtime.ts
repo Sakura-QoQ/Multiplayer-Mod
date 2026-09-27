@@ -6,22 +6,6 @@ function ensureUi(font?: any): void {
     if (inheritedFont) buildUi(inheritedFont);
 }
 
-function setOnlinePausedFlag(paused: boolean): boolean {
-    const manager = GameManager.Singleton;
-    if (!manager) return false;
-    try {
-        // BindingFlags.Instance | BindingFlags.NonPublic = 4 | 32 = 36。
-        if (!gameManagerPausedField)
-            gameManagerPausedField = manager.GetType().GetField("_isPaused", 36);
-        if (!gameManagerPausedField) return false;
-        gameManagerPausedField.SetValue(manager, paused);
-        return GameManager.Paused === paused;
-    } catch (error) {
-        log("设置联机暂停标志失败: " + error);
-        return false;
-    }
-}
-
 function keepOnlineWorldRunning(): void {
     if (!bridgeAvailable || role === "off") return;
     try {
@@ -31,23 +15,25 @@ function keepOnlineWorldRunning(): void {
         let pauseVisible = false;
         try { pauseVisible = WindowManager.IsOpened("PauseWindow"); } catch (_error) { }
         if (pauseVisible) {
-            // PauseGame(false) 会顺带关闭 PauseWindow。直接清除原版私有暂停标志，保留窗口、
-            // 光标和按钮，同时让 NPC、物理、Animator、场景脚本与 Mod 权威时钟继续更新。
-            const released = setOnlinePausedFlag(false);
+            // PauseGame(false) 会清理原版私有暂停状态，但同时关闭 PauseWindow。紧接着通过
+            // WindowManager 重新显示同一个原版窗口，因此菜单仍在，NPC、物理、Animator、
+            // 场景脚本和玩家模型却会按真正的“未暂停”状态继续更新。
+            if (GameManager.Paused) {
+                GameManager.PauseGame(false);
+                WindowManager.OpenWindow("PauseWindow");
+                pauseVisible = WindowManager.IsOpened("PauseWindow");
+            }
             if (Number(UnityEngine.Time.timeScale) !== 1) UnityEngine.Time.timeScale = 1;
-            if (BRIDGE_CHANNEL !== "default" && !pauseVisibleEvidenceLogged && released) {
+            if (BRIDGE_CHANNEL !== "default" && !pauseVisibleEvidenceLogged && !GameManager.Paused) {
                 pauseVisibleEvidenceLogged = true;
                 onlinePauseReleaseCount += 1;
-                log("[双实例证据] 联机暂停菜单背景持续运行 count=" + onlinePauseReleaseCount +
+                log("[DualInstanceEvidence] Online pause menu visible while world remains active count=" + onlinePauseReleaseCount +
                     " pauseVisible=true paused=" + GameManager.Paused + " timeScale=" +
                     Number(UnityEngine.Time.timeScale).toFixed(1));
             }
         } else {
             pauseVisibleEvidenceLogged = false;
-            // 窗口已关闭但某个原版回调仍留下暂停标志时，恢复完整游戏状态。
-            if (GameManager.Paused) GameManager.PauseGame(false);
         }
         if (Number(UnityEngine.Time.timeScale) !== 1) UnityEngine.Time.timeScale = 1;
     } catch (_error) { }
 }
-

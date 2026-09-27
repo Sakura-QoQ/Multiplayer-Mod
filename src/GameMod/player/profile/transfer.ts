@@ -50,7 +50,7 @@ function applyRemotePlayerLiveData(packet: PlayerLiveDataPacket): void {
     profile.progress.TimeOffset = Number(packet.timeOffset);
     profile.progress.Scene = String(packet.scene);
     if (BRIDGE_CHANNEL !== "default" && sequence % 4 === 0)
-        log("[双实例证据] 已应用玩家实时资料 peer=" + packet.ownerId + " seq=" + sequence +
+        log("[DualInstanceEvidence] Applied player live data peer=" + packet.ownerId + " seq=" + sequence +
             " health=" + finiteNumber(packet.status.health) + " stamina=" + finiteNumber(packet.status.stamina) +
             " money=" + finiteNumber(packet.status.money));
     refreshPlayerInfoUi();

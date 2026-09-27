@@ -1,0 +1,315 @@
+using System.Collections.Concurrent;
+using System.Net.Sockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace FallenFlower.MultiplayerRoomServer;
+
+internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposable
+{
+    private const int ProtocolVersion = 1;
+    private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
+    private readonly TcpListener _listener = new(options.ListenAddress, options.Port);
+    private readonly CancellationTokenSource _shutdown = new();
+
+    [GeneratedRegex("^[A-Za-z0-9_-]{3,48}$", RegexOptions.CultureInvariant)]
+    private static partial Regex RoomIdPattern();
+
+    public async Task RunAsync()
+    {
+        _listener.Start(512);
+        Console.WriteLine($"Fallen Flower room server listening on {options.ListenAddress}:{options.Port}");
+        try
+        {
+            while (!_shutdown.IsCancellationRequested)
+            {
+                var client = await _listener.AcceptTcpClientAsync(_shutdown.Token);
+                Configure(client);
+                _ = Task.Run(() => HandleClientAsync(client, _shutdown.Token));
+            }
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+    }
+
+    public void Stop()
+    {
+        _shutdown.Cancel();
+        _listener.Stop();
+    }
+
+    private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken cancellationToken)
+    {
+        await using var client = new ClientConnection(tcpClient);
+        try
+        {
+            var stream = tcpClient.GetStream();
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                using var document = await FrameProtocol.ReadJsonAsync(stream, cancellationToken);
+                if (document is null) break;
+                await HandleMessageAsync(client, document.RootElement, cancellationToken);
+            }
+        }
+        catch (ProtocolException exception)
+        {
+            await TrySendAsync(client, new { type = "error", code = exception.Code, message = exception.Message }, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            await TrySendAsync(client, new { type = "error", code = "invalid_json", message = "invalid JSON" }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException or OperationCanceledException) { }
+        finally
+        {
+            await LeaveRoomAsync(client, cancellationToken);
+        }
+    }
+
+    private async Task HandleMessageAsync(ClientConnection client, JsonElement root, CancellationToken cancellationToken)
+    {
+        // 控制协议与游戏数据完全隔离；room.send 的 payload 只作为不透明字符串转发。
+        var type = FrameProtocol.RequiredString(root, "type", 32);
+        switch (type)
+        {
+            case "ping":
+                await client.SendAsync(new { type = "pong", utc = DateTimeOffset.UtcNow.ToUnixTimeSeconds() }, cancellationToken);
+                break;
+            case "room.list":
+                await SendRoomListAsync(client, cancellationToken);
+                break;
+            case "room.create":
+                await CreateRoomAsync(client, root, cancellationToken);
+                break;
+            case "room.join":
+                await JoinRoomAsync(client, root, cancellationToken);
+                break;
+            case "room.info":
+                await SendRoomInfoAsync(client, cancellationToken);
+                break;
+            case "room.send":
+                await RelayAsync(client, root, cancellationToken);
+                break;
+            case "admin.stats":
+                await SendAdminStatsAsync(client, root, cancellationToken);
+                break;
+            case "admin.room.kick":
+                await AdminKickAsync(client, root, cancellationToken);
+                break;
+            case "admin.room.close":
+                await AdminCloseRoomAsync(client, root, cancellationToken);
+                break;
+            case "admin.room.send":
+                await AdminSendAsync(client, root, cancellationToken);
+                break;
+            default:
+                throw new ProtocolException("unknown_command", "unknown command");
+        }
+    }
+
+    private async Task CreateRoomAsync(ClientConnection client, JsonElement root, CancellationToken cancellationToken)
+    {
+        EnsureNotInRoom(client);
+        if (_rooms.Count >= options.MaxRooms) throw new ProtocolException("server_full", "room limit reached");
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        if (!RoomIdPattern().IsMatch(roomId)) throw new ProtocolException("invalid_room_id", "roomId contains invalid characters");
+        var roomKey = FrameProtocol.OptionalString(root, "roomKey", 128);
+        var roomName = FrameProtocol.OptionalString(root, "roomName", 80);
+        var playerName = FrameProtocol.RequiredString(root, "playerName", 64);
+        var requestedCapacity = root.TryGetProperty("maxPlayers", out var capacityElement) && capacityElement.TryGetInt32(out var parsed)
+            ? parsed : options.MaxPlayersPerRoom;
+        var capacity = Math.Clamp(requestedCapacity, 2, options.MaxPlayersPerRoom);
+        var room = new Room(roomId, roomKey, roomName, capacity);
+        if (!_rooms.TryAdd(roomId, room)) throw new ProtocolException("room_exists", "room already exists");
+        if (!room.TryAdd(client, out var peerId))
+        {
+            _rooms.TryRemove(roomId, out _);
+            throw new ProtocolException("server_error", "failed to add room member");
+        }
+        client.Room = room;
+        client.PeerId = peerId;
+        client.PlayerName = playerName;
+        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId, capacity }, cancellationToken);
+        Console.WriteLine($"room created id={roomId} capacity={capacity}");
+    }
+
+    private async Task JoinRoomAsync(ClientConnection client, JsonElement root, CancellationToken cancellationToken)
+    {
+        EnsureNotInRoom(client);
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        var roomKey = FrameProtocol.OptionalString(root, "roomKey", 128);
+        var playerName = FrameProtocol.RequiredString(root, "playerName", 64);
+        if (!_rooms.TryGetValue(roomId, out var room) || room.IsClosed)
+            throw new ProtocolException("room_not_found", "room was not found");
+        if (!FixedEquals(room.Key, roomKey)) throw new ProtocolException("wrong_room_key", "room key is incorrect");
+        if (!room.TryAdd(client, out var peerId)) throw new ProtocolException("room_full", "room is full");
+        client.Room = room;
+        client.PeerId = peerId;
+        client.PlayerName = playerName;
+        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId, capacity = room.Capacity }, cancellationToken);
+        await BroadcastAsync(room, new { type = "room.playerJoined", peerId, playerName }, client, cancellationToken);
+    }
+
+    private async Task RelayAsync(ClientConnection source, JsonElement root, CancellationToken cancellationToken)
+    {
+        var room = RequireRoom(source);
+        var payload = FrameProtocol.RequiredString(root, "payload", 60_000);
+        var targetPeerId = root.TryGetProperty("targetPeerId", out var target) && target.TryGetInt64(out var parsed) ? parsed : -1;
+        var message = new { type = "room.message", sourcePeerId = source.PeerId, payload };
+
+        if (targetPeerId >= 0)
+        {
+            var destination = room.Members.GetValueOrDefault(targetPeerId);
+            if (destination is null) throw new ProtocolException("peer_not_found", "target peer was not found");
+            await destination.SendAsync(message, cancellationToken);
+            return;
+        }
+
+        var destinations = room.Members.Values.Where(item => item != source).ToArray();
+        await Task.WhenAll(destinations.Select(item => item.SendAsync(message, cancellationToken)));
+    }
+
+    private async Task AdminKickAsync(ClientConnection requester, JsonElement root, CancellationToken cancellationToken)
+    {
+        RequireAdmin(root);
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        if (!_rooms.TryGetValue(roomId, out var room)) throw new ProtocolException("room_not_found", "room was not found");
+        if (!root.TryGetProperty("peerId", out var peerElement) || !peerElement.TryGetInt64(out var peerId) || peerId <= 0)
+            throw new ProtocolException("invalid_request", "peerId is invalid");
+        if (!room.Members.TryRemove(peerId, out var target)) throw new ProtocolException("peer_not_found", "peer was not found");
+        target.Room = null;
+        await TrySendAsync(target, new { type = "room.kicked", roomId = room.Id }, cancellationToken);
+        target.Client.Dispose();
+        await BroadcastAsync(room, new { type = "room.playerLeft", peerId }, null, cancellationToken);
+        await requester.SendAsync(new { type = "admin.ok", command = "admin.room.kick", roomId, peerId }, cancellationToken);
+    }
+
+    private async Task AdminCloseRoomAsync(ClientConnection requester, JsonElement root, CancellationToken cancellationToken)
+    {
+        RequireAdmin(root);
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        if (!_rooms.TryGetValue(roomId, out var room)) throw new ProtocolException("room_not_found", "room was not found");
+        await requester.SendAsync(new { type = "admin.ok", command = "admin.room.close", roomId }, cancellationToken);
+        await RemoveRoomAsync(room, "server_closed", cancellationToken);
+    }
+
+    private async Task AdminSendAsync(ClientConnection requester, JsonElement root, CancellationToken cancellationToken)
+    {
+        RequireAdmin(root);
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        var payload = FrameProtocol.RequiredString(root, "payload", 60_000);
+        if (!_rooms.TryGetValue(roomId, out var room)) throw new ProtocolException("room_not_found", "room was not found");
+        var targetPeerId = root.TryGetProperty("targetPeerId", out var target) && target.TryGetInt64(out var parsed) ? parsed : -1;
+        var message = new { type = "room.serverMessage", payload };
+        if (targetPeerId >= 1)
+        {
+            if (!room.Members.TryGetValue(targetPeerId, out var member))
+                throw new ProtocolException("peer_not_found", "target peer was not found");
+            await member.SendAsync(message, cancellationToken);
+        }
+        else await BroadcastAsync(room, message, null, cancellationToken);
+        await requester.SendAsync(new { type = "admin.ok", command = "admin.room.send", roomId, targetPeerId }, cancellationToken);
+    }
+
+    private async Task SendRoomListAsync(ClientConnection client, CancellationToken cancellationToken)
+    {
+        var rooms = _rooms.Values.Where(room => !room.IsClosed && room.Key.Length == 0)
+            .OrderBy(room => room.Id).Take(500)
+            .Select(room => new { roomId = room.Id, roomName = room.Name, players = room.Members.Count, capacity = room.Capacity })
+            .ToArray();
+        await client.SendAsync(new { type = "room.list", rooms }, cancellationToken);
+    }
+
+    private async Task SendRoomInfoAsync(ClientConnection client, CancellationToken cancellationToken)
+    {
+        var room = RequireRoom(client);
+        var players = room.Members.Values
+            .OrderBy(item => item.PeerId).Select(item => new { peerId = item.PeerId, playerName = item.PlayerName }).ToArray();
+        await client.SendAsync(new { type = "room.info", roomId = room.Id, roomName = room.Name, capacity = room.Capacity, players }, cancellationToken);
+    }
+
+    private async Task SendAdminStatsAsync(ClientConnection client, JsonElement root, CancellationToken cancellationToken)
+    {
+        RequireAdmin(root);
+        await client.SendAsync(new
+        {
+            type = "admin.stats",
+            rooms = _rooms.Count,
+            players = _rooms.Values.Sum(room => room.Members.Count),
+            startedUtc = Program.StartedUtc
+        }, cancellationToken);
+    }
+
+    private async Task LeaveRoomAsync(ClientConnection client, CancellationToken cancellationToken)
+    {
+        var room = client.Room;
+        if (room is null) return;
+        client.Room = null;
+        room.Members.TryRemove(client.PeerId, out _);
+        await BroadcastAsync(room, new { type = "room.playerLeft", peerId = client.PeerId }, null, cancellationToken);
+    }
+
+    private async Task RemoveRoomAsync(Room room, string reason, CancellationToken cancellationToken)
+    {
+        if (!_rooms.TryRemove(room.Id, out _)) return;
+        room.Close();
+        var members = room.Members.Values.ToArray();
+        foreach (var member in members)
+        {
+            member.Room = null;
+            await TrySendAsync(member, new { type = "room.closed", roomId = room.Id, reason }, cancellationToken);
+            member.Client.Dispose();
+        }
+        room.Members.Clear();
+        Console.WriteLine($"room closed id={room.Id} reason={reason}");
+    }
+
+    private static Room RequireRoom(ClientConnection client) =>
+        client.Room ?? throw new ProtocolException("not_in_room", "client has not joined a room");
+
+    private void RequireAdmin(JsonElement root)
+    {
+        var supplied = FrameProtocol.OptionalString(root, "token", 256);
+        if (options.AdminToken.Length == 0 || !FixedEquals(options.AdminToken, supplied))
+            throw new ProtocolException("forbidden", "admin token is invalid");
+    }
+
+    private static void EnsureNotInRoom(ClientConnection client)
+    {
+        if (client.Room is not null) throw new ProtocolException("already_in_room", "client is already in a room");
+    }
+
+    private static bool FixedEquals(string expected, string supplied)
+    {
+        var left = Encoding.UTF8.GetBytes(expected);
+        var right = Encoding.UTF8.GetBytes(supplied);
+        return left.Length == right.Length && CryptographicOperations.FixedTimeEquals(left, right);
+    }
+
+    private static async Task TrySendAsync(ClientConnection client, object value, CancellationToken cancellationToken)
+    {
+        try { await client.SendAsync(value, cancellationToken); }
+        catch (Exception exception) when (exception is IOException or SocketException or ObjectDisposedException or OperationCanceledException) { }
+    }
+
+    private static async Task BroadcastAsync(
+        Room room, object value, ClientConnection? excluded, CancellationToken cancellationToken)
+    {
+        var destinations = room.Members.Values.Where(member => member != excluded).ToArray();
+        await Task.WhenAll(destinations.Select(member => TrySendAsync(member, value, cancellationToken)));
+    }
+
+    private static void Configure(TcpClient client)
+    {
+        client.NoDelay = true;
+        client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Stop();
+        _shutdown.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

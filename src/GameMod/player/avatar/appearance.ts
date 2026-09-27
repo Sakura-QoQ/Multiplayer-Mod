@@ -50,24 +50,24 @@ function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerPro
                 dress.gameObject.SetActive(true);
                 if (!remoteArmature) {
                     dress.gameObject.SetActive(false);
-                    log("远端衣服缺少目标 Armature，已禁用: " + id);
+                    log("Remote clothing has no target Armature and was disabled: " + id);
                     continue;
                 }
                 const binding = bindRemoteClothBones(dress.gameObject.transform, remoteArmature, clone.transform);
                 if (binding.renderers <= 0 || binding.missing > 0 || binding.mapped !== binding.total) {
                     dress.gameObject.SetActive(false);
-                    log("远端衣服骨骼重绑失败 dress=" + id + " renderers=" + binding.renderers +
+                    log("Remote clothing bone rebind failed dress=" + id + " renderers=" + binding.renderers +
                         " bones=" + binding.mapped + "/" + binding.total + " missing=" + binding.missing +
                         " names=" + binding.missingNames.slice(0, 24).join(","));
                     continue;
                 }
                 appliedCloth += 1;
-                log("远端衣服骨骼绑定完成 dress=" + id + " renderers=" + binding.renderers +
+                log("Remote clothing bone rebind complete dress=" + id + " renderers=" + binding.renderers +
                     " bones=" + binding.mapped + "/" + binding.total + " local=" + binding.preserved +
                     " missing=0 root=" + remoteArmature.name);
-            } else log("远端衣服 ID 在本机资源中不存在: " + id);
+            } else log("Remote clothing ID is unavailable in local resources: " + id);
         }
-        log("远端衣服映射完成: " + appliedCloth + "/" + profile.cloth.length);
+        log("Remote clothing mapping complete: " + appliedCloth + "/" + profile.cloth.length);
 
         const customization = clonedPlayer ? clonedPlayer.customization : null;
         const data = profile.customization || {};
@@ -85,7 +85,7 @@ function applyRemoteAppearance(clone: UnityEngine.GameObject, profile: PlayerPro
                     customization.body.SetBlendShapeWeight(index, finiteNumber(data[key]) * 100);
             }
         }
-    } catch (error) { log("应用远端玩家衣服/外观失败: " + error); }
+    } catch (error) { log("Failed to apply remote-player clothing or appearance: " + error); }
 }
 
 // 原版 PlayerSkin.OnDestroy 会清理它缓存的实例材质。远端克隆剥离脚本前，必须先从
@@ -134,17 +134,18 @@ function restoreRemoteMaterials(snapshots: RemoteMaterialSnapshot[], skinTan: bo
             const propertyIndex = shader.FindPropertyIndex("_Tan");
             const propertyType = propertyIndex >= 0 ? Number(shader.GetPropertyType(propertyIndex)) : -1;
             if (propertyType === 2 || propertyType === 3) {
-                material.SetFloat("_Tan", skinTan ? 1 : 0);
+                // 原版 PlayerSkin.Update 使用 0.4 表示开启晒黑；写成 1 会让皮肤过度偏红。
+                material.SetFloat("_Tan", skinTan ? 0.4 : 0);
                 tanMaterials += 1;
             } else unsupportedTanProperties += 1;
         }
         snapshot.renderer.sharedMaterials = snapshot.materials;
     }
-    log("远端材质恢复完成: 渲染器=" + snapshots.length + "，材质=" + owned.length +
-        "，tan=" + skinTan + "/" + tanMaterials + "，无效Shader=" + invalidShaders +
-        "，跳过非浮点Tan=" + unsupportedTanProperties);
+    log("Remote material restoration complete: renderers=" + snapshots.length + "; materials=" + owned.length +
+        "; tan=" + skinTan + "/" + tanMaterials + "; invalidShaders=" + invalidShaders +
+        "; unsupportedTanProperties=" + unsupportedTanProperties);
     if (BRIDGE_CHANNEL !== "default") {
-        log("[双实例证据] 远端材质检查 invalid=" + invalidShaders + " tan=" + tanMaterials +
+        log("[DualInstanceEvidence] Remote material check invalid=" + invalidShaders + " tan=" + tanMaterials +
             " unsupported=" + unsupportedTanProperties);
     }
     return owned;
@@ -167,8 +168,7 @@ function setRuntimeClothes(cloth: PlayerCloth, ids: string[]): void {
         const id = String(rawId);
         try {
             const dress = cloth.DressUp(id);
-            if (!dress) log("本机不存在远端衣服资源: " + id);
-        } catch (error) { log("准备衣服资源失败 " + id + ": " + error); }
+            if (!dress) log("Remote clothing resource is unavailable locally: " + id);
+        } catch (error) { log("Failed to prepare clothing resource " + id + ": " + error); }
     }
 }
-

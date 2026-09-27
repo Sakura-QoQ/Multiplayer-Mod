@@ -164,16 +164,16 @@ function enterOnlineSave(): void {
                 selectedSaveName = migratedName;
                 UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
                 UnityEngine.PlayerPrefs.Save();
-                log("已将旧线上存档迁移为玩家 UUIDv7 专属 ID: " + selectedSaveName);
+                log("Migrated the legacy online save to the player's UUIDv7 slot: " + selectedSaveName);
                 enterOnlineSave();
                 return;
             }
             if (result === "-3") {
-                log("旧线上存档已不存在，将使用玩家 UUIDv7 创建首个线上档");
+                log("The legacy online save no longer exists; creating the player's first UUIDv7 online save");
                 createInitialOnlineSave(menu);
                 return;
             }
-            log("迁移 UUIDv7 线上存档失败，错误码=" + result);
+            log("Failed to migrate the UUIDv7 online save; error code=" + result);
             toast(tr("toast.onlineSaveFailed"));
         });
         return;
@@ -188,18 +188,18 @@ function enterOnlineSave(): void {
     if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
     waitForBridgeResponse(menu, sequence, result => {
             if (result === "-3") {
-                log("磁盘上没有正式线上档或恢复副本，将创建首个线上存档");
+                log("No formal online save or recovery copy exists; creating the first online save");
                 createInitialOnlineSave(menu);
                 return;
             }
-            if (result !== "0") { log("准备线上存档失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
+            if (result !== "0") { log("Failed to prepare the online save; error code=" + result); toast(tr("toast.onlineSaveFailed")); return; }
             try {
                 preparedOnlineSaveMetadata = readPreparedSaveMetadata(requestedSaveName);
                 if (!preparedOnlineSaveMetadata || !hasUuidV7OnlineName(preparedOnlineSaveMetadata.save))
-                    throw new Error("桥接程序没有返回有效的 UUIDv7 线上存档元数据");
+                    throw new Error("The bridge did not return valid UUIDv7 online-save metadata");
                 selectedSaveName = preparedOnlineSaveMetadata.save;
                 const activeName = activeSaveName(selectedSaveName);
-                if (!activeName) throw new Error("无法生成线上工作副本名称");
+                if (!activeName) throw new Error("Could not create the online working-copy name");
                 // 桥接实际选中的磁盘文件具有最高优先级，同时修复被清除或过期的 PlayerPrefs。
                 UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
                 UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY,
@@ -215,18 +215,18 @@ function enterOnlineSave(): void {
                     GameManager.SaveName = activeName;
                     manager.LoadGame(activeName);
                     closePanel();
-                    log("已载入线上存档: " + selectedSaveName);
+                    log("Loaded online save: " + selectedSaveName);
                     // 原版晚加载不会再执行初始化阶段的 PlayerPosition；等订阅组件收尾后补应用场景位置。
                     JintCoroutine.WaitForSeconds(manager, 2, () => {
                         applyPreparedOnlineLocation(() => {
                             if (config.smokeTestOnlineLifecycle) waitForSavableGame(manager, () => {
                                 onlineSaveSessionReady = true;
-                                log("诊断模式：线上续档已进入可玩状态 save=" + selectedSaveName);
+                                log("Diagnostics: resumed online save reached a playable state save=" + selectedSaveName);
                             });
                         });
                     });
                 });
-            } catch (error) { log("载入线上存档失败: " + error); toast(tr("toast.onlineSaveFailed")); }
+            } catch (error) { log("Failed to load the online save: " + error); toast(tr("toast.onlineSaveFailed")); }
     });
 }
 
@@ -239,7 +239,7 @@ function createInitialOnlineSave(menu: MainMenu): void {
     const sequence = submitBridgeCommandTracked("beginSave?name=" + encodeURIComponent(selectedSaveName));
     if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
     waitForBridgeResponse(menu, sequence, result => {
-        if (result !== "0") { log("创建线上存档会话失败，错误码=" + result); toast(tr("toast.onlineSaveFailed")); return; }
+        if (result !== "0") { log("Failed to create the online-save session; error code=" + result); toast(tr("toast.onlineSaveFailed")); return; }
         try {
             GameManager.SaveName = activeName;
             menu.StartGame();
@@ -250,13 +250,13 @@ function createInitialOnlineSave(menu: MainMenu): void {
                 const saveResult = writeOnlineSaveSnapshot(manager);
                 if (saveResult === "0") {
                     if (loadConfig().smokeTestOnlineLifecycle) onlineSaveSessionReady = true;
-                    log("诊断模式：首个线上档已写入正式加密容器 save=" + selectedSaveName);
-                } else log("首个线上档提交失败，错误码=" + saveResult);
+                    log("Diagnostics: first online save was committed to the formal encrypted container save=" + selectedSaveName);
+                } else log("Failed to commit the first online save; error code=" + saveResult);
                 closePanel();
                 toast(tr("toast.onlineSaveCreated"));
-                log("已从零创建线上存档: " + selectedSaveName);
+                log("Created the first online save from a clean game: " + selectedSaveName);
             });
-        } catch (error) { log("创建线上存档失败: " + error); toast(tr("toast.onlineSaveFailed")); }
+        } catch (error) { log("Failed to create the online save: " + error); toast(tr("toast.onlineSaveFailed")); }
     });
 }
 
@@ -290,8 +290,8 @@ function stopFromUi(): void {
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];
-    if (uiPauseLoadButton) uiPauseLoadButton.SetActive(true);
+    // 下一帧统一布局函数会恢复原版“读取”按钮并重新计算间距。
+    lastPauseLayoutOnline = null;
     updateStatusText(tr("status.offline"));
     toast(tr("toast.stopped"));
 }
-

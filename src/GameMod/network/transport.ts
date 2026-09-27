@@ -26,7 +26,7 @@ function sendPlayerProfilePacket(peerId: number, packet: PlayerProfilePacket): v
     }
     const count = Math.ceil(serialized.length / PLAYER_PROFILE_CHUNK_SIZE);
     if (count > MAX_PLAYER_PROFILE_CHUNKS) {
-        log("玩家完整资料超过同步上限，已跳过: " + serialized.length);
+        log("The complete player profile exceeds the synchronization limit and was skipped: " + serialized.length);
         return;
     }
     const transferId = packet.ownerId + "-" + packet.revision + "-" + Date.now();
@@ -69,7 +69,7 @@ function receivePlayerProfileChunk(packet: PlayerProfileChunkPacket, sourcePeerI
         const completed = JSON.parse(pending.parts.join(""));
         return validPlayerProfile(completed) ? completed : null;
     } catch (error) {
-        log("重组玩家完整资料失败: " + error);
+        log("Failed to reassemble the complete player profile: " + error);
         return null;
     }
 }
@@ -92,7 +92,7 @@ function flushOutgoingMessage(): void {
         if (index < 0) index = 0;
         const item = outgoingMessages.splice(index, 1)[0];
         const result = bridgeCall("send?peer=" + item.peerId + "&data=" + encodeURIComponent(item.data));
-        if (result !== "0") log("发送失败，错误码=" + result);
+        if (result !== "0") log("Send failed; error code=" + result);
     }
 }
 

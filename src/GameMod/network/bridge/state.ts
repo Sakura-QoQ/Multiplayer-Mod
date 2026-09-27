@@ -76,15 +76,15 @@ function applyPreparedOnlineLocation(onApplied?: () => void): void {
                 if (metadata.rotation) player.transform.rotation = UnityEngine.Quaternion.Euler(
                     finiteNumber(metadata.rotation.x), finiteNumber(metadata.rotation.y), finiteNumber(metadata.rotation.z));
                 if (controller) controller.enabled = true;
-                log("已恢复线上存档场景位置: " + metadata.scene + " target=" +
+                log("Restored online-save scene position: " + metadata.scene + " target=" +
                     target.x.toFixed(4) + "," + target.y.toFixed(4) + "," + target.z.toFixed(4));
             }
-        } catch (error) { log("恢复线上存档位置失败: " + error); }
+        } catch (error) { log("Failed to restore the online-save position: " + error); }
         if (onApplied) onApplied();
     };
     if (metadata && metadata.scene && String(GameManager.NowSceneName || "") !== metadata.scene) {
         try { GameManager.MoveToScene(metadata.scene, applyTransform); return; }
-        catch (error) { log("恢复线上存档场景失败: " + error); }
+        catch (error) { log("Failed to restore the online-save scene: " + error); }
     }
     applyTransform();
 }
@@ -103,7 +103,7 @@ function launchBundledBridge(): void {
         // 非默认通道仅用于同机双游戏自动化验证，由测试工具带 --channel/--log-path
         // 参数预先启动桥接程序。生产包始终使用 default，仍保持零配置自动启动。
         if (BRIDGE_CHANNEL !== "default") {
-            log("等待测试通道桥接程序: " + BRIDGE_CHANNEL);
+            log("Waiting for the test-channel bridge: " + BRIDGE_CHANNEL);
             return;
         }
         // 启动器会给每个 Mod 提供 __dirname；这样即使玩家修改文件夹名称，也能找到随包桥接程序。
@@ -112,7 +112,7 @@ function launchBundledBridge(): void {
             // 兼容没有注入 __dirname 的旧版启动器，退回游戏默认 Mods 目录。
             const dataPath = String(UnityEngine.Application.dataPath || "").replace(/\\/g, "/");
             const separator = dataPath.lastIndexOf("/");
-            if (separator <= 0) throw new Error("无法确定游戏根目录: " + dataPath);
+            if (separator <= 0) throw new Error("Could not determine the game root directory: " + dataPath);
             modDirectory = dataPath.substring(0, separator) + "/Mods/PlayerHostedMultiplayer";
         }
         const bridgePath = modDirectory + "/Bridge/MultiplayerBridgeHost.exe";
@@ -128,14 +128,14 @@ function launchBundledBridge(): void {
             const process = System.Diagnostics.Process.Start(startInfo);
             startedDirectly = process !== null;
         } catch (error) {
-            log("普通权限直接启动联机桥失败，将使用兼容启动方式: " + error);
+            log("Direct bridge launch with standard user privileges failed; using the compatibility launcher: " + error);
         }
         if (!startedDirectly) UnityEngine.Application.OpenURL(bridgePath);
         UnityEngine.PlayerPrefs.SetInt(BRIDGE_STATE_READY_KEY, 1);
         UnityEngine.PlayerPrefs.Save();
-        log("已使用普通用户权限启动联机桥: " + bridgePath);
+        log("Started the bridge with standard user privileges: " + bridgePath);
     } catch (error) {
-        log("自动启动联机桥失败: " + error);
+        log("Failed to start the bridge automatically: " + error);
     }
 }
 
@@ -148,7 +148,7 @@ function submitBridgeCommandTracked(command: string): number {
         print(IPC_LOG_MARKER + " " + sequence + " " + command);
         return sequence;
     } catch (error) {
-        log("提交桥接命令失败: " + error);
+        log("Failed to submit a bridge command: " + error);
         return -1;
     }
 }

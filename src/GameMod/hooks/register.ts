@@ -11,7 +11,7 @@ RegisterHook("System.Void GameManager::LoadGame(System.String)",
             GameManager.SaveName = onlineName;
             onlineLoadRedirectedDuringStart = true;
             self.LoadGame(onlineName);
-            log("已将默认存档读取重定向到联机专属存档: " + onlineName);
+            log("Redirected the default load request to the online save: " + onlineName);
         } finally {
             saveNameRedirectInProgress = false;
         }
@@ -25,8 +25,8 @@ RegisterHook("System.Void GameManager::SaveGame(System.String)",
         ctx.Intercept();
         GameManager.SaveName = onlineName;
         const result = writeOnlineSaveSnapshot(self);
-        if (result === "0") log("已将默认自动保存写入联机专属存档: " + onlineName);
-        else log("联机自动保存失败，错误码=" + result);
+        if (result === "0") log("Redirected the default autosave to the online save: " + onlineName);
+        else log("Online autosave failed; error code=" + result);
     });
 
 // Player.Update 是进入存档后的稳定逐帧入口，用于处理网络队列和刷新界面状态。
@@ -66,7 +66,7 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             // 联机暂停菜单只打开 UI，不冻结世界时间；其他玩家和网络状态继续更新。
             keepOnlineWorldRunning();
             syncGameLanguage();
-        } catch (error) { log("暂停菜单 UI 初始化失败: " + error); }
+        } catch (error) { log("Pause-menu UI initialization failed: " + error); }
     });
 });
 // PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
@@ -86,24 +86,24 @@ RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
         ensureUi(nativeLabel ? (nativeLabel as any).font : (self.version ? (self.version as any).font : null));
         buildMainMenuButton(self);
         startMainMenuInputLoop(self);
-    } catch (error) { log("主菜单 UI 初始化失败: " + error); }
+    } catch (error) { log("Main-menu UI initialization failed: " + error); }
     const config = loadConfig();
     if (config.smokeTestOnlineLifecycle) {
         if (!smokeTestScheduled) {
             smokeTestScheduled = true;
-            log("诊断模式：等待真实线上存档生命周期测试");
+            log("Diagnostics: waiting for the real online-save lifecycle test");
             scheduleSmokeOnlineLifecycle(self);
         }
         return;
     }
     if (!config.smokeTestAutoLoad || smokeTestScheduled) return;
     smokeTestScheduled = true;
-    log("诊断模式：等待主菜单初始化");
+    log("Diagnostics: waiting for main-menu initialization");
     if (config.smokeTestUiOpen) {
         JintCoroutine.WaitForSeconds(self, 1, () => {
             if (!isCurrentGeneration()) return;
             openPanel();
-            log("诊断模式：已打开联机界面供截图");
+            log("Diagnostics: opened the multiplayer UI for capture");
         });
     }
     JintCoroutine.WaitForSeconds(self, config.smokeTestUiOpen ? 7 : 2, () => {
@@ -112,10 +112,10 @@ RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {
             closePanel();
             self.StartGame();
             if (GameManager.Singleton) {
-                log("诊断模式：加载 AutoSave");
+                log("Diagnostics: loading AutoSave");
                 GameManager.Singleton.LoadGame("AutoSave");
-            } else log("诊断模式：StartGame 后仍无 GameManager");
-        } catch (error) { log("诊断模式加载失败: " + error); }
+            } else log("Diagnostics: GameManager is still unavailable after StartGame");
+        } catch (error) { log("Diagnostics: game loading failed: " + error); }
     });
 });
 
@@ -129,7 +129,7 @@ RegisterHook("System.Void LoadSaveWindow::CreateLoadSlot(System.String,System.IO
 RegisterHook("System.Void LoadSaveWindow::Load(System.String)",
     (_self: LoadSaveWindow, saveName: string, ctx: IHookContext) => {
         if (isOnlineSaveSlot(saveName)) {
-            log("已阻止单机读取窗口加载联机存档: " + saveName);
+            log("Blocked the single-player load window from opening an online save: " + saveName);
             ctx.Intercept();
         }
     });
@@ -141,7 +141,7 @@ RegisterHook("System.Void SaveTab::CreateSlotUI(System.String,System.IO.FileInfo
 RegisterHook("System.Void SaveTab::ExecuteSave(System.String)",
     (_self: SaveTab, saveName: string, ctx: IHookContext) => {
         if (isOnlineSaveSlot(saveName)) {
-            log("已阻止单机保存页面覆盖联机存档: " + saveName);
+            log("Blocked the single-player save window from overwriting an online save: " + saveName);
             ctx.Intercept();
         }
     });
@@ -150,7 +150,7 @@ RegisterHook("System.Void SaveTab::ExecuteSave(System.String)",
 RegisterHook("System.Void SaveTab::DeleteSave(System.String)",
     (_self: SaveTab, saveName: string, ctx: IHookContext) => {
         if (role !== "off" || isOnlineSaveSlot(saveName)) {
-            log("已阻止暂停菜单删除存档: " + saveName);
+            log("Blocked the pause menu from deleting a save during online mode: " + saveName);
             ctx.Intercept();
         }
     });
@@ -168,5 +168,5 @@ RegisterHook("System.Void MainMenu::Translate(UnityEngine.Transform,System.Boole
 });
 
 syncGameLanguage(true);
-log("脚本初始化完成，协议版本=" + PROTOCOL_VERSION + "，UI 代次=" + SCRIPT_GENERATION);
+log("Script initialized; protocol=" + PROTOCOL_VERSION + "; UI generation=" + SCRIPT_GENERATION);
 startBridge();

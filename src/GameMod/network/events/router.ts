@@ -8,7 +8,7 @@ function processEvent(rawEvent: string): void {
         return;
     }
     if (event.type === "connected") {
-        log("连接建立，peer=" + event.peerId);
+        log("Connection established peer=" + event.peerId);
         // 客户端建立 TCP 连接后先发送协议版本和玩家名，由房主确认兼容性。
         if (role === "client") {
             localNetworkId = -1;
@@ -20,9 +20,10 @@ function processEvent(rawEvent: string): void {
     if (event.type === "message") {
         const packet = JSON.parse(event.message);
         if (role === "host" && packet.type === "hello") {
-            if (packet.protocol !== PROTOCOL_VERSION) { log("客户端协议不兼容，peer=" + event.peerId); return; }
+            if (packet.protocol !== PROTOCOL_VERSION) { log("Client protocol mismatch peer=" + event.peerId); return; }
             const isNewPeer = peerNames[String(event.peerId)] === undefined;
             peerNames[String(event.peerId)] = String(packet.playerName || "Player");
+            log("Player joined: " + peerNames[String(event.peerId)] + " peer=" + event.peerId);
             send(event.peerId, { type: "welcome", protocol: PROTOCOL_VERSION, peerId: event.peerId });
             // 新玩家需要立即收到房主和已在线玩家的完整外观/个人进度，而不是等待资料变化。
             if (isNewPeer) {
@@ -84,7 +85,7 @@ function processEvent(rawEvent: string): void {
             flushOutgoingMessage();
             if (sequence > lastSleepApprovalSequence) {
                 lastSleepApprovalSequence = sequence;
-                log("已收到全员睡眠批准: " + packet.mode + "，序号=" + sequence);
+                log("Received unanimous sleep approval: " + packet.mode + "; sequence=" + sequence);
                 invokeApprovedSleep(packet.mode);
             }
             // 重复批准同样会在上方立即 ACK，但绝不重复执行睡眠。
@@ -106,9 +107,9 @@ function processEvent(rawEvent: string): void {
         }
         return;
     }
-    if (event.type === "error") { log("网络错误: " + event.message); updateStatusText(tr("status.networkError", { error: event.message })); }
+    if (event.type === "error") { log("Network error: " + event.message); updateStatusText(tr("status.networkError", { error: event.message })); }
     else if (event.type === "disconnected") {
-        log("连接断开，peer=" + event.peerId);
+        log("Connection disconnected peer=" + event.peerId);
         if (role === "host") {
             destroyRemotePlayer(Number(event.peerId));
             delete peerNames[String(event.peerId)];

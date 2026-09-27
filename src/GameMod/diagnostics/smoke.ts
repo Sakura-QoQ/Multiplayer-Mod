@@ -12,10 +12,10 @@ function runSmokeTestDiagnostics(player: Player): void {
                 player.transform.position = new UnityEngine.Vector3(current.x + 3.25, current.y, current.z);
             }
             const savedPosition = player.transform.position;
-            beginOnlineExitSave(player, () => log("[线上存档生命周期] phase=" + config.smokeTestLifecyclePhase +
+            beginOnlineExitSave(player, () => log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
                 " save=" + selectedSaveName + " position=" + savedPosition.x.toFixed(4) + "," +
                 savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4)));
-        } catch (error) { log("诊断模式：线上存档生命周期失败: " + error); }
+        } catch (error) { log("Diagnostics: online-save lifecycle failed: " + error); }
         return;
     }
     if (config.smokeTestPhone && localNetworkId >= 0 && !smokePhoneChecked && GameManager.Singleton) {
@@ -28,12 +28,12 @@ function runSmokeTestDiagnostics(player: Player): void {
             GameManager.PauseGame(false);
             keepOnlineWorldRunning();
             if (GameManager.Paused || Number(UnityEngine.Time.timeScale) <= 0)
-                throw new Error("解除暂停后游戏仍处于暂停状态");
+                throw new Error("The game remained paused after online pause release");
             const phone = WindowManager.OpenWindow("XWindow");
-            if (!phone || !WindowManager.IsOpened("XWindow")) throw new Error("XWindow 未能打开");
-            log("诊断模式：线上暂停后手机窗口已正常打开，游戏时间未暂停");
+            if (!phone || !WindowManager.IsOpened("XWindow")) throw new Error("XWindow did not open");
+            log("Diagnostics: phone window opened after online pause while game time remained active");
             WindowManager.CloseWindow("XWindow");
-        } catch (error) { log("诊断模式：线上手机窗口验证失败: " + error); }
+        } catch (error) { log("Diagnostics: online phone-window verification failed: " + error); }
     }
     if (config.smokeTestPauseMenu && localNetworkId >= 0 && !smokePauseMenuOpened && GameManager.Singleton) {
         smokePauseMenuOpened = true;
@@ -41,25 +41,32 @@ function runSmokeTestDiagnostics(player: Player): void {
             // 无人值守测试不能可靠抢占 Windows 前台焦点，因此直接调用游戏原生窗口管理器。
             // 这会实例化和显示与玩家按 ESC 完全相同的 PauseWindow，并执行其原生 Start。
             const pause = WindowManager.OpenWindow("PauseWindow");
-            if (!pause || !WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow 未能打开");
+            if (!pause || !WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow did not open");
             GameManager.PauseGame(true);
             smokePauseMenuOpenedAt = now;
             smokePauseMenuGameTime = Number(GameManager.Singleton.gameTime);
-            log("诊断模式：已通过原生 WindowManager 打开 PauseWindow");
-        } catch (error) { log("诊断模式：打开原版暂停菜单失败: " + error); }
+            log("Diagnostics: opened PauseWindow through the native WindowManager");
+        } catch (error) { log("Diagnostics: failed to open the native pause menu: " + error); }
     }
     if (config.smokeTestPauseMenu && smokePauseMenuOpened && !smokePauseBackgroundVerified &&
         smokePauseMenuOpenedAt >= 0 && now - smokePauseMenuOpenedAt >= 1 && GameManager.Singleton) {
         try {
-            if (!WindowManager.IsOpened("PauseWindow")) throw new Error("验证期间 PauseWindow 已关闭");
+            if (!WindowManager.IsOpened("PauseWindow")) throw new Error("PauseWindow closed during verification");
             const elapsedGameTime = Number(GameManager.Singleton.gameTime) - smokePauseMenuGameTime;
             if (GameManager.Paused || Number(UnityEngine.Time.timeScale) !== 1 || elapsedGameTime < 0.5)
-                throw new Error("暂停背景未持续运行 paused=" + GameManager.Paused +
+                throw new Error("The world behind the pause menu did not remain active; paused=" + GameManager.Paused +
                     " timeScale=" + UnityEngine.Time.timeScale + " delta=" + elapsedGameTime);
+            // 同一条无人值守测试同时打开暂停菜单里的联机入口，确认它显示的是只读房间页，
+            // 而不是主菜单使用的地址、端口与建房配置页。
+            openRoomInfoPanel();
+            if (!uiPanel || !uiPanel.activeSelf || uiPanelMode !== "room" || !uiRoomInfoBody || !uiRoomInfoBody.activeSelf)
+                throw new Error("The pause-menu multiplayer room information page was not visible");
+            if (uiConfigBody && uiConfigBody.activeSelf) throw new Error("The pause menu incorrectly displayed connection settings");
             smokePauseBackgroundVerified = true;
-            log("[双实例证据] PauseWindow 保持显示且背景持续运行 paused=false timeScale=1 delta=" +
+            log("[DualInstanceEvidence] PauseWindow remained visible while the world continued paused=false timeScale=1 delta=" +
                 elapsedGameTime.toFixed(2));
-        } catch (error) { log("诊断模式：暂停背景持续运行验证失败: " + error); }
+            log("[DualInstanceEvidence] Pause-menu Multiplayer page contains only room information, synchronized time and players");
+        } catch (error) { log("Diagnostics: pause-background verification failed: " + error); }
     }
     if (config.smokeTestSleepConsensus && localNetworkId >= 0 && smokeSleepStartedAt < 0) {
         // 房主必须等至少一个客户端完成 hello 登记；否则“当前只有房主一人”会合法地立即批准。
@@ -73,10 +80,10 @@ function runSmokeTestDiagnostics(player: Player): void {
             smokeSleepRequested = true;
             if (role === "host") {
                 sleepReady["0"] = { mode: "tomorrow", at: now };
-                log("诊断模式：房主已请求睡到明天，等待其他玩家");
+                log("Diagnostics: host requested sleep until tomorrow and is waiting for other players");
                 tryApproveSleep();
             } else {
-                log("诊断模式：客户端已请求睡到明天");
+                log("Diagnostics: client requested sleep until tomorrow");
                 send(0, { type: "sleepRequest", mode: "tomorrow" } as SleepRequestPacket);
             }
         }
@@ -97,15 +104,15 @@ function runSmokeTestDiagnostics(player: Player): void {
         // 的远端模型创建后仍能收到非零动作，而不是只验证一个转瞬即逝的包。
         smokeActionOverrideUntil = now + 15;
         smokeMotionCompletedAt = now;
-        log("诊断模式：房主已移动两米并发送动作状态 target=" +
+        log("Diagnostics: host moved two meters and sent the action state target=" +
             target.x.toFixed(2) + "," + target.y.toFixed(2) + "," + target.z.toFixed(2));
     }
     if (config.smokeTestSceneSync && smokeMotionCompletedAt >= 0 && !smokeSceneRequested &&
         now - smokeMotionCompletedAt >= 3 && String(GameManager.NowSceneName || "") === "RoomScene") {
         smokeSceneRequested = true;
-        log("诊断模式：房主切换到 StreetScene");
-        try { GameManager.MoveToScene("StreetScene", () => log("诊断模式：房主已进入 StreetScene")); }
-        catch (error) { log("诊断模式场景切换失败: " + error); }
+        log("Diagnostics: host is switching to StreetScene");
+        try { GameManager.MoveToScene("StreetScene", () => log("Diagnostics: host entered StreetScene")); }
+        catch (error) { log("Diagnostics: scene transition failed: " + error); }
     }
 }
 
@@ -113,14 +120,13 @@ function scheduleSmokeOnlineLifecycle(menu: MainMenu, remaining = 900): void {
     if (!isCurrentGeneration() || smokeOnlineLifecycleStarted) return;
     if (bridgeAvailable && role === "host") {
         smokeOnlineLifecycleStarted = true;
-        log("诊断模式：开始真实线上存档生命周期");
+        log("Diagnostics: starting the real online-save lifecycle");
         enterOnlineSave();
         return;
     }
     if (remaining <= 0) {
-        log("诊断模式：等待线上存档桥接超时");
+        log("Diagnostics: timed out while waiting for the online-save bridge");
         return;
     }
     JintCoroutine.WaitForNextFrame(menu, () => scheduleSmokeOnlineLifecycle(menu, remaining - 1));
 }
-

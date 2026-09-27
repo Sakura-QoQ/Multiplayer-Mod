@@ -31,15 +31,23 @@ function roomPlayerRows(): { id: number; name: string; tag: string }[] {
     return rows;
 }
 
+function roomPlayerRowsSignature(rows: { id: number; name: string; tag: string }[]): string {
+    return rows.map(row => row.id + ":" + row.name + ":" + row.tag).join("|");
+}
+
+function formatRoomPlayerRows(rows: { id: number; name: string; tag: string }[]): string {
+    return rows.map(row => "• " + row.name + (row.tag ? "  " + row.tag : "")).join("\n");
+}
+
 function refreshPlayerListUi(force = false): void {
     if (!uiPlayerListTitle || !uiPlayerListCount || !uiPlayerListBody) return;
     const rows = roomPlayerRows();
-    const signature = languageCode + "|" + role + "|" + rows.map(row => row.id + ":" + row.name + ":" + row.tag).join("|");
+    const signature = languageCode + "|" + role + "|" + roomPlayerRowsSignature(rows);
     if (!force && signature === lastPlayerListSignature) return;
     lastPlayerListSignature = signature;
     uiPlayerListTitle.text = tr("playerList.title");
     uiPlayerListCount.text = tr("playerList.count", { count: rows.length });
-    uiPlayerListBody.text = rows.map(row => "• " + row.name + (row.tag ? "  " + row.tag : "")).join("\n");
+    uiPlayerListBody.text = formatRoomPlayerRows(rows);
 }
 
 function handlePlayerListInput(): void {

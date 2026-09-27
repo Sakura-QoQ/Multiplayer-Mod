@@ -25,9 +25,7 @@ function playerLiveLine(profile: PlayerProfile | undefined): string {
         ? progress.PlayerStatusData : {};
     return tr("players.live", {
         health: Math.round(finiteNumber(status.health) * finiteNumber(status.maxHealth, 100)),
-        maxHealth: Math.round(finiteNumber(status.maxHealth, 100)),
         stamina: Math.round(finiteNumber(status.stamina) * finiteNumber(status.maxStamina, 100)),
-        maxStamina: Math.round(finiteNumber(status.maxStamina, 100)),
         // PlayerData.money 在存档内使用游戏自己的 XOR_KEY；资料卡显示 PlayerStatus.Money 的运行时值。
         money: typeof status.money === "number" ? (Math.trunc(status.money) ^ PLAYER_STATUS_XOR_KEY) : 0,
         day: Math.trunc(finiteNumber(status.day)),

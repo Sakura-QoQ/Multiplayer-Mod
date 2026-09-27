@@ -15,7 +15,7 @@ function startBridge(): void {
                     bridgeAvailable = true;
                     initialized = false;
                     bridgeStartupGraceFrames = 0;
-                    log("已接管当前运行的联机桥，不再重复请求系统启动权限");
+                    log("Attached to the running multiplayer bridge without requesting another launch");
                 }
             } catch (_error) { }
         }
@@ -25,7 +25,7 @@ function startBridge(): void {
         initialized = true;
         bridgeStartupGraceFrames = 60;
         launchBundledBridge();
-        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
+        log("The multiplayer bridge is not running yet; waiting for the bundled bridge to start");
         return;
         }
     }
@@ -44,7 +44,7 @@ function startBridge(): void {
     catch (_error) { bridgeAvailable = false; }
     if (!bridgeAvailable) {
         launchBundledBridge();
-        log("联机桥尚未运行，正在等待 Mod 自动启动随包桥接程序");
+        log("The multiplayer bridge is not running yet; waiting for the bundled bridge to start");
         return;
     }
 
@@ -55,26 +55,26 @@ function startBridge(): void {
     if (existing.state === "hosting") {
         role = "host";
         localNetworkId = 0;
-        log("接管场景切换前的主机连接，端口=" + existing.port);
+        log("Reattached to the host connection from the previous scene on port " + existing.port);
         return;
     }
     if (existing.state === "connecting" || existing.state === "connected") {
         role = "client";
         localNetworkId = -1;
-        log("接管场景切换前的客户端连接");
+        log("Reattached to the client connection from the previous scene");
         // 场景切换会重新载入脚本；重新握手可恢复本代脚本丢失的 peerId 和玩家名映射。
         if (existing.state === "connected") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         return;
     }
 
     role = config.mode;
-    if (role === "off") { log("已加载，可使用“新建游戏”上方的“联机”按钮"); return; }
+    if (role === "off") { log("Loaded; use the Multiplayer button above New Game"); return; }
     const result = role === "host"
         ? bridgeCall("host?port=" + config.port + "&max=" + config.maxPlayers)
         : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
-    if (result !== "0") { log("启动网络桥接失败，错误码=" + result); role = "off"; return; }
+    if (result !== "0") { log("Failed to start the network bridge; error code=" + result); role = "off"; return; }
     localNetworkId = role === "host" ? 0 : -1;
-    log(role === "host" ? "正在监听 0.0.0.0:" + config.port : "正在连接 " + config.address + ":" + config.port);
+    log(role === "host" ? "Listening on 0.0.0.0:" + config.port : "Connecting to " + config.address + ":" + config.port);
 }
 
 function valueOr(input: UnityEngine.UI.InputField | null, fallback: string): string {

@@ -28,7 +28,7 @@ internal static partial class Program
         catch (UnauthorizedAccessException) { }
         catch (CryptographicException exception)
         {
-            AddEvent(new BridgeEvent("error", 0, "恢复线上工作档失败: " + exception.Message));
+            AddEvent(new BridgeEvent("error", 0, "Failed to recover the online working copy: " + exception.Message));
         }
     }
 

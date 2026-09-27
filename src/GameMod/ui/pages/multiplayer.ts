@@ -12,6 +12,7 @@ function buildUi(font: any): void {
         uiFont = font;
         selectedSaveName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.SelectedSave"), "");
         buildPlayerListPage(shell.root.transform, font);
+        buildRoomInfoPage(shell.panel.transform, font);
 
         uiTitle = makeText(shell.panel.transform, "Title", tr("panel.title"), font, 80, 4, 600, 72, 44);
         (uiTitle as any).alignment = 4;
@@ -39,11 +40,11 @@ function buildUi(font: any): void {
 
         makeButton(shell.panel.transform, "Cancel", tr("button.cancel"), font, 130, 740, 500, closePanel, 64);
         shell.panel.SetActive(false);
-        log("游戏内联机界面已创建：原版读取窗口样式、半透明灰黑面板和白色四角框线");
+        log("Created the in-game multiplayer UI with the native load-window style");
     } catch (error) {
         uiRoot = null;
         coroutineRunner = null;
-        log("创建联机界面失败: " + error);
+        log("Failed to create the multiplayer UI: " + error);
     }
 }
 
@@ -51,7 +52,7 @@ function handleUiInput(): void {
     try {
         if (uiPanel && uiPanel.activeSelf && Input.GetKeyDown(KeyCode.Escape)) closePanel();
         handlePlayerListInput();
-    } catch (error) { log("检测 ESC 键失败: " + error); }
+    } catch (error) { log("Failed to process the Escape key: " + error); }
 }
 
 function startMainMenuInputLoop(owner: UnityEngine.MonoBehaviour): void {
@@ -64,4 +65,3 @@ function startMainMenuInputLoop(owner: UnityEngine.MonoBehaviour): void {
     };
     JintCoroutine.WaitForNextFrame(owner, nextFrame);
 }
-

@@ -1,0 +1,8 @@
+**
+!src/
+!src/MultiplayerRoomServer/
+!src/MultiplayerRoomServer/**
+src/MultiplayerRoomServer/bin/
+src/MultiplayerRoomServer/obj/
+!LICENSE
+!LICENSE.zh-CN

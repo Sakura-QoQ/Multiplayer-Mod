@@ -75,8 +75,8 @@ function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
         clone = UnityEngine.Object.Instantiate(source) as UnityEngine.GameObject;
         clone.name = "MPB_RemotePlayer_" + packet.ownerId;
         const animator = clone.GetComponent("Animator") as UnityEngine.Animator;
-        if (!animator) throw new Error("远端玩家克隆体缺少 Animator");
-        log("正在准备远端玩家可视模型: " + String(packet.playerName || packet.ownerId));
+        if (!animator) throw new Error("The remote-player clone has no Animator");
+        log("Preparing remote-player visual model: " + String(packet.playerName || packet.ownerId));
         // 剥离脚本和未启用节点之前，按该玩家的资料启用衣服、发型和脸型。
         applyRemoteAppearance(clone, remoteProfile);
         const materialSnapshots = captureRemoteMaterials(clone.transform);
@@ -106,17 +106,17 @@ function createRemotePlayer(packet: PlayerStatePacket): RemotePlayer | null {
             ownedMaterials
         };
         remotePlayers[String(packet.ownerId)] = remote;
-        log("已创建远端玩家模型: " + remote.name + " (peer=" + packet.ownerId + ")");
+        log("Created remote player model: " + remote.name + " (peer=" + packet.ownerId + ")");
         return remote;
     } catch (error) {
         if (clone) UnityEngine.Object.Destroy(clone);
-        log("创建远端玩家模型失败: " + error);
+        log("Failed to create the remote player model: " + error);
         return null;
     } finally {
         if (wasActive && !source.activeSelf) source.SetActive(true);
         if (sourceAppearanceChanged && local.cloth) {
             try { setRuntimeClothes(local.cloth, originalClothes); }
-            catch (error) { log("恢复本地玩家衣服失败: " + error); }
+            catch (error) { log("Failed to restore local-player clothing: " + error); }
         }
         // 防御性恢复：即使未来游戏版本改变 Awake 时机，也不能让克隆体替换本地玩家单例。
         Player.LocalPlayer = local;
@@ -136,7 +136,7 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
         if (role === "client" && packet.ownerId === 0 && GameManager.InGame && packet.scene &&
             pendingHostScene !== packet.scene) {
             pendingHostScene = packet.scene;
-            log("正在跟随房主切换场景: " + packet.scene);
+            log("Following the host to scene: " + packet.scene);
             try {
                 GameManager.MoveToScene(packet.scene, () => {
                     pendingHostScene = "";
@@ -146,11 +146,11 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
                                 packet.position.x + 1.0, packet.position.y, packet.position.z);
                         }
                     } catch (_error) { }
-                    log("已进入房主场景: " + packet.scene);
+                    log("Entered the host scene: " + packet.scene);
                 });
             } catch (error) {
                 pendingHostScene = "";
-                log("跟随房主场景失败: " + error);
+                log("Failed to follow the host scene: " + error);
             }
         }
         return;
@@ -187,7 +187,7 @@ function applyRemotePlayerState(packet: PlayerStatePacket): void {
             const actionKey = packet.animations.map(layer => layer.hash).join(",") + ":" + packet.action + ":" + packet.handAction + ":" + packet.attack;
             const moved = UnityEngine.Vector3.Distance(remote.diagnosticPosition, remote.targetPosition) >= 0.1;
             if (moved || actionKey !== remote.diagnosticActionKey) {
-                log("[双实例证据] 远端状态 peer=" + packet.ownerId + " seq=" + packet.sequence +
+                log("[DualInstanceEvidence] Remote state peer=" + packet.ownerId + " seq=" + packet.sequence +
                     " pos=" + packet.position.x.toFixed(2) + "," + packet.position.y.toFixed(2) + "," + packet.position.z.toFixed(2) +
                     " anim=" + packet.animationHash + " action=" + packet.action + "/" + packet.handAction + "/" + packet.attack);
                 remote.diagnosticPosition = remote.targetPosition;

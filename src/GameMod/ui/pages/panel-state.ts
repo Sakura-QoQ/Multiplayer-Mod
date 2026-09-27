@@ -1,19 +1,29 @@
-// 页面开关状态。
+// 联机面板状态统一由这里切换，避免配置页和只读房间页各自修改可见性。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
-function closePanel(): void {
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-    if (uiPanel) uiPanel.SetActive(false);
+function setPanelMode(mode: "closed" | "config" | "room"): void {
+    uiPanelMode = mode;
+    const roomVisible = mode === "room";
+    if (uiConfigBody) uiConfigBody.SetActive(mode === "config");
+    if (uiRoomInfoBody) uiRoomInfoBody.SetActive(roomVisible);
+    if (uiTitle) uiTitle.text = tr(roomVisible ? "room.title" : "panel.title");
+    if (uiPanel) uiPanel.SetActive(mode !== "closed");
+
+    if (mode === "config") {
+        // 面板可能在桥接启动后才首次打开，不能继续显示 buildUi 时缓存的状态。
+        updateStatusText();
+        refreshPlayerInfoUi();
+    } else if (roomVisible) {
+        lastRoomInfoSignature = "";
+        refreshRoomInfoUi(true);
+    }
 }
 
-function openPanel(): void {
+function openPanelMode(mode: "config" | "room"): void {
     if (!uiPanel) return;
     syncGameLanguage();
-    if (uiConfigBody) uiConfigBody.SetActive(true);
-    if (uiTitle) uiTitle.text = tr("panel.title");
-    // 面板可能在桥接启动后才首次打开；不能继续显示 buildUi 时缓存的“未联机”。
-    updateStatusText();
-    refreshPlayerInfoUi();
-    uiPanel.SetActive(true);
+    setPanelMode(mode);
 }
+
+function closePanel(): void { setPanelMode("closed"); }
+function openPanel(): void { openPanelMode("config"); }
 

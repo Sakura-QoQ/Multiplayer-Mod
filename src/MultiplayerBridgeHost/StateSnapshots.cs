@@ -166,7 +166,7 @@ internal static partial class Program
     {
         var localDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appDataDirectory = Directory.GetParent(localDirectory)?.FullName
-            ?? throw new InvalidOperationException("无法确定 AppData 目录");
+            ?? throw new InvalidOperationException("Unable to determine the AppData directory");
         return Path.Combine(appDataDirectory, "LocalLow", "DefaultCompany", "FallenFlower", "Saves");
     }
 

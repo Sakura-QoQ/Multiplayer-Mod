@@ -109,7 +109,7 @@ internal static partial class Program
             return Path.GetFullPath(_gameLogPathOverride);
         var localDirectory = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var appDataDirectory = Directory.GetParent(localDirectory)?.FullName
-            ?? throw new InvalidOperationException("无法确定 AppData 目录");
+            ?? throw new InvalidOperationException("Unable to determine the AppData directory");
         return Path.Combine(appDataDirectory, "LocalLow", "DefaultCompany", "FallenFlower", "Player.log");
     }
 
@@ -224,7 +224,7 @@ internal static partial class Program
         catch (UnauthorizedAccessException) { return -6; }
         catch (CryptographicException) { }
 
-        AddEvent(new BridgeEvent("error", 0, "退出前未能验证正式线上存档，已阻止退出以保护进度"));
+        AddEvent(new BridgeEvent("error", 0, "The formal online save could not be verified before exit; exit was blocked to protect progress"));
         return -5;
     }
 

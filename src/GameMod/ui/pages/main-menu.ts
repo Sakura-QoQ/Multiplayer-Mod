@@ -2,13 +2,13 @@
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function buildMainMenuButton(menu: MainMenu): void {
     if (!menu.newGame || !menu.newGame.gameObject || !uiPanel) return;
-    let stage = "准备";
+    let stage = "prepare";
     try {
         const parent = menu.newGame.transform.parent;
         const old = findNamedChild(parent, MENU_BUTTON_NAME);
         if (old) UnityEngine.Object.Destroy(old.gameObject);
 
-        stage = "复制按钮";
+        stage = "clone button";
         const clonedButton = cloneNativeButton(menu.newGame, parent, MENU_BUTTON_NAME,
             tr("menu.multiplayer"), () => {
             if (!isCurrentGeneration() || !uiPanel) return;
@@ -18,7 +18,7 @@ function buildMainMenuButton(menu: MainMenu): void {
         });
         const cloned = clonedButton.root;
 
-        stage = "计算按钮位置";
+        stage = "calculate button position";
         const sourceRect = menu.newGame.transform as any;
         const clonedRect = cloned.transform as any;
         const loadRect = menu.LoadGame ? menu.LoadGame.transform as any : null;
@@ -30,14 +30,14 @@ function buildMainMenuButton(menu: MainMenu): void {
         }
         clonedRect.anchoredPosition = new UnityEngine.Vector2(Number(sourcePosition.x), Number(sourcePosition.y) + spacing);
         // 如果原菜单使用 VerticalLayoutGroup，兄弟序号会让布局系统把它排在“新建游戏”正上方。
-        stage = "设置菜单顺序";
+        stage = "set menu order";
         cloned.transform.SetSiblingIndex(menu.newGame.transform.GetSiblingIndex());
         cloned.SetActive(true);
         uiMenuButton = cloned;
-        log("已在“新建游戏”上方创建原生样式的“联机”按钮");
+        log("Created the native-style Multiplayer button above New Game");
     } catch (error) {
         uiMenuButton = null;
-        log("创建主菜单联机按钮失败（" + stage + "）: " + error);
+        log("Failed to create the main-menu Multiplayer button (" + stage + "): " + error);
     }
 }
 

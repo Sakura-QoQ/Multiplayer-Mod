@@ -10,14 +10,14 @@ function cloneNativeButton(template: UnityEngine.UI.Button, parent: UnityEngine.
     const root = UnityEngine.Object.Instantiate(template.gameObject, parent) as UnityEngine.GameObject;
     root.name = name;
     const button = root.GetComponent("Button") as UnityEngine.UI.Button;
-    if (!button) throw new Error("复制后的按钮缺少 Button 组件");
+    if (!button) throw new Error("The cloned object does not contain a Button component");
     button.onClick.RemoveAllListeners();
     let listenerAdded = false;
     try { button.onClick.AddListener(onClick); listenerAdded = true; } catch (_error) { }
     if (!listenerAdded) {
         try { Extensions.SetListener(button.onClick, onClick); listenerAdded = true; } catch (_error) { }
     }
-    if (!listenerAdded) throw new Error("无法绑定复制按钮的点击事件");
+    if (!listenerAdded) throw new Error("Could not bind the cloned button click handler");
     const label = findTextInChildren(root.transform);
     if (label) label.text = labelText;
     return { root, button, label };

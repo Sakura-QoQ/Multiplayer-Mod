@@ -6,7 +6,7 @@ function loadLanguageFile(code: string): Record<string, string> {
         const parsed = text ? JSON.parse(text) : null;
         return parsed && typeof parsed === "object" ? parsed : {};
     } catch (error) {
-        log("语言包读取失败 " + code + ": " + error);
+        log("Failed to load language pack " + code + ": " + error);
         return {};
     }
 }
@@ -56,5 +56,5 @@ function syncGameLanguage(force = false): void {
     if (Object.keys(englishMessages).length === 0) englishMessages = loadLanguageFile("en");
     messages = languageCode === "en" ? englishMessages : loadLanguageFile(languageCode);
     refreshLocalizedUi();
-    log("已切换联机界面语言: " + languageCode);
+    log("Multiplayer UI language changed to: " + languageCode);
 }

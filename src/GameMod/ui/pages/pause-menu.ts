@@ -2,23 +2,28 @@
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function buildPauseMenuButton(pause: PauseWindow): void {
     if (!pause.setting || !pause.setting.gameObject) return;
-    let stage = "准备";
+    let stage = "prepare";
     try {
         const parent = pause.setting.transform.parent;
         const old = findNamedChild(parent, PAUSE_BUTTON_NAME);
         if (old) UnityEngine.Object.Destroy(old.gameObject);
 
-        stage = "复制设置按钮";
+        stage = "clone settings button";
         const clonedButton = cloneNativeButton(pause.setting, parent, PAUSE_BUTTON_NAME,
-            tr("menu.multiplayer"), () => { if (isCurrentGeneration()) openPanel(); });
+            tr("menu.multiplayer"), () => {
+                if (!isCurrentGeneration()) return;
+                // 已进入联机会话后，暂停菜单只提供只读房间状态，不允许在游戏中改地址、
+                // 建房或停止连接；主菜单入口仍保留完整联机配置。
+                if (role !== "off") openRoomInfoPanel();
+                else openPanel();
+            });
         const cloned = clonedButton.root;
         const button = clonedButton.button;
 
-        stage = "重新排列暂停菜单";
+        stage = "rearrange pause menu";
         cloned.transform.SetSiblingIndex(pause.setting.transform.GetSiblingIndex() + 1);
         // 原菜单的五个按钮已经占满竖向空间。插入“联机”后，把六个按钮等距放进
         // 原来“设置”到“退出”的世界坐标范围。原版按钮分属不同容器，不能比较 anchoredPosition。
-        uiPauseLoadButton = pause.load ? pause.load.gameObject : null;
         pauseButtonLayout = {
             setting: pause.setting, multiplayer: button, load: pause.load,
             secret: pause.secret, bugFeedback: pause.bugFeedback, exit: pause.exit
@@ -27,10 +32,10 @@ function buildPauseMenuButton(pause: PauseWindow): void {
         refreshPauseMenuLayout();
         cloned.SetActive(true);
         uiPauseButton = cloned;
-        log("已在 ESC 暂停菜单中创建原生样式的“联机”按钮，并重新等距排列菜单");
+        log("Created the native-style Multiplayer button in the ESC pause menu and evenly spaced the menu items");
     } catch (error) {
         uiPauseButton = null;
-        log("创建暂停菜单联机按钮失败（" + stage + "）: " + error);
+        log("Failed to create the pause-menu Multiplayer button (" + stage + "): " + error);
     }
 }
 
@@ -56,4 +61,3 @@ function refreshPauseMenuLayout(): void {
         itemTransform.position = new UnityEngine.Vector3(current.x, startPosition.y + stepY * index, current.z);
     }
 }
-

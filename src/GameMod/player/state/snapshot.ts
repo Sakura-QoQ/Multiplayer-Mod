@@ -39,7 +39,7 @@ function captureLocalPlayerState(player: Player): PlayerStatePacket | null {
             animations
         };
     } catch (error) {
-        log("采集本地玩家状态失败: " + error);
+        log("Failed to capture local-player state: " + error);
         return null;
     }
 }

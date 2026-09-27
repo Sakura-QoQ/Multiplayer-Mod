@@ -24,12 +24,14 @@ function updateBridge(player: Player | null): void {
                 buildPauseMenuButton(pause);
             }
         }
-    } catch (error) { log("发现已打开暂停菜单失败: " + error); }
+    } catch (error) { log("Failed to discover the open pause menu: " + error); }
     // 暂停窗口可能先于联机状态变化创建；每帧按当前模式同步原版“读取”按钮。
     // 联机时隐藏，停止联机后恢复，避免永久修改原版菜单。
     refreshPauseMenuLayout();
     updateFrames += 1;
     if (updateFrames % 120 === 0) updateStatusText();
+    // 房间时钟和玩家名单会变化，只读暂停页保持实时刷新。
+    if (uiPanelMode === "room" && updateFrames % 10 === 0) refreshRoomInfoUi();
     updateRemotePlayers();
     if (!bridgeAvailable || role === "off") return;
     // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
@@ -44,7 +46,7 @@ function updateBridge(player: Player | null): void {
         try {
             collectBridgeEvents(readBridgeState());
         } catch (error) {
-            log("轮询网络桥接暂时失败，将自动重试: " + error);
+            log("Bridge polling failed temporarily and will retry automatically: " + error);
         }
     }
     // 每帧最多处理 32 个已入内存事件，防止网络洪峰长时间占用 Unity 主线程。
@@ -67,4 +69,3 @@ function updateBridge(player: Player | null): void {
     resendPendingSleepApproval();
     flushOutgoingMessage();
 }
-

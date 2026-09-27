@@ -2,12 +2,12 @@
 
 《Fallen Flower》的玩家主机制联机 Mod。房主的 Windows 电脑同时承担房间服务器，不依赖中心服务器，也不要求玩家另行安装开发环境。
 
-[English documentation](README.md) · [玩家资料字段映射](PLAYER_PROFILE_FIELDS.zh-CN.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可协议中文参考](LICENSE.zh-CN)
+[English documentation](README.md) · [文档索引](docs/README.zh-CN.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可协议中文参考](LICENSE.zh-CN)
 
 ## 功能
 
-- 在主菜单增加与原版风格一致的“联机”入口，并在暂停菜单提供联机配置。
-- 可直接在游戏内建立或加入房间；联机暂停菜单显示时，后方世界、物理、动画和线上时钟仍继续运行。
+- 在主菜单增加与原版风格一致的“联机”入口；完整联机配置只在主菜单提供。
+- 联机中的暂停菜单入口是只读房间页，仅显示房间身份/地址、统一时间、在线人数和玩家名单；页面显示时后方世界、物理、动画和线上时钟仍继续运行。
 - 默认最多四名玩家，房主作为权威转发中心。
 - 联机游戏内按住 `Tab`，可在屏幕中央查看跟随游戏语言的房间玩家名单。
 - 同步人物模型、位置、朝向、移动、落地状态、武器、动作和全部 Animator 层。
@@ -36,40 +36,6 @@ Defender 防火墙仍可能显示一次正常的入站网络确认；它与此�
 
 所有玩家应使用相同的游戏版本和 Mod 版本。默认 TCP 端口为 `27777`。
 
-## 项目结构
-
-```text
-PlayerHostedMultiplayer
-├─ mod
-│  ├─ main.ts                         自动生成的 UcModLauncher 单文件入口
-│  ├─ config.json                     默认配置
-│  ├─ README.txt                      默认英文玩家说明
-│  ├─ README.zh-CN.txt                简体中文玩家说明
-│  └─ i18n/<语言>/strings.json         自动生成的运行时语言包副本
-├─ src
-│  ├─ GameMod
-│  │  ├─ core                         共享类型、常量和运行状态
-│  │  ├─ network                      桥接、网络控制、传输和事件路由
-│  │  ├─ player                       玩家模型、资料和状态模块
-│  │  ├─ save                         线上存档生命周期与退出保存
-│  │  ├─ ui/components                可复用 Unity UI 组件
-│  │  ├─ ui/pages                     只组合 UI 组件的页面
-│  │  ├─ ui/i18n/<语言缩写>            语言包唯一源码
-│  │  └─ hooks                        游戏 Hook 注册与入口
-│  ├─ MultiplayerBridge               带帧边界的 TCP 网络核心
-│  ├─ MultiplayerBridgeHost           NativeAOT 桥接、IPC 与存档保护
-│  └─ MultiplayerBridge.SmokeTest      网络冒烟测试
-├─ tests
-│  ├─ dual-instance                   两个真实游戏进程的集成测试
-│  └─ online-save                     线上存档生命周期集成测试
-└─ build.ps1                          编译、打包和可选本机安装
-```
-
-游戏内可编辑源码位于 `src/GameMod`。Mod 启动器的 Jint 环境只接受一个脚本入口且不解析
-TypeScript import，因此 `build.ps1` 会按 `source-order.json` 合并模块并生成 `mod/main.ts`。
-玩家电脑不需要安装 Node.js 或 TypeScript。脚本通过有界命令和原子状态快照与随包桥接程序
-通信；TCP 消息使用四字节大端长度前缀加 UTF-8 JSON，并限制单包尺寸和队列容量。
-
 ## 同步方式
 
 - 玩家状态以 20 Hz 发送以提高移动响应；变化较慢的房主权威时间仍以 5 Hz 发送。
@@ -92,16 +58,15 @@ TypeScript import，因此 `build.ps1` 会按 `source-order.json` 合并模块�
 
 ## 构建与验证
 
-开发机需要 .NET 8 SDK 和 Visual Studio x64 C++ 工具，用于 NativeAOT 链接：
+开发机需要 .NET 8 SDK 和 Visual Studio x64 C++ 工具，用于 NativeAOT 链接。详细说明见
+[开发指南](docs/DEVELOPMENT.zh-CN.md) 和 [架构说明](docs/ARCHITECTURE.zh-CN.md)。
 
 ```powershell
 ./build.ps1 -Install
 dotnet run --project ./src/MultiplayerBridge.SmokeTest -c Release
-./tests/online-save/Run-OnlineSaveLifecycleTest.ps1
-./tests/dual-instance/Run-DualInstanceTest.ps1 -Address <局域网 IPv4>
 ```
 
-集成测试会创建临时轻量游戏实例，不会进入玩家发布包。已验证范围和证据路径见 [VERIFICATION.zh-CN.md](VERIFICATION.zh-CN.md)。
+已验证范围和证据路径见 [VERIFICATION.zh-CN.md](VERIFICATION.zh-CN.md)。
 
 ## 支持环境
 

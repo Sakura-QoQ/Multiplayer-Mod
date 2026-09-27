@@ -73,12 +73,12 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
             const now = Number(UnityEngine.Time.unscaledTime);
             if (lastDiagnosticWorldTimeLogAt < 0 || now - lastDiagnosticWorldTimeLogAt >= 2) {
                 lastDiagnosticWorldTimeLogAt = now;
-                log("[双实例证据] 已应用房主时间 seq=" + packet.sequence + " gameTime=" +
+                log("[DualInstanceEvidence] Applied host time seq=" + packet.sequence + " gameTime=" +
                     Number(packet.gameTime).toFixed(2) + " day=" + Math.trunc(Number(packet.day)) +
                     " timeOfDay=" + Math.trunc(Number(packet.timeOfDay)));
             }
         }
-    } catch (error) { log("应用房主游戏时间失败: " + error); }
+    } catch (error) { log("Failed to apply host game time: " + error); }
     finally { applyingAuthoritativeTime = false; }
 }
 
@@ -95,9 +95,9 @@ function adoptLatestRoomDay(profile: PlayerProfile): void {
         if (!Number.isFinite(peerDay) || peerDay <= hostDay) return;
         applyingAuthoritativeTime = true;
         for (let guard = 0; hostDay < peerDay && guard < 4096; guard++, hostDay++) status.AddDay();
-        log("房间日期已推进到较晚玩家的进度: 第 " + peerDay + " 天");
+        log("Room day advanced to the later player's progress: day " + peerDay);
         sendAuthoritativeWorldTime(true);
-    } catch (error) { log("合并房间日期失败: " + error); }
+    } catch (error) { log("Failed to merge the room day: " + error); }
     finally { applyingAuthoritativeTime = false; }
 }
 
@@ -114,7 +114,7 @@ function invokeApprovedSleep(mode: SleepMode): void {
         // 又被睡眠前的旧锚点覆盖。
         resetOnlineWorldClockFromGame();
     }
-    catch (error) { log("执行全员睡觉失败: " + error); }
+    catch (error) { log("Failed to execute unanimous sleep: " + error); }
     finally { sleepConsensusExecuting = false; }
 }
 
@@ -141,7 +141,7 @@ function tryApproveSleep(): void {
         packet, createdAt: now, acknowledged: {}, nextSendAt: now + 0.5
     };
     send(0, packet);
-    log("全员睡眠共识已批准: " + mode + "，序号=" + packet.sequence);
+    log("Unanimous sleep approved: " + mode + "; sequence=" + packet.sequence);
     invokeApprovedSleep(mode);
     // 睡觉回调可能通过协程推进时间；随后正常的房主时间包会持续把结果同步给所有玩家。
     sendAuthoritativeWorldTime(true);
@@ -154,12 +154,12 @@ function resendPendingSleepApproval(): void {
     const now = Number(UnityEngine.Time.unscaledTime);
     const peerIds = Object.keys(peerNames);
     if (peerIds.every(peerId => pendingSleepApproval!.acknowledged[peerId])) {
-        log("全部客户端已确认睡眠批准: " + pendingSleepApproval.packet.sequence);
+        log("All clients acknowledged sleep approval: " + pendingSleepApproval.packet.sequence);
         pendingSleepApproval = null;
         return;
     }
     if (now - pendingSleepApproval.createdAt > 10) {
-        log("睡眠批准确认超时，本轮已结束: " + pendingSleepApproval.packet.sequence);
+        log("Sleep approval acknowledgement timed out: " + pendingSleepApproval.packet.sequence);
         pendingSleepApproval = null;
         return;
     }
