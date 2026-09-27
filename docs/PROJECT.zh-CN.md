@@ -48,7 +48,7 @@ ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安�
 
 ## 默认存档
 
-从 v0.14.9 开始，进入房间后通过游戏原版 `LoadSaveWindow.Load("AutoSave")` 自动读取默认档，不要求玩家选择。Mod 不调用 `StartGame`/`GameManager.LoadGame`，不再创建、读取、重定向、加密或晋升 `MPOnline/MPActive`；自动保存和床边保存沿用原版默认槽位。旧线上文件保留供人工恢复但当前版本不会访问；服务器不会接收或保存玩家存档。
+从 v0.14.10 开始，进入房间后在同一个调用栈内通过游戏原版 `LoadSaveWindow.Load("AutoSave")` 自动读取默认档，存档选择框不会被渲染，也不要求玩家选择。Mod 不调用 `StartGame`/`GameManager.LoadGame`，不再创建、读取、重定向、加密或晋升 `MPOnline/MPActive`；自动保存和床边保存沿用原版默认槽位。旧线上文件保留供人工恢复但当前版本不会访问；服务器不会接收或保存玩家存档。
 
 ## 构建与部署
 

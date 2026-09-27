@@ -1,7 +1,7 @@
 # Verification — v0.14.9
 
 - The generated transparent PNG is now the complete phone-body material. Original direct XWindow chrome is disabled after its dynamic pages are moved into the replacement screen.
-- Room entry automatically invokes the original `LoadSaveWindow.Load("AutoSave")` through Unity messaging. The Mod does not combine `StartGame` with delayed `GameManager.LoadGame`.
+- Room entry invokes the original `LoadSaveWindow.Load("AutoSave")` through Unity messaging in the same call stack, so the save picker is never rendered. The Mod does not combine `StartGame` with delayed `GameManager.LoadGame`.
 - The bridge runtime no longer restores a baseline, watches AutoSave, promotes temporary saves, or processes an isolated save during shutdown. Legacy online files remain untouched on disk.
 
 - The complete 560×950 phone design now scales uniformly to 80% of the available window height, keeping native pages, labels, tabs, and hit areas in the same proportion.
@@ -70,7 +70,7 @@ The production build also runs a mandatory runtime-safety scan before generating
 
 The legacy save-crypto test verifies recovery compatibility only; it is not part of the v0.14.9 runtime path. Current runtime verification confirms that:
 
-- room entry automatically calls original `LoadSaveWindow.Load("AutoSave")` without calling `StartGame` or `GameManager.LoadGame` from Mod code;
+- room entry calls original `LoadSaveWindow.Load("AutoSave")` in the same frame without showing the save picker or calling `StartGame`/`GameManager.LoadGame` from Mod code;
 - bed saving calls the original `GameManager.SaveGame` with the resulting `GameManager.SaveName`;
 - the original pause-menu load/save controls remain available;
 - the bridge advertises no save commands and emits an empty legacy save index;

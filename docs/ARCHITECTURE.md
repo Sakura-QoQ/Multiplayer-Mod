@@ -56,7 +56,7 @@ Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB f
 
 ## Save behavior
 
-After entering a room, the Mod initializes the original main-menu Load Game window, then automatically invokes its private `Load("AutoSave")` through Unity messaging. `LoadSaveWindow` owns the complete transaction; the Mod does not call `StartGame` or `GameManager.LoadGame` itself and does not enable synchronization or saving until native callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the resulting `GameManager.SaveName`. The bridge is network-only.
+After entering a room, the Mod synchronously initializes the original `LoadSaveWindow` and invokes its private `Load("AutoSave")` through Unity messaging in the same call stack. The save picker is therefore never rendered. `LoadSaveWindow` owns the complete transaction; the Mod does not call `StartGame` or `GameManager.LoadGame` itself and does not enable synchronization or saving until native callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the resulting `GameManager.SaveName`. The bridge is network-only.
 
 Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the current release does not list, read or write them. Multiplayer and single-player changes to the native default slot are visible to each other by design.
 

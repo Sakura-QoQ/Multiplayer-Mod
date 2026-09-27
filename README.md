@@ -47,7 +47,7 @@ The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and 
 
 ## Saves
 
-After entering a room, Multiplayer automatically requests `AutoSave` through the game's original `LoadSaveWindow.Load` flow. No extra selection is shown, and the Mod never combines New Game initialization with a delayed load. Automatic saving and bed saving stay on the game's default slot, while the bridge does not create, load, redirect, encrypt or promote `MPOnline`/`MPActive` files.
+After entering a room, Multiplayer initializes and invokes the game's original `LoadSaveWindow.Load("AutoSave")` in the same call stack, so the save picker is never rendered. The Mod never combines New Game initialization with a delayed load. Automatic saving and bed saving stay on the game's default slot, while the bridge does not create, load, redirect, encrypt or promote `MPOnline`/`MPActive` files.
 
 Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.9 does not read or write them. The room server never receives or stores save data.
 

@@ -1,7 +1,7 @@
 # v0.14.9 验证报告
 
 - 手机现在使用生成的透明 PNG 作为完整机身材质；旧 `XWindow` 的直属背景、标题和页签会在动态页面迁入新屏幕后停用。
-- 入房后通过 Unity 消息自动调用原版 `LoadSaveWindow.Load("AutoSave")`；Mod 不再把 `StartGame` 与延迟 `GameManager.LoadGame` 拼在一起。
+- 入房后在同一个调用栈内通过 Unity 消息自动调用原版 `LoadSaveWindow.Load("AutoSave")`，存档选择框不会被渲染；Mod 不再把 `StartGame` 与延迟 `GameManager.LoadGame` 拼在一起。
 - 桥接程序主循环已停止恢复基线、监测 AutoSave、晋升临时档以及退出时处理独立存档；旧线上文件只保留在磁盘，不再访问。
 
 - 手机最外层现在以 560×950 设计尺寸为基准，根据窗口可用高度统一缩放到 80%；内部文字、原生页面、底栏和点击区域随外壳保持相同比例。
@@ -71,7 +71,7 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 
 旧存档加密自检只验证恢复兼容性，不属于 v0.14.9 运行路径。当前运行验证确认：
 
-- 进入房间自动调用原版 `LoadSaveWindow.Load("AutoSave")`，Mod 不调用 `StartGame` 或 `GameManager.LoadGame`；
+- 进入房间同帧自动调用原版 `LoadSaveWindow.Load("AutoSave")`，不显示存档选择框，Mod 不调用 `StartGame` 或 `GameManager.LoadGame`；
 - 床边保存使用原版 `GameManager.SaveGame(GameManager.SaveName)`；
 - 暂停菜单的原版读取/保存控件继续可用；
 - 桥接不再公布存档命令，旧存档索引固定为空；
