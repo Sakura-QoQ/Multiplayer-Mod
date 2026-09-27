@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch] $Install,
     [switch] $SkipPackage
 )
@@ -7,11 +7,63 @@ $ErrorActionPreference = 'Stop'
 # 本脚本只供开发机使用：编译自包含网络桥，并生成玩家可直接使用的 ZIP。
 $projectRoot = $PSScriptRoot
 $bridgeProject = Join-Path $projectRoot 'src\MultiplayerBridgeHost\MultiplayerBridgeHost.csproj'
+$gameModSourceRoot = Join-Path $projectRoot 'src\GameMod'
+$gameModManifest = Join-Path $gameModSourceRoot 'source-order.json'
+$gameModOutput = Join-Path $projectRoot 'mod\main.ts'
 $publishDir = Join-Path $projectRoot 'artifacts\bridge\win-x64'
 $artifactsRoot = Join-Path $projectRoot 'artifacts'
 $packageRoot = Join-Path $artifactsRoot 'package'
 $packageMod = Join-Path $packageRoot 'PlayerHostedMultiplayer'
 $packageZip = Join-Path $artifactsRoot 'PlayerHostedMultiplayer-v0.9.0-win-x64.zip'
+
+function Build-GameModSource {
+    # UcModLauncher 当前只加载单个 main.ts，不负责解析 TypeScript import。
+    # 开发源码按职责拆分，构建时依照显式清单合并，玩家端不需要 Node.js 或 TypeScript。
+    if (-not (Test-Path -LiteralPath $gameModManifest)) {
+        throw "Game Mod source manifest was not found: $gameModManifest"
+    }
+
+    $sourceOrder = Get-Content -LiteralPath $gameModManifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $sourceOrder -or $sourceOrder.Count -eq 0) {
+        throw 'Game Mod source manifest is empty.'
+    }
+    if (($sourceOrder | Select-Object -Unique).Count -ne $sourceOrder.Count) {
+        throw 'Game Mod source manifest contains duplicate modules.'
+    }
+
+    # 页面只能组合 ui/components 提供的构造函数，不能重新散落底层 Unity 控件创建代码。
+    $pageFiles = Get-ChildItem -LiteralPath (Join-Path $gameModSourceRoot 'ui\pages') -Filter '*.ts'
+    $forbiddenPageCode = $pageFiles | Select-String -Pattern `
+        'new\s+UnityEngine\.GameObject|\.AddComponent\(|UnityEngine\.Object\.Instantiate\(|\.GetComponent\('
+    if ($forbiddenPageCode) {
+        throw "UI pages must compose ui/components instead of constructing Unity controls directly: $($forbiddenPageCode[0].Path):$($forbiddenPageCode[0].LineNumber)"
+    }
+
+    $builder = [Text.StringBuilder]::new()
+    [void]$builder.AppendLine('// 此文件由 build.ps1 自动生成，请修改 src/GameMod 下的模块源码。')
+    [void]$builder.AppendLine('// UcModLauncher 需要单文件入口，因此发布包中保留合并后的 main.ts。')
+    foreach ($relativePath in $sourceOrder) {
+        $sourcePath = Join-Path $gameModSourceRoot ([string]$relativePath)
+        if (-not (Test-Path -LiteralPath $sourcePath)) {
+            throw "Game Mod source module was not found: $sourcePath"
+        }
+        [void]$builder.AppendLine()
+        [void]$builder.AppendLine("// ===== 模块: $relativePath =====")
+        [void]$builder.Append((Get-Content -LiteralPath $sourcePath -Raw -Encoding UTF8).TrimEnd())
+        [void]$builder.AppendLine()
+    }
+    [IO.File]::WriteAllText($gameModOutput, $builder.ToString(), [Text.UTF8Encoding]::new($false))
+
+    # 语言包属于 UI 源码；发布目录中的 mod/i18n 只是运行时副本。
+    $sourceI18n = Join-Path $gameModSourceRoot 'ui\i18n'
+    $runtimeI18n = Join-Path $projectRoot 'mod\i18n'
+    foreach ($languageDirectory in Get-ChildItem -LiteralPath $sourceI18n -Directory) {
+        $runtimeLanguageDirectory = Join-Path $runtimeI18n $languageDirectory.Name
+        New-Item -ItemType Directory -Force -Path $runtimeLanguageDirectory | Out-Null
+        Copy-Item -LiteralPath (Join-Path $languageDirectory.FullName 'strings.json') `
+            -Destination (Join-Path $runtimeLanguageDirectory 'strings.json') -Force
+    }
+}
 
 function Import-VisualCppEnvironment {
     # 当前终端没有 link.exe 时，从现有 Visual Studio 安装中载入 x64 编译环境。
@@ -56,11 +108,17 @@ function Copy-ModPayload([string] $destination) {
     # 只复制运行时必需文件；源码和调试中间文件不进入玩家包。
     $bridgeDestination = Join-Path $destination 'Bridge'
     New-Item -ItemType Directory -Force -Path $bridgeDestination | Out-Null
-    Copy-Item -Path (Join-Path $projectRoot 'mod\*') -Destination $destination -Recurse -Force
+    # Bridge 目录会产生 state*.json 等运行时文件，不能把开发机状态复制进发布包。
+    Get-ChildItem -LiteralPath (Join-Path $projectRoot 'mod') | Where-Object Name -ne 'Bridge' | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $destination -Recurse -Force
+    }
     Copy-Item -LiteralPath (Join-Path $publishDir 'MultiplayerBridgeHost.exe') -Destination (Join-Path $bridgeDestination 'MultiplayerBridgeHost.exe') -Force
     # 英文许可是正式文本，中文许可只供参考；两份都进入玩家包和本机安装目录。
     Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE') -Destination (Join-Path $destination 'LICENSE') -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'LICENSE.zh-CN') -Destination (Join-Path $destination 'LICENSE.zh-CN') -Force
+    # 玩家资料字段名以游戏原始标识符为准；中英文映射文档随发布包分发。
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'PLAYER_PROFILE_FIELDS.md') -Destination (Join-Path $destination 'PLAYER_PROFILE_FIELDS.md') -Force
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'PLAYER_PROFILE_FIELDS.zh-CN.md') -Destination (Join-Path $destination 'PLAYER_PROFILE_FIELDS.zh-CN.md') -Force
 
     # 从旧版本原地升级时删除不再使用的启动、安装和卸载脚本。
     $legacyScripts = @(
@@ -81,6 +139,7 @@ function Copy-ModPayload([string] $destination) {
     }
 }
 
+Build-GameModSource
 Import-VisualCppEnvironment
 
 dotnet publish $bridgeProject -c Release -r win-x64 --self-contained -o $publishDir

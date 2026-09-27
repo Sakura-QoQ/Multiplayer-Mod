@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int] $Port = 28840,
     [int] $TimeoutSeconds = 180,
     [switch] $KeepTestSavesOnFailure
@@ -60,7 +60,7 @@ function Set-TestConfig([string] $phase) {
 
 function Start-TestBridge {
     $exe = Join-Path $instanceRoot 'Mods\PlayerHostedMultiplayer\Bridge\MultiplayerBridgeHost.exe'
-    return Start-Process -FilePath $exe -ArgumentList @('--channel', $channel, '--log-path', $gameLog) `
+    return Start-Process -FilePath $exe -ArgumentList @('--channel', $channel, '--log-path', $gameLog, '--save-name', $onlineName) `
         -WindowStyle Hidden -PassThru
 }
 
@@ -121,6 +121,10 @@ try {
     Copy-Item -LiteralPath $onlinePath -Destination (Join-Path $evidenceRoot 'phase-create-online.save') -Force
     Copy-Item -LiteralPath $activePath -Destination (Join-Path $evidenceRoot 'phase-create-active.save') -Force
 
+    # 模拟玩家现场出现的“正式档暂时不可见，但同 UUID 工作副本仍存在”。第二轮必须
+    # 从 MPActive_ 恢复正式档并继续原角色，绝不能进入从零创建流程。
+    Remove-Item -LiteralPath $onlinePath -Force
+
     Set-TestConfig 'resume'
     $bridge = Start-TestBridge
     $game = Start-TestGame
@@ -128,6 +132,9 @@ try {
         '重新进入同一 UUID 线上档并保存退出'
     Wait-Until { $game.Refresh(); $game.HasExited } '第二次游戏进程退出' 30
     Wait-Until { $bridge.Refresh(); $bridge.HasExited } '第二次桥接提交存档后退出' 20
+    if (-not (Test-Path -LiteralPath $onlinePath) -or (Get-Item -LiteralPath $onlinePath).Length -le 4) {
+        throw '重新进入时没有从同 UUID MPActive 工作副本恢复正式线上档'
+    }
     $resumePosition = Read-LifecyclePosition 'resume'
     $positionDelta = [Math]::Sqrt([Math]::Pow($resumePosition[0]-$createPosition[0],2) +
         [Math]::Pow($resumePosition[1]-$createPosition[1],2) + [Math]::Pow($resumePosition[2]-$createPosition[2],2))
@@ -147,7 +154,8 @@ try {
         createPosition=$createPosition; resumePosition=$resumePosition; positionDelta=$positionDelta
         encryptedOnlineLength=(Get-Item -LiteralPath $onlinePath).Length
         activeRecoveryLength=(Get-Item -LiteralPath $activePath).Length
-        onlineMagic=$magic; autoSaveHashesUnchanged=$true; bridgeExitedTwice=$true; portReleased=$true
+        onlineMagic=$magic; recoveredFormalSaveFromActive=$true
+        autoSaveHashesUnchanged=$true; bridgeExitedTwice=$true; portReleased=$true
     }
     [IO.File]::WriteAllText($summaryPath, ($summary | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
     $testPassed = $true

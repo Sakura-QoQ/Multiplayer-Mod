@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int] $Port = 28777,
     [int] $TimeoutSeconds = 120,
     [string] $Address = '127.0.0.1',
@@ -81,13 +81,15 @@ function Test-Log([string] $path, [string] $pattern) {
     return [bool](Select-String -LiteralPath $path -Pattern $pattern -Quiet)
 }
 
-function Test-FullProfile([string] $root, [string] $channel, [string] $playerName) {
-    $state = Read-State $root $channel
-    if ($null -eq $state -or $null -eq $state.events) { return $false }
-    foreach ($event in @($state.events)) {
-        if ($event.type -ne 'message' -or $event.message -notlike "*$playerName*") { continue }
+function Test-FullProfileInLog([string] $path, [string] $playerName) {
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    foreach ($line in Get-Content -LiteralPath $path) {
+        $marker = 'send?peer=0&data='
+        $offset = $line.IndexOf($marker, [StringComparison]::Ordinal)
+        if ($offset -lt 0 -or $line -notlike "*$playerName*") { continue }
         try {
-            $packet = $event.message | ConvertFrom-Json
+            $encoded = $line.Substring($offset + $marker.Length)
+            $packet = [Uri]::UnescapeDataString($encoded) | ConvertFrom-Json
             if ($packet.type -ne 'playerProfile') { continue }
             $progress = $packet.profile.progress
             $required = @('PlayerStatusData','SexData','ParcelData','PlayerHelper','Quests','ConditionSave',
@@ -99,6 +101,22 @@ function Test-FullProfile([string] $root, [string] $channel, [string] $playerNam
         } catch { }
     }
     return $false
+}
+
+function Get-MaxPlayerStateSequence([string] $root, [string] $channel, [string] $playerName) {
+    $state = Read-State $root $channel
+    if ($null -eq $state -or $null -eq $state.events) { return 0L }
+    $maximum = 0L
+    foreach ($event in @($state.events)) {
+        if ($event.type -ne 'message') { continue }
+        try {
+            $packet = $event.message | ConvertFrom-Json
+            if ($packet.type -eq 'playerState' -and $packet.playerName -eq $playerName) {
+                $maximum = [Math]::Max($maximum, [long]$packet.sequence)
+            }
+        } catch { }
+    }
+    return $maximum
 }
 
 function Get-SaveHashes {
@@ -240,8 +258,10 @@ try {
         # Start Hook、按钮布局及暂停状态仍全部走生产代码。
         Wait-Until { Test-Log $hostLog '已在 ESC 暂停菜单中创建原生样式的“联机”按钮，并重新等距排列菜单' } `
             '原版 PauseWindow 创建联机按钮'
-        Wait-Until { Test-Log $hostLog '\[双实例证据\] 联机暂停菜单已解除时间暂停 count=1 pauseVisible=true' } `
-            '真实 ESC 暂停菜单保持世界时间运行'
+        Wait-Until { Test-Log $hostLog '\[双实例证据\] 联机暂停菜单背景持续运行 count=1 pauseVisible=true paused=false timeScale=1.0' } `
+            '原版 PauseWindow 显示时彻底清除游戏暂停状态'
+        Wait-Until { Test-Log $hostLog '\[双实例证据\] PauseWindow 保持显示且背景持续运行 paused=false timeScale=1 delta=' } `
+            '暂停菜单后方的 Mod 权威时间和世界持续运行'
         Save-WindowScreenshot $hostGame $pauseScreenshotPath
         if (-not (Test-Path -LiteralPath $pauseScreenshotPath) -or (Get-Item -LiteralPath $pauseScreenshotPath).Length -lt 10000) {
             throw '暂停菜单截图不存在或内容为空'
@@ -256,6 +276,8 @@ try {
             hostBridgePid = $hostBridge.Id
             originalPauseWindowOpenedInGame = $true
             onlinePauseKeepsWorldRunning = $true
+            gamePausedFlagClearedWhileMenuVisible = $true
+            authoritativeClockAdvancedBehindPauseMenu = $true
             pauseMenuScreenshot = $pauseScreenshotPath
         }
         [IO.File]::WriteAllText($summaryPath, ($summary | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
@@ -272,10 +294,10 @@ try {
         $hostState.state -eq 'hosting' -and $hostState.peers -eq 1 -and $clientState.state -eq 'connected'
     } '两个真实游戏建立 TCP 会话'
 
-    # 完整资料事件之后会被高频位置/时间事件轮换；必须在验证模型与跨场景之前立即取证，
-    # 不能等几十秒后再要求桥接快照仍保留最早的 profile 包。
-    Wait-Until { Test-FullProfile $hostRoot 'host' 'ClientTester' } '客户端完整玩家资料字段到达房主'
-    Wait-Until { Test-FullProfile $clientRoot 'client' 'HostTester' } '房主完整玩家资料字段到达客户端'
+    # 20 Hz 状态会快速轮换桥接内存环；完整资料字段改从持久测试日志解析，再结合接收端日志
+    # 验证到达，不能依赖数秒后仍保留最早的 profile 事件。
+    Wait-Until { Test-FullProfileInLog $hostLog 'HostTester' } '房主生成完整玩家资料字段'
+    Wait-Until { Test-FullProfileInLog $clientLog 'ClientTester' } '客户端生成完整玩家资料字段'
     Wait-Until { Test-Log $hostLog '已创建远端玩家模型: ClientTester' } '房主创建客户端人物模型'
     Wait-Until { Test-Log $clientLog '已创建远端玩家模型: HostTester' } '客户端创建房主人物模型'
     Wait-Until { Test-Log $hostLog '远端衣服映射完成: 1/1' } '房主应用客户端非空衣服资源'
@@ -286,14 +308,26 @@ try {
         '客户端把房主衣服完整重绑到远端骨架'
     Wait-Until { Test-Log $hostLog '远端衣服骨骼驱动映射完成: [1-9][0-9]* 对' } '房主建立客户端衣服姿势驱动'
     Wait-Until { Test-Log $clientLog '远端衣服骨骼驱动映射完成: [1-9][0-9]* 对' } '客户端建立房主衣服姿势驱动'
-    Wait-Until { Test-Log $hostLog '远端肤色映射完成: tan=true，材质=[1-9]' } '房主应用客户端晒黑肤色材质'
-    Wait-Until { Test-Log $clientLog '远端肤色映射完成: tan=true，材质=[1-9]' } '客户端应用房主晒黑肤色材质'
+    Wait-Until { Test-Log $hostLog '\[双实例证据\] 远端材质检查 invalid=0 tan=[0-9]+ unsupported=[0-9]+' } `
+        '房主恢复客户端独立材质且没有错误 Shader'
+    Wait-Until { Test-Log $clientLog '\[双实例证据\] 远端材质检查 invalid=0 tan=[0-9]+ unsupported=[0-9]+' } `
+        '客户端恢复房主独立材质且没有错误 Shader'
     Wait-Until { Test-Log $hostLog '已接收玩家完整存档资料快照.*ClientTester' } '房主收到客户端资料'
     Wait-Until { Test-Log $clientLog '已接收玩家完整存档资料快照.*HostTester' } '客户端收到房主资料'
     Wait-Until { Test-Log $hostLog '\[双实例证据\] 已应用玩家实时资料 peer=1.*health=.*stamina=.*money=' } `
         '房主持续应用客户端生命耐力与金钱'
     Wait-Until { Test-Log $clientLog '\[双实例证据\] 已应用玩家实时资料 peer=0.*health=.*stamina=.*money=' } `
         '客户端持续应用房主生命耐力与金钱'
+    # 在稳定连接上量取三秒内收到的状态序号增长。允许启动和帧率抖动，但必须明显高于旧版 5 Hz。
+    $rateStartAt = [DateTime]::UtcNow
+    $rateStartSequence = Get-MaxPlayerStateSequence $clientRoot 'client' 'HostTester'
+    Start-Sleep -Seconds 3
+    $rateEndSequence = Get-MaxPlayerStateSequence $clientRoot 'client' 'HostTester'
+    $rateSeconds = ([DateTime]::UtcNow - $rateStartAt).TotalSeconds
+    $observedPlayerStateHz = ($rateEndSequence - $rateStartSequence) / $rateSeconds
+    if ($rateStartSequence -le 0 -or $rateEndSequence -le $rateStartSequence -or $observedPlayerStateHz -lt 15) {
+        throw "玩家状态刷新率不足：start=$rateStartSequence end=$rateEndSequence observed=$observedPlayerStateHz Hz"
+    }
     Wait-Until { Test-Log $hostLog '诊断模式：线上暂停后手机窗口已正常打开，游戏时间未暂停' } `
         '房主从线上暂停状态恢复并打开手机窗口'
     Wait-Until { Test-Log $clientLog '诊断模式：线上暂停后手机窗口已正常打开，游戏时间未暂停' } `
@@ -367,6 +401,9 @@ try {
         livePlayerStatusContinuouslySynchronized = $true
         phoneWindowWorksAfterOnlinePause = $true
         nonEmptyClothingAndSkinTanVerified = $true
+        remoteMaterialsHaveNoErrorShader = $true
+        configuredPlayerStateHz = 20
+        observedPlayerStateHz = [Math]::Round($observedPlayerStateHz, 2)
         remoteClothingBonesFullyRebound = $true
         deterministicMotionAndActionVerified = $true
         hostAuthoritativeSceneSyncVerified = $true

@@ -9,6 +9,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <AssemblyName>MultiplayerBridgeHost</AssemblyName>
     <RootNamespace>FallenFlower.MultiplayerBridgeHost</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\MultiplayerBridge\MultiplayerBridge.csproj" />

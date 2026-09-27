@@ -2,17 +2,18 @@
 
 《Fallen Flower》的玩家主机制联机 Mod。房主的 Windows 电脑同时承担房间服务器，不依赖中心服务器，也不要求玩家另行安装开发环境。
 
-[English documentation](README.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可协议中文参考](LICENSE.zh-CN)
+[English documentation](README.md) · [玩家资料字段映射](PLAYER_PROFILE_FIELDS.zh-CN.md) · [验证报告](VERIFICATION.zh-CN.md) · [许可协议中文参考](LICENSE.zh-CN)
 
 ## 功能
 
 - 在主菜单增加与原版风格一致的“联机”入口，并在暂停菜单提供联机配置。
-- 可直接在游戏内建立或加入房间；联机暂停菜单显示时，线上世界时间仍继续运行。
+- 可直接在游戏内建立或加入房间；联机暂停菜单显示时，后方世界、物理、动画和线上时钟仍继续运行。
 - 默认最多四名玩家，房主作为权威转发中心。
+- 联机游戏内按住 `Tab`，可在屏幕中央查看跟随游戏语言的房间玩家名单。
 - 同步人物模型、位置、朝向、移动、落地状态、武器、动作和全部 Animator 层。
 - 同步衣服、晒黑肤色、捏脸数据、完整存档资料和持续变化的玩家状态。
-- 网络快照为 5 Hz，但远端位置、旋转、动画层和衣服骨骼会在每个渲染帧插值更新。
-- 房主统一控制游戏时间、日期和时段；只有所有在线玩家在有效时间内选择相同睡眠方式，才会推进时间。
+- 玩家移动快照为 20 Hz，远端位置、旋转、动画层和衣服骨骼仍在每个渲染帧插值更新。
+- Mod 接管线上时间流逝：房主推进唯一的非缩放权威时钟，客户端持续向它校准；只有所有在线玩家在有效时间内选择相同睡眠方式，才会推进时间。
 - 每名玩家固定使用一个 UUIDv7 线上存档，单机读取/保存页面不会显示线上文件。
 - 线上模式退出前必须完成保存并验证，成功后才真正退出。
 
@@ -23,6 +24,8 @@
 3. 在主菜单“新建游戏”上方选择“联机”。
 
 发布包已经包含 Windows x64 NativeAOT 网络桥和全部运行依赖。玩家不需要安装 Node.js、TypeScript、.NET、Visual Studio，也不需要运行额外启动脚本。
+桥接程序使用当前用户的普通权限运行，不会申请管理员提权。电脑第一次对外建房时，Windows
+Defender 防火墙仍可能显示一次正常的入站网络确认；它与此前每次启动都出现的权限提示不同。
 
 ## 建立和加入房间
 
@@ -38,12 +41,21 @@
 ```text
 PlayerHostedMultiplayer
 ├─ mod
-│  ├─ main.ts                         游戏内 UI、Hook、同步与存档生命周期
+│  ├─ main.ts                         自动生成的 UcModLauncher 单文件入口
 │  ├─ config.json                     默认配置
 │  ├─ README.txt                      默认英文玩家说明
 │  ├─ README.zh-CN.txt                简体中文玩家说明
-│  └─ i18n/<语言>/strings.json         游戏内语言包
+│  └─ i18n/<语言>/strings.json         自动生成的运行时语言包副本
 ├─ src
+│  ├─ GameMod
+│  │  ├─ core                         共享类型、常量和运行状态
+│  │  ├─ network                      桥接、网络控制、传输和事件路由
+│  │  ├─ player                       玩家模型、资料和状态模块
+│  │  ├─ save                         线上存档生命周期与退出保存
+│  │  ├─ ui/components                可复用 Unity UI 组件
+│  │  ├─ ui/pages                     只组合 UI 组件的页面
+│  │  ├─ ui/i18n/<语言缩写>            语言包唯一源码
+│  │  └─ hooks                        游戏 Hook 注册与入口
 │  ├─ MultiplayerBridge               带帧边界的 TCP 网络核心
 │  ├─ MultiplayerBridgeHost           NativeAOT 桥接、IPC 与存档保护
 │  └─ MultiplayerBridge.SmokeTest      网络冒烟测试
@@ -53,11 +65,15 @@ PlayerHostedMultiplayer
 └─ build.ps1                          编译、打包和可选本机安装
 ```
 
-`main.ts` 在 Mod 启动器的 Jint 环境中运行，通过有界命令和原子状态快照与随包桥接程序通信。TCP 消息使用四字节大端长度前缀加 UTF-8 JSON，并限制单包尺寸和队列容量。
+游戏内可编辑源码位于 `src/GameMod`。Mod 启动器的 Jint 环境只接受一个脚本入口且不解析
+TypeScript import，因此 `build.ps1` 会按 `source-order.json` 合并模块并生成 `mod/main.ts`。
+玩家电脑不需要安装 Node.js 或 TypeScript。脚本通过有界命令和原子状态快照与随包桥接程序
+通信；TCP 消息使用四字节大端长度前缀加 UTF-8 JSON，并限制单包尺寸和队列容量。
 
 ## 同步方式
 
-- 玩家状态和房主权威时间以 5 Hz 发送，控制网络流量。
+- 玩家状态以 20 Hz 发送以提高移动响应；变化较慢的房主权威时间仍以 5 Hz 发送。
+- 线上时间由 Mod 的非缩放权威时钟推进，因此任何电脑打开暂停/设置界面都不会停止或分叉房间时间。
 - 画面仍逐帧更新：远端位置、旋转、动画层和衣服骨骼会向最新网络快照平滑插值。
 - 完整 `GetSave()` 资料过大时会自动分片，接收端按修订号重组并为每名远端玩家保存。
 - 生命、耐力、金钱、时间和场景等高频字段使用更小的实时资料包。
