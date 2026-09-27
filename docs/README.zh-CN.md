@@ -7,6 +7,7 @@ PlayerHostedMultiplayer 的公开房间使用独立权威服务器，同时保�
 | --- | --- | --- |
 | [架构说明](ARCHITECTURE.zh-CN.md) | 开发者 | 公开/直连路径、权威、存档事务和源码职责 |
 | [开发指南](DEVELOPMENT.zh-CN.md) | 开发者 | 构建、安装、校验和发布流程 |
+| [API 与错误码规范](PROTOCOL.zh-CN.md) | 开发者 | TCP 信封、标准状态码、业务错误码分段和自动保存事务 |
 | [玩家资料字段](PLAYER_PROFILE_FIELDS.zh-CN.md) | 开发者 | 完整资料同步所携带的游戏存档字段 |
 | [验证报告](VERIFICATION.zh-CN.md) | 测试者 | 当前检查、历史证据和待完成真实游戏回归 |
 | [房间服务器](../server/README.zh-CN.md) | 服务器管理员 | 部署、升级、配置和排查必需的 Ubuntu 房间中继 |
