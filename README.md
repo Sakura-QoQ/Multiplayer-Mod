@@ -4,7 +4,7 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 `PlayerHostedMultiplayer` remains the package identifier for upgrade compatibility. Public rooms use the separately deployed Ubuntu service; local Host/Join remains available from the main Multiplayer page.
 
-> **Compatibility:** the player Mod and Ubuntu server must both be v0.13.1. All players need matching game and Mod versions.
+> **Compatibility:** the player Mod and Ubuntu server must both be v0.13.2. All players need matching game and Mod versions.
 >
 > **Transport security:** the room protocol is length-prefixed JSON over plain TCP, not TLS. Endpoint obfuscation and save-file encryption do not encrypt network traffic. Do not reuse sensitive passwords as an administrator token.
 
@@ -12,14 +12,14 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.1-win-x64.zip`
-- Ubuntu server source: `artifacts/FallenFlowerRoomServer-v0.13.1-source.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.2-win-x64.zip`
+- Ubuntu server source: `artifacts/FallenFlowerRoomServer-v0.13.2-source.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.13.1-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.13.2-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.

@@ -4,7 +4,7 @@
 
 `PlayerHostedMultiplayer` 是为升级兼容保留的包名。公开房间使用单独部署的 Ubuntu 服务；联机主页仍保留本地“建立/加入”。
 
-> **版本要求：**玩家 Mod 与 Ubuntu 服务必须同时使用 v0.13.1；所有玩家还必须使用相同游戏版本和 Mod 版本。
+> **版本要求：**玩家 Mod 与 Ubuntu 服务必须同时使用 v0.13.2；所有玩家还必须使用相同游戏版本和 Mod 版本。
 >
 > **传输安全：**房间协议是带长度前缀的明文 TCP JSON，不是 TLS。端点隐藏和存档文件加密都不会加密网络流量；管理员令牌不要复用其他敏感密码。
 
@@ -12,14 +12,14 @@
 
 ## 发行文件
 
-- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.1-win-x64.zip`
-- Ubuntu 服务器源码包：`artifacts/FallenFlowerRoomServer-v0.13.1-source.zip`
+- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.2-win-x64.zip`
+- Ubuntu 服务器源码包：`artifacts/FallenFlowerRoomServer-v0.13.2-source.zip`
 
 发布工作流会把两份文件上传到对应的公开 GitHub Release，也可以在 Actions 页面手动重新运行。
 
 ## 安装与进入游戏
 
-1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.1-win-x64.zip`。
+1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.2-win-x64.zip`。
 2. 通过该启动器启动游戏。
 3. 点击主菜单“新建游戏”上方的“联机”。
 4. 输入玩家名，打开“公开服务器”，查看服务器管理的真实房间及实时人数/容量后选择房间。

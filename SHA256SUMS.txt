@@ -1,2 +1,2 @@
-2986e3474b44c94871bffe2f13e74c3c2049f5d686b42cab7eb54e31d729d472  PlayerHostedMultiplayer-v0.13.1-win-x64.zip
-baacd24ca4d6c01f6f53f456d49fd2675bf09c8b22be4af770b023038293eb91  FallenFlowerRoomServer-v0.13.1-source.zip
+180f2d81e3458faad180dda872cc38a61600659afd2578912ff2dd15711c7eed  PlayerHostedMultiplayer-v0.13.2-win-x64.zip
+e76338f44f48cd448d7bc9c36a319a514dda813ae2318c39046faf42896d5d5a  FallenFlowerRoomServer-v0.13.2-source.zip
