@@ -84,7 +84,20 @@ internal static partial class Program
         var joinerSleep = await WaitForPayloadTypeAsync(joiner, "sleepApproved", TimeSpan.FromSeconds(5));
         if (creatorSleep.PeerId != 0 || joinerSleep.PeerId != 0)
             throw new InvalidOperationException("Sleep approval did not originate from the server");
-        Console.WriteLine("PASS public room auto-entry, server authority and bidirectional relay");
+
+        // 断开一个成员后，服务器必须立即释放并复用最小空闲编号；房间容量不是递增计数器。
+        creator.Stop();
+        var creatorLeft = await WaitForEventAsync(joiner, "disconnected", TimeSpan.FromSeconds(5));
+        if (creatorLeft.PeerId != creatorReady.PeerId)
+            throw new InvalidOperationException("The remaining member did not observe the departed peer ID");
+        using var replacement = new RoomRelayClient();
+        if (replacement.EnterPublicRoom(address, port, roomId, "Replacement") != 0)
+            throw new InvalidOperationException("Could not start the replacement room member");
+        var replacementReady = await WaitForEventAsync(replacement, "roomReady", TimeSpan.FromSeconds(10));
+        if (replacementReady.PeerId != creatorReady.PeerId)
+            throw new InvalidOperationException("The server did not reuse the smallest released peer ID");
+
+        Console.WriteLine("PASS public room auto-entry, reusable peer IDs, server authority and bidirectional relay");
     }
 
     private static async Task<BridgeEvent> WaitForEventAsync(

@@ -34,10 +34,10 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、成员 ID 为正数、双向转发正常，并由服务器负责时钟和全员睡眠批准。
+测试服务器容量设为 2 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发正常、服务器负责时钟和全员睡眠批准，并验证替补客户端取得断线客户端释放的最小 ID。
 
 ```text
-PASS public room auto-entry, server authority and bidirectional relay
+PASS public room auto-entry, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## 真实游戏证据

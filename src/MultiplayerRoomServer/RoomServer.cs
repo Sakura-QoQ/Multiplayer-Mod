@@ -272,7 +272,8 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         if (!_rooms.TryGetValue(roomId, out var room)) throw new ProtocolException("room_not_found", "room was not found");
         if (!root.TryGetProperty("peerId", out var peerElement) || !peerElement.TryGetInt64(out var peerId) || peerId <= 0)
             throw new ProtocolException("invalid_request", "peerId is invalid");
-        if (!room.Members.TryRemove(peerId, out var target)) throw new ProtocolException("peer_not_found", "peer was not found");
+        if (!room.TryRemove(peerId, out var target) || target is null)
+            throw new ProtocolException("peer_not_found", "peer was not found");
         target.Room = null;
         await TrySendAsync(target, new { type = "room.kicked", roomId = room.Id }, cancellationToken);
         target.Client.Dispose();
@@ -393,8 +394,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         var room = client.Room;
         if (room is null) return;
         client.Room = null;
-        room.Members.TryRemove(client.PeerId, out _);
-        room.Remove(client.PeerId);
+        if (!room.TryRemove(client.PeerId, out _)) return;
         if (room.ServerAuthoritative)
         {
             await BroadcastAsync(room, new { type = "room.playerLeft", peerId = client.PeerId }, null, cancellationToken);

@@ -7,7 +7,6 @@ internal sealed class Room(string id, string key, string name, int capacity, boo
     private readonly object _membershipLock = new();
     private readonly object _worldLock = new();
     private readonly Dictionary<long, string> _sleepRequests = new();
-    private long _nextPeerId;
     private DateTime _clockUpdatedUtc = DateTime.UtcNow;
     private double _gameTime;
     private double _timeOffset;
@@ -32,21 +31,34 @@ internal sealed class Room(string id, string key, string name, int capacity, boo
 
     public bool TryAdd(ClientConnection client, out long peerId)
     {
-        // 所有连接都是普通成员；容量检查与写入必须在同一临界区，避免并发加入时超员。
+        // 所有连接都是普通成员；容量检查、最小空位查找与写入必须在同一临界区。
+        // 玩家离开后立即复用其编号，例如 1 号离开后，下一个成员仍获得 1，而不是无限递增。
         lock (_membershipLock)
         {
             peerId = 0;
             if (IsClosed || Members.Count >= Capacity) return false;
-            peerId = Interlocked.Increment(ref _nextPeerId);
-            if (!Members.TryAdd(peerId, client)) return false;
+            for (long candidate = 1; candidate <= Capacity; candidate++)
+            {
+                if (Members.ContainsKey(candidate)) continue;
+                if (!Members.TryAdd(candidate, client)) continue;
+                peerId = candidate;
+                break;
+            }
+            if (peerId == 0) return false;
             if (!ServerAuthoritative && AuthorityPeerId == 0) AuthorityPeerId = peerId;
             return true;
         }
     }
 
-    public void Remove(long peerId)
+    public bool TryRemove(long peerId, out ClientConnection? client)
     {
+        // 加入和离开共享同一成员锁，确保刚释放的最小编号可以安全地被下一名玩家复用。
+        lock (_membershipLock)
+        {
+            if (!Members.TryRemove(peerId, out client)) return false;
+        }
         lock (_worldLock) _sleepRequests.Remove(peerId);
+        return true;
     }
 
     public void SeedClock(double gameTime, int day, int timeOfDay, double timeOffset)

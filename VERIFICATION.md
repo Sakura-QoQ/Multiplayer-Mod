@@ -34,10 +34,10 @@ The current room adapter self-test also passes when the test server is started w
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-With the test server capacity set to two, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, member IDs stay positive, bidirectional relay works, and clock/sleep approval remains server-owned.
+With the test server capacity set to two, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, bidirectional relay works, clock/sleep approval remains server-owned, and a replacement client receives the smallest ID released by a disconnected client.
 
 ```text
-PASS public room auto-entry, server authority and bidirectional relay
+PASS public room auto-entry, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## Full-game evidence

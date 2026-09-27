@@ -25,7 +25,7 @@ For local direct play, use **Host** or **Join** with an address and port. A dire
 
 - The server starts with one real public room. When every room is full it creates the next room automatically; redundant empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
 - `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
-- The Ubuntu service is logical authority peer `0`. Every public player receives a positive ordinary-member ID; the first player has no special authority.
+- The Ubuntu service is logical authority peer `0`. Every public player receives the room's smallest available positive ordinary-member ID; released IDs are reused immediately, and the first player has no special authority.
 - The server owns membership, the 5 Hz shared clock, scene arbitration and unanimous sleep approval. It relays player-owned state but does not run Unity gameplay or store player saves.
 - Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
 - Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
