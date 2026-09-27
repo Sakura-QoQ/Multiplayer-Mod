@@ -1,4 +1,4 @@
-PlayerHostedMultiplayer v0.9.0 — Windows x64
+Fallen Flower Multiplayer — Public Server Edition v0.11.0 — Windows x64
 
 INSTALLATION
 1. Import this package with the game's dedicated Mod launcher.
@@ -7,25 +7,27 @@ INSTALLATION
 
 The package includes the self-contained MultiplayerBridgeHost.exe and all runtime dependencies.
 Players do not need .NET, Node.js, TypeScript, Visual Studio or other development software.
-The bridge runs with normal user rights and does not request administrator elevation. Windows
-Defender Firewall may still ask once when this PC accepts inbound players for the first time.
+The bridge runs with normal user rights and does not request administrator elevation.
+Public-server mode needs outbound TCP access only; players do not open inbound ports.
 
-HOSTING
-- Host and Enter resumes your existing UUIDv7 online save.
-- A clean online save is created only when no online save exists.
-- LAN players connect to the host PC's LAN IPv4 and configured TCP port.
-- Internet hosting normally requires a Windows Firewall rule and router port forwarding, or a trusted virtual-LAN tool.
+PUBLIC SERVERS
+- Enter a player name and select Public Server 1, 2 or 3. No address, room ID or password is required.
+- The room server joins the existing public room or creates it automatically when empty.
+- Ubuntu owns membership, the logical authority identity, shared time, scene arbitration and sleep consensus. Every player is an ordinary participant.
+- A player leaving removes only that member. The public room remains until an administrator closes it or the service restarts.
+- Every player resumes an independent UUIDv7 online save. A clean save is created only when none exists.
 - Hold Tab after entering an online game to show the room-player list in the center of the screen.
+- The endpoint is AES-GCM encrypted inside the native bridge and is not stored in config.json or the UI.
 
 SYNCHRONIZATION
 The Mod synchronizes player models, position, rotation, actions, all Animator layers, clothing,
-skin tan, customization, complete save-profile data, live status, scenes and host-authoritative time.
-Player movement snapshots are sent at 20 Hz and rendered smoothly every frame. Authoritative world
+skin tan, customization, complete save-profile data, live status, server-arbitrated scenes and server-authoritative time.
+Player movement snapshots are sent at 20 Hz and rendered smoothly every frame. Server-authoritative world
 time remains at 5 Hz. Time advances through sleep
 only when every connected player agrees on the same sleep mode.
-The Mod owns online time progression. Its unscaled host clock and the world behind the pause menu
+The server owns online time progression. The synchronized local clock and the world behind the pause menu
 continue running while PauseWindow remains visible.
-The pause-menu Multiplayer entry is read-only and shows only the room role/address, synchronized
+The pause-menu Multiplayer entry is read-only and shows only the role/public-room name, synchronized
 time, online count and player list. Hosting and joining controls remain on the main menu.
 
 SAVES

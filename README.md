@@ -1,45 +1,49 @@
-# PlayerHostedMultiplayer
+# Fallen Flower Multiplayer — dedicated server edition
 
-Player-hosted multiplayer for **Fallen Flower**. One player's Windows PC hosts the room and runs the bundled network bridge; no central server or separate runtime installation is required.
+Public-server multiplayer for **Fallen Flower**. Every player connects to a Docker-hosted Ubuntu relay by selecting one of the built-in public-server buttons.
+
+`PlayerHostedMultiplayer` remains the package and folder identifier for upgrade compatibility; it no longer describes the production network architecture.
+
+> **v0.11.0 deployment requirement:** update both the player Mod and the Ubuntu room server. Earlier servers do not understand one-click public-room entry.
 
 [简体中文说明](README.zh-CN.md) · [Documentation index](docs/README.md) · [Verification report](VERIFICATION.md) · [License](LICENSE)
 
 ## Features
 
-- A native-style Multiplayer entry on the main menu; full connection settings are available only there.
-- During an online session, the pause-menu entry opens a read-only room page showing role/address, synchronized time, player count and player list. The world, physics, animation and online clock continue running behind it.
-- Up to four players by default; the host acts as the authoritative relay.
+- A native-style Multiplayer entry on the main menu with three one-click public-server choices; players do not enter an address, room ID or password.
+- During an online session, the pause-menu entry opens a read-only room page showing role/public-room name, synchronized time, player count and player list. The world, physics, animation and online clock continue running behind it.
+- Up to eight players per room by default; the server limit is configurable from 2 to 32.
+- Every player connects as an ordinary participant. The Ubuntu service owns room membership, the logical authority identity, the shared clock, scene arbitration and sleep consensus; no player exposes a public port or receives host privileges.
 - Hold `Tab` in an online game to show the localized room-player list in the center of the screen.
 - Player model, position, rotation, movement, grounded state, weapon, action and all Animator layers are synchronized.
 - Clothing, skin tan, character customization, complete save-profile data and continuously changing player status are synchronized.
 - Player movement snapshots are sent at 20 Hz; remote transforms and clothing bones are still updated every render frame.
-- The Mod owns online time progression: the host advances one authoritative unscaled clock and clients continuously calibrate to it. Sleeping advances time only after every connected player agrees on the same sleep mode.
+- The server advances one authoritative clock and every player continuously calibrates to it. Sleeping advances only after the server observes the same request from every connected player.
 - Online saves use one persistent UUIDv7 per player and never appear in the single-player load/save UI.
 - Exiting online mode saves and verifies the online file before quitting.
 
 ## Installation
 
-1. Import `PlayerHostedMultiplayer-v0.9.0-win-x64.zip` with the game's dedicated Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.11.0-win-x64.zip` with the game's dedicated Mod launcher.
 2. Start the game through that Mod launcher.
 3. Select **Multiplayer** above **New Game** on the main menu.
 
 The package contains a Windows x64 NativeAOT bridge and all of its runtime dependencies. Players do **not** need Node.js, TypeScript, .NET, Visual Studio or a separate start script.
 The bridge runs with the current user's normal token and does not request administrator elevation.
-Windows Defender Firewall may still show its normal one-time inbound-network prompt when a PC hosts
-for the first time; that is separate from repeated launch permission prompts.
+Dedicated-server players need outbound TCP access only. Windows inbound firewall and router port forwarding are not required.
 
-## Hosting and joining
+## Quick start
 
-- **Host:** choose a player name, port and maximum player count, then select **Host and Enter**. The Mod resumes that player's UUIDv7 online save, or creates the first online save from a clean game when none exists.
-- **Join:** enter the host address and port, then select **Join**. Every player keeps an independent online save and personal progress.
-- **LAN:** use the host PC's LAN IPv4 address, for example `192.168.1.20`.
-- **Internet:** the host must allow the configured TCP port through Windows Firewall and usually forward it on the router, or use a trusted virtual-LAN tool.
+1. Enter a player name.
+2. Select **Public Server 1**, **Public Server 2** or **Public Server 3**.
+3. The server atomically joins the existing public room or creates it when empty. No password is used.
+4. The Mod resumes the player's own UUIDv7 online save, or creates it from a clean game only when none exists.
 
-All players should use the same game and Mod versions. The default TCP port is `27777`.
+The endpoint is stored as an AES-GCM-encrypted constant inside the native bridge, not in `config.json`, the UI or language files. This prevents casual plaintext discovery and configuration changes, but is obfuscation rather than secret management because a client must contain the decryption material. All players must use matching game and Mod versions. A player leaving removes only that participant; the server retains the public room until an administrator closes it or the service restarts.
 
 ## Synchronization model
 
-- Player state is sent at 20 Hz for responsive movement. Authoritative world time remains at 5 Hz because it changes much more slowly.
+- Player state is sent at 20 Hz for responsive movement. Server-authoritative world time remains at 5 Hz because it changes much more slowly.
 - Online time advances from the Mod's unscaled authoritative clock, so opening pause/settings UI on any computer cannot stop or fork room time.
 - Rendering still runs every frame: remote positions, rotations, animation layers and clothing bones interpolate toward the newest snapshot.
 - Complete `GetSave()` profile data is chunked when necessary, reassembled with revision tracking and retained per remote player.
@@ -64,7 +68,7 @@ Development requires the .NET 8 SDK and Visual Studio x64 C++ tools for NativeAO
 
 ```powershell
 ./build.ps1 -Install
-dotnet run --project ./src/MultiplayerBridge.SmokeTest -c Release
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
 See [VERIFICATION.md](VERIFICATION.md) for the verified scope and evidence paths.
@@ -73,6 +77,7 @@ See [VERIFICATION.md](VERIFICATION.md) for the verified scope and evidence paths
 
 - Windows x64
 - Fallen Flower with the dedicated Mod launcher
+- Ubuntu/Linux server with Docker Engine and the Compose plugin
 - Matching game and Mod versions for every participant
 
 ## License

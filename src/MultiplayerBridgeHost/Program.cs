@@ -27,6 +27,7 @@ internal static partial class Program
     private const int StateSlotMilliseconds = 50;
 
     private static readonly BridgeNode Node = new();
+    private static readonly RoomRelayClient RoomRelay = new();
     private static readonly List<StateEvent> Events = [];
     private static readonly object StateLock = new();
     private static long _eventSequence;
@@ -56,6 +57,14 @@ internal static partial class Program
 
     private static async Task Main(string[] args)
     {
+        if (args.Contains("--self-test-room-relay", StringComparer.OrdinalIgnoreCase))
+        {
+            var address = ReadArgument(args, "--address") ?? "127.0.0.1";
+            var portText = ReadArgument(args, "--port") ?? "27777";
+            if (!int.TryParse(portText, out var port)) throw new ArgumentException("--port must be an integer");
+            await SelfTestRoomRelayAsync(address, port);
+            return;
+        }
         if (args.Contains("--self-test-save-crypto", StringComparer.OrdinalIgnoreCase))
         {
             SelfTestOnlineSaveCrypto();
@@ -175,6 +184,7 @@ internal static partial class Program
                 RestoreSinglePlayerAutoSave();
             }
             Node.Dispose();
+            RoomRelay.Dispose();
             WriteOfflineState(statePath);
             try { singleton.ReleaseMutex(); } catch { }
         }

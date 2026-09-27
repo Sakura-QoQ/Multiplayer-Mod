@@ -1,6 +1,8 @@
-# Verification report — v0.9.0
+# Public-server edition verification report — v0.11.0
 
-Verified on 27 September 2026 with two real `FallenFlower.exe` processes and two isolated bridge processes.
+Verified on 27 September 2026. Direct compatibility behavior used two real `FallenFlower.exe`
+processes and two isolated bridges; dedicated-server behavior used the published NativeAOT bridge,
+a real room-server process and the deployed public endpoint.
 
 ## Verified behavior
 
@@ -16,6 +18,8 @@ Verified on 27 September 2026 with two real `FallenFlower.exe` processes and two
 - The two-process test did not change any original `AutoSave*.save` hash.
 - The online-save lifecycle created a UUIDv7 file, saved on exit, reopened the same UUID, restored the saved position within collision correction tolerance, preserved the recovery copy, and released its bridge port.
 - The bridge save self-test passed encryption round-trip, tamper rejection, UUIDv7 migration, save retention and single-player restoration.
+- The published NativeAOT bridge sent `room.enter` from two ordinary clients through a real local server process, automatically created/joined one public room, kept logical peer zero on the server, preserved positive member identities and relayed payloads in both directions.
+- The deployed public endpoint accepted the framed protocol and returned a valid `pong` response; TCP reachability was also confirmed externally. The deployed container must be updated to v0.11.0 before clients use `room.enter`.
 - After testing, no game or bridge process and no test listening port remained.
 
 ## Evidence
@@ -24,9 +28,13 @@ Verified on 27 September 2026 with two real `FallenFlower.exe` processes and two
 - Post-cleanup full two-process regression: `artifacts/dual-instance/20260927-111836/evidence/summary.json`
 - Visible online pause-menu/read-only-room-page/background-running test: `artifacts/dual-instance/20260927-111811/evidence/summary.json`
 - Online-save lifecycle, including recovery from an `MPActive_`-only state: `artifacts/online-save/20260927-102017/evidence/summary.json`
+- Dedicated-room NativeAOT server log: `artifacts/room-relay-nativeaot-server.log`
 
-The automated LAN test uses two real game processes on one Windows machine through a physical LAN interface. It proves the two-instance workflow requested for development; it is not a claim that every router, firewall, ISP or physical two-PC configuration has been tested.
+The automated LAN test covers the retained direct-compatibility path on one Windows machine. The
+public-room relay protocol and public endpoint passed process-level tests. A two-game run through the
+public Ubuntu endpoint remains the final deployment verification and is not claimed as completed.
 
 ## Package boundary
 
 The player ZIP contains only runtime configuration, the Mod script, localized strings, English and Chinese player documentation, proprietary license files, and one self-contained NativeAOT executable. Source projects, test tools, Node.js, the .NET SDK and Visual Studio are not included.
+The Linux server is built and deployed separately from `server/` and `src/MultiplayerRoomServer/`.

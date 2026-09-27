@@ -37,6 +37,7 @@ function updateBridge(player: Player | null): void {
     // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
     keepOnlineWorldRunning();
     updateOnlineWorldClock();
+    updateServerSceneAuthority();
     // 状态文件只采样一次，再从内存队列处理事件。旧实现每处理一个事件都会重新读文件，
     // 会放大 Windows 共享冲突，并在完整资料包到达时阻塞 Unity 主线程。
     const pollNow = Number(UnityEngine.Time.unscaledTime);
@@ -56,7 +57,7 @@ function updateBridge(player: Player | null): void {
     }
     if (player) {
         const now = Number(UnityEngine.Time.unscaledTime);
-        if (role === "client" && now >= nextPresenceAt) {
+        if (role === "client" && networkTransport !== "server" && now >= nextPresenceAt) {
             nextPresenceAt = now + PRESENCE_INTERVAL;
             send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         }

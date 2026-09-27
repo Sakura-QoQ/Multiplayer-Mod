@@ -7,6 +7,9 @@ type BridgeStateFile = {
     state: string;
     port: number;
     peers: number;
+    transport?: string;
+    localPeerId?: number;
+    authorityPeerId?: number;
     responseSequence?: number;
     response?: string;
     saves?: { name: string; lastWriteUtcTicks: number; size: number }[];
@@ -32,6 +35,9 @@ function readBridgeState(): BridgeStateFile | null {
             state: typeof parsed.state === "string" ? parsed.state : "stopped",
             port: Number(parsed.port) || 0,
             peers: Number(parsed.peers) || 0,
+            transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
+            localPeerId: Number(parsed.localPeerId) || 0,
+            authorityPeerId: Number(parsed.authorityPeerId) || 0,
             responseSequence: Number(parsed.responseSequence) || 0,
             response: typeof parsed.response === "string" ? parsed.response : "",
             saves: Array.isArray(parsed.saves) ? parsed.saves
@@ -206,7 +212,9 @@ function collectBridgeEvents(state: BridgeStateFile | null): void {
 function bridgeCall(command: string): string {
     const state = readBridgeState();
     if (command === "protocol") return state ? String(state.protocol) : "";
-    if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers }) : "";
+    if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers,
+        transport: state.transport || "direct", localPeerId: state.localPeerId || 0,
+        authorityPeerId: state.authorityPeerId || 0 }) : "";
     if (command === "poll") {
         collectBridgeEvents(state);
         return pendingBridgeEvents.length > 0 ? pendingBridgeEvents.shift() || "" : "";

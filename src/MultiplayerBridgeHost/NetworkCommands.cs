@@ -22,6 +22,9 @@ internal static partial class Program
             {
                 "host" => RestartHost(values),
                 "join" => RestartClient(values),
+                "roomCreate" => RestartRoomRelay(values, true),
+                "roomJoin" => RestartRoomRelay(values, false),
+                "publicEnter" => EnterPublicRoom(values),
                 "send" => Send(values),
                 "beginSave" => BeginOnlineSave(values),
                 "prepareSave" => PrepareOnlineSave(values),
@@ -173,12 +176,14 @@ internal static partial class Program
 
     private static int RestartHost(Dictionary<string, string> values)
     {
+        RoomRelay.Stop();
         Node.Stop();
         return Node.StartHost(ReadInt(values, "port", 27777), ReadInt(values, "max", 4));
     }
 
     private static int RestartClient(Dictionary<string, string> values)
     {
+        RoomRelay.Stop();
         Node.Stop();
         return Node.Join(values.GetValueOrDefault("address", "127.0.0.1"), ReadInt(values, "port", 27777));
     }
@@ -186,12 +191,43 @@ internal static partial class Program
     private static int Send(Dictionary<string, string> values)
     {
         _ = long.TryParse(values.GetValueOrDefault("peer", "0"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var peerId);
-        return Node.Send(peerId, values.GetValueOrDefault("data", string.Empty));
+        return RoomRelay.IsRunning
+            ? RoomRelay.Send(peerId, values.GetValueOrDefault("data", string.Empty))
+            : Node.Send(peerId, values.GetValueOrDefault("data", string.Empty));
+    }
+
+    private static int RestartRoomRelay(Dictionary<string, string> values, bool createRoom)
+    {
+        Node.Stop();
+        RoomRelay.Stop();
+        return RoomRelay.Start(
+            values.GetValueOrDefault("address", "127.0.0.1"),
+            ReadInt(values, "port", 27777),
+            createRoom,
+            values.GetValueOrDefault("room", string.Empty),
+            values.GetValueOrDefault("key", string.Empty),
+            values.GetValueOrDefault("roomName", string.Empty),
+            values.GetValueOrDefault("player", "Player"),
+            ReadInt(values, "max", 4));
+    }
+
+    private static int EnterPublicRoom(Dictionary<string, string> values)
+    {
+        Node.Stop();
+        RoomRelay.Stop();
+        var endpoint = PublicServerEndpoint.Decrypt();
+        return RoomRelay.EnterPublicRoom(
+            endpoint.Host,
+            endpoint.Port,
+            values.GetValueOrDefault("room", string.Empty),
+            values.GetValueOrDefault("player", "Player"),
+            ReadInt(values, "max", 8));
     }
 
     private static int Stop()
     {
         Node.Stop();
+        RoomRelay.Stop();
         return 0;
     }
 

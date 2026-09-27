@@ -12,6 +12,8 @@ type MultiplayerConfig = {
     port: number;
     maxPlayers: number;
     playerName: string;
+    roomId: string;
+    roomKey: string;
     smokeTestAutoLoad: boolean;
     smokeTestUiOpen: boolean;
     smokeTestMotion: boolean;
@@ -43,7 +45,8 @@ function prefKey(baseName: string): string {
     return BRIDGE_CHANNEL === "default" ? baseName : baseName + "." + BRIDGE_CHANNEL;
 }
 
-type BridgeStatus = { state: string; port: number; peers: number };
+type BridgeStatus = { state: string; port: number; peers: number; transport: string;
+    localPeerId: number; authorityPeerId: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
     position: { x: number; y: number; z: number } | null;
@@ -176,6 +179,8 @@ let bridgeNetworkState = "stopped";
 let bridgeLaunchAttempted = false;
 let bridgeStartupGraceFrames = 0;
 let role: "off" | "host" | "client" = "off";
+let networkTransport: "direct" | "server" = "direct";
+let currentPublicRoom = "";
 let currentPlayerName = "Player";
 let smokeTestScheduled = false;
 let smokeSleepStartedAt = -1;
@@ -213,8 +218,6 @@ let uiPlayerListPanel: UnityEngine.GameObject | null = null;
 let uiPlayerListTitle: UnityEngine.UI.Text | null = null;
 let uiPlayerListCount: UnityEngine.UI.Text | null = null;
 let uiPlayerListBody: UnityEngine.UI.Text | null = null;
-let uiAddress: UnityEngine.UI.InputField | null = null;
-let uiPort: UnityEngine.UI.InputField | null = null;
 let uiName: UnityEngine.UI.InputField | null = null;
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
@@ -259,6 +262,9 @@ let lastDiagnosticWorldTimeLogAt = -1;
 let onlineClockInitialized = false;
 let onlineClockGameTime = 0;
 let onlineClockLastUnscaledTime = 0;
+let serverTimeSeedSent = false;
+let authoritativeServerScene = "";
+let lastServerSceneRequest = "";
 let lastBridgeTouchAt = -1;
 let bedWindowInstance: BedWindow | null = null;
 let sleepConsensusExecuting = false;
@@ -382,6 +388,9 @@ type BridgeStateFile = {
     state: string;
     port: number;
     peers: number;
+    transport?: string;
+    localPeerId?: number;
+    authorityPeerId?: number;
     responseSequence?: number;
     response?: string;
     saves?: { name: string; lastWriteUtcTicks: number; size: number }[];
@@ -407,6 +416,9 @@ function readBridgeState(): BridgeStateFile | null {
             state: typeof parsed.state === "string" ? parsed.state : "stopped",
             port: Number(parsed.port) || 0,
             peers: Number(parsed.peers) || 0,
+            transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
+            localPeerId: Number(parsed.localPeerId) || 0,
+            authorityPeerId: Number(parsed.authorityPeerId) || 0,
             responseSequence: Number(parsed.responseSequence) || 0,
             response: typeof parsed.response === "string" ? parsed.response : "",
             saves: Array.isArray(parsed.saves) ? parsed.saves
@@ -581,7 +593,9 @@ function collectBridgeEvents(state: BridgeStateFile | null): void {
 function bridgeCall(command: string): string {
     const state = readBridgeState();
     if (command === "protocol") return state ? String(state.protocol) : "";
-    if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers }) : "";
+    if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers,
+        transport: state.transport || "direct", localPeerId: state.localPeerId || 0,
+        authorityPeerId: state.authorityPeerId || 0 }) : "";
     if (command === "poll") {
         collectBridgeEvents(state);
         return pendingBridgeEvents.length > 0 ? pendingBridgeEvents.shift() || "" : "";
@@ -595,8 +609,8 @@ function bridgeCall(command: string): string {
 // 网络配置。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function loadConfig(): MultiplayerConfig {
-    const defaults: MultiplayerConfig = { mode: "off", address: "127.0.0.1", port: 27777, maxPlayers: 4,
-        playerName: "Player", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
+    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, maxPlayers: 8,
+        playerName: "Player", roomId: "fallen-flower", roomKey: "", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
         smokeTestSceneSync: false, smokeTestSleepConsensus: false, smokeTestAppearance: false,
         smokeTestPhone: false, smokeTestPauseMenu: false, smokeTestOnlineLifecycle: false,
         smokeTestOnlineSaveName: "", smokeTestLifecyclePhase: "",
@@ -611,6 +625,8 @@ function loadConfig(): MultiplayerConfig {
             port: typeof parsed.port === "number" ? parsed.port : defaults.port,
             maxPlayers: typeof parsed.maxPlayers === "number" ? parsed.maxPlayers : defaults.maxPlayers,
             playerName: typeof parsed.playerName === "string" ? parsed.playerName : defaults.playerName,
+            roomId: typeof parsed.roomId === "string" ? parsed.roomId : defaults.roomId,
+            roomKey: typeof parsed.roomKey === "string" ? parsed.roomKey : defaults.roomKey,
             smokeTestAutoLoad: parsed.smokeTestAutoLoad === true,
             smokeTestUiOpen: parsed.smokeTestUiOpen === true,
             smokeTestMotion: parsed.smokeTestMotion === true,
@@ -633,15 +649,20 @@ function loadConfig(): MultiplayerConfig {
 function readBridgeStatus(): BridgeStatus {
     try {
         const state = readBridgeState();
-        if (!bridgeStateIsFresh(state)) return { state: "unavailable", port: 0, peers: 0 };
+        if (!bridgeStateIsFresh(state)) return { state: "unavailable", port: 0, peers: 0,
+            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
         const parsed = JSON.parse(bridgeCall("status"));
         return {
             state: typeof parsed.state === "string" ? parsed.state : "unknown",
             port: Number(parsed.port) || 0,
-            peers: Number(parsed.peers) || 0
+            peers: Number(parsed.peers) || 0,
+            transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
+            localPeerId: Number(parsed.localPeerId) || 0,
+            authorityPeerId: Number(parsed.authorityPeerId) || 0
         };
     } catch (_error) {
-        return { state: bridgeAvailable ? "stopped" : "unavailable", port: 0, peers: 0 };
+        return { state: bridgeAvailable ? "stopped" : "unavailable", port: 0, peers: 0,
+            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
     }
 }
 
@@ -772,6 +793,7 @@ function startBridge(): void {
     currentPlayerName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName);
     // 原生网络层不会因为场景切换而卸载，因此新一代脚本应接管现有连接，而不是重新连接。
     const existing = readBridgeStatus();
+    networkTransport = existing.transport === "server" ? "server" : "direct";
     if (existing.state === "hosting") {
         role = "host";
         localNetworkId = 0;
@@ -780,7 +802,7 @@ function startBridge(): void {
     }
     if (existing.state === "connecting" || existing.state === "connected") {
         role = "client";
-        localNetworkId = -1;
+        localNetworkId = networkTransport === "server" ? existing.localPeerId : -1;
         log("Reattached to the client connection from the previous scene");
         // 场景切换会重新载入脚本；重新握手可恢复本代脚本丢失的 peerId 和玩家名映射。
         if (existing.state === "connected") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
@@ -804,25 +826,30 @@ function valueOr(input: UnityEngine.UI.InputField | null, fallback: string): str
     } catch (_error) { return fallback; }
 }
 
-function startHostFromUi(): void {
+function enterPublicRoomFromUi(roomId: string): void {
     if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
     const config = loadConfig();
-    const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
     UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Transport"), "server");
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PublicRoom"), roomId);
     UnityEngine.PlayerPrefs.Save();
-    updateStatusText(tr("status.startingHost", { port }));
-    // host 命令内部会安全停止旧连接，不再先发 stop，避免单槽 IPC 把 stop 覆盖掉。
-    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
-    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
+    role = "client";
+    networkTransport = "server";
+    currentPublicRoom = roomId;
+    localNetworkId = -1;
+    clientEntryStarted = false;
+    updateStatusText(tr("status.enteringPublicRoom", { room: tr("publicRoom." + roomId) }));
+    const command = "publicEnter?room=" + encodeURIComponent(roomId) +
+        "&player=" + encodeURIComponent(currentPlayerName) + "&max=" + config.maxPlayers;
+    const sequence = submitBridgeCommandTracked(command);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.publicRoomFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
-        if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
-        role = "host";
-        localNetworkId = 0;
-        toast(tr("toast.hostStarted", { port }));
-        enterOnlineSave();
+        if (result !== "0") {
+            role = "off";
+            networkTransport = "direct";
+            toast(tr("toast.publicRoomFailed", { code: result }));
+        }
     });
 }
 
@@ -1089,33 +1116,16 @@ function createInitialOnlineSave(menu: MainMenu): void {
     });
 }
 
-function joinFromUi(): void {
-    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
-    const config = loadConfig();
-    const address = valueOr(uiAddress, config.address);
-    const port = Number(valueOr(uiPort, String(config.port)));
-    currentPlayerName = valueOr(uiName, config.playerName);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
-    UnityEngine.PlayerPrefs.Save();
-    updateStatusText(tr("status.connectingTo", { address, port }));
-    clientEntryStarted = false;
-    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
-    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
-    waitForBridgeResponse(mainMenuInstance, sequence, result => {
-        if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
-        role = "client";
-        localNetworkId = -1;
-    });
-}
-
 function stopFromUi(): void {
     try { bridgeCall("stop"); } catch (_error) { }
     role = "off";
+    networkTransport = "direct";
+    currentPublicRoom = "";
     localNetworkId = -1;
     clientEntryStarted = false;
+    serverTimeSeedSent = false;
+    authoritativeServerScene = "";
+    lastServerSceneRequest = "";
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];
@@ -1303,7 +1313,22 @@ function resetOnlineWorldClockFromGame(): void {
 }
 
 function sendAuthoritativeWorldTime(force = false): void {
-    if (role !== "host" || !GameManager.InGame || !GameManager.Singleton) return;
+    if (role === "off" || !GameManager.InGame || !GameManager.Singleton) return;
+    if (networkTransport === "server") {
+        if (serverTimeSeedSent) return;
+        const status = Player.LocalPlayer ? Player.LocalPlayer.status : null;
+        const data = status ? status.Data : null;
+        send(0, {
+            type: "serverTimeSeed",
+            gameTime: Number(GameManager.Singleton.gameTime),
+            day: data ? Number(data.day) : 0,
+            timeOfDay: data ? Number(data.timeOfDay) : 0,
+            timeOffset: status ? Number(status.timeOffset) : 0
+        });
+        serverTimeSeedSent = true;
+        return;
+    }
+    if (role !== "host") return;
     const now = Number(UnityEngine.Time.unscaledTime);
     if (!force && now < nextWorldTimeAt) return;
     nextWorldTimeAt = advanceFixedDeadline(nextWorldTimeAt, now, WORLD_TIME_INTERVAL);
@@ -1352,6 +1377,14 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
     finally { applyingAuthoritativeTime = false; }
 }
 
+function updateServerSceneAuthority(): void {
+    if (networkTransport !== "server" || role === "off" || !GameManager.InGame) return;
+    const localScene = String(GameManager.NowSceneName || "");
+    if (!localScene || localScene === authoritativeServerScene || localScene === lastServerSceneRequest) return;
+    lastServerSceneRequest = localScene;
+    send(0, { type: "serverSceneRequest", expectedScene: authoritativeServerScene, scene: localScene });
+}
+
 // PlayerStatus 没有 SetDay，日期只能通过 AddDay 向前推进。若加入者的线上角色日期
 // 比房主更晚，房主先采用房间内最大的日期，再广播给所有人；之后客户端的本地
 // AddTime/AddDay 会被拦截，因此整个会话不会再次分叉，也不需要倒退日期破坏任务状态。
@@ -1383,6 +1416,17 @@ function invokeApprovedSleep(mode: SleepMode): void {
         // 睡眠可能一次性改写 gameTime；立即把新值纳入 Mod 权威时钟，不能在下一帧
         // 又被睡眠前的旧锚点覆盖。
         resetOnlineWorldClockFromGame();
+        if (networkTransport === "server") {
+            const status = Player.LocalPlayer ? Player.LocalPlayer.status : null;
+            const data = status ? status.Data : null;
+            send(0, {
+                type: "serverTimeCommit",
+                gameTime: Number(GameManager.Singleton ? GameManager.Singleton.gameTime : onlineClockGameTime),
+                day: data ? Number(data.day) : 0,
+                timeOfDay: data ? Number(data.timeOfDay) : 0,
+                timeOffset: status ? Number(status.timeOffset) : 0
+            });
+        }
     }
     catch (error) { log("Failed to execute unanimous sleep: " + error); }
     finally { sleepConsensusExecuting = false; }
@@ -1444,7 +1488,10 @@ function resendPendingSleepApproval(): void {
 function requestConsensusSleep(mode: SleepMode, ctx: IHookContext): void {
     if (role === "off" || sleepConsensusExecuting) return;
     ctx.Intercept();
-    if (role === "host") {
+    if (networkTransport === "server") {
+        send(0, { type: "sleepRequest", mode } as SleepRequestPacket);
+        toast(tr("toast.sleepWaiting"));
+    } else if (role === "host") {
         sleepReady["0"] = { mode, at: Number(UnityEngine.Time.unscaledTime) };
         const waitingForRemotePlayers = Object.keys(peerNames).length > 0;
         tryApproveSleep();
@@ -2322,10 +2369,32 @@ function processEvent(rawEvent: string): void {
         updateStatusText();
         return;
     }
+    if (event.type === "roomReady") {
+        const room = JSON.parse(event.message || "{}");
+        const serverAuthority = room.serverAuthority === true;
+        const creator = !serverAuthority && room.creator === true;
+        role = creator ? "host" : "client";
+        networkTransport = "server";
+        currentPublicRoom = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PublicRoom"), currentPublicRoom);
+        localNetworkId = creator ? 0 : Math.trunc(Number(room.localPeerId));
+        serverTimeSeedSent = false;
+        authoritativeServerScene = "";
+        lastServerSceneRequest = "";
+        log("Dedicated room ready localPeer=" + localNetworkId + " authorityPeer=" +
+            Math.trunc(Number(room.authorityPeerId)) + " serverAuthority=" + serverAuthority);
+        updateStatusText();
+        if (mainMenuInstance && !clientEntryStarted) {
+            clientEntryStarted = true;
+            enterOnlineSave();
+        }
+        return;
+    }
     if (event.type === "connected") {
         log("Connection established peer=" + event.peerId);
-        // 客户端建立 TCP 连接后先发送协议版本和玩家名，由房主确认兼容性。
-        if (role === "client") {
+        // 公开服务器模式没有玩家房主；正数 peer 只表示其他普通成员发生变化。
+        if (networkTransport === "server") {
+            if (Number(event.peerId) > 0) lastLocalProfileJson = "";
+        } else if (role === "client") {
             localNetworkId = -1;
             send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         }
@@ -2384,6 +2453,20 @@ function processEvent(rawEvent: string): void {
         } else if (packet.type === "worldTime" && validWorldTime(packet)) {
             // 星型拓扑中只有客户端接受服务器发来的权威时间；房主忽略客户端伪造的时间包。
             if (role === "client") applyAuthoritativeWorldTime(packet);
+        } else if (packet.type === "serverScene" && networkTransport === "server" &&
+            typeof packet.scene === "string" && packet.scene.length > 0 && packet.scene.length <= 128) {
+            authoritativeServerScene = packet.scene;
+            lastServerSceneRequest = packet.scene;
+            if (GameManager.InGame && String(GameManager.NowSceneName || "") !== packet.scene &&
+                pendingHostScene !== packet.scene) {
+                pendingHostScene = packet.scene;
+                try {
+                    GameManager.MoveToScene(packet.scene, () => { pendingHostScene = ""; });
+                } catch (error) {
+                    pendingHostScene = "";
+                    log("Failed to follow the server-authorized scene: " + error);
+                }
+            }
         } else if (packet.type === "sleepRequest" && role === "host" && validSleepMode(packet.mode)) {
             sleepReady[String(event.peerId)] = {
                 mode: packet.mode,
@@ -2435,6 +2518,14 @@ function processEvent(rawEvent: string): void {
             delete lastRemoteLiveDataSequences[String(event.peerId)];
             delete sleepReady[String(event.peerId)];
             send(0, { type: "playerLeft", ownerId: Number(event.peerId) });
+        } else if (networkTransport === "server" && Number(event.peerId) > 0) {
+            destroyRemotePlayer(Number(event.peerId));
+            delete peerNames[String(event.peerId)];
+            delete remoteProfiles[String(event.peerId)];
+            delete remoteProfileRevisions[String(event.peerId)];
+            delete latestPlayerStates[String(event.peerId)];
+            delete lastRemoteSequences[String(event.peerId)];
+            delete lastRemoteLiveDataSequences[String(event.peerId)];
         } else {
             localNetworkId = -1;
             clearRemotePlayers();
@@ -2795,19 +2886,17 @@ function refreshLocalizedUi(): void {
         if (!uiPanel) return;
         const root = uiPanel.transform;
         const labels: Record<string, string> = {
-            AddressLabel: "field.address",
-            PortLabel: "field.port",
             NameLabel: "field.playerName",
-            Host: "button.host",
-            Join: "button.join",
             Stop: "button.stop",
+            PublicTitle: "publicRoom.title",
+            PublicRoom1: "publicRoom.public-1",
+            PublicRoom2: "publicRoom.public-2",
+            PublicRoom3: "publicRoom.public-3",
             Privacy: "privacy",
             Save: "save.notRead",
             Cancel: "button.cancel"
         };
         for (const name of Object.keys(labels)) setChildText(root, name, tr(labels[name]));
-        try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
-        try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
         if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" : "panel.title");
         refreshPlayerListUi(true);
@@ -3015,11 +3104,10 @@ function refreshRoomInfoUi(force = false): void {
     if (!uiRoomSummary || !uiRoomTime || !uiRoomPlayers || uiPanelMode !== "room") return;
     try {
         const status = readBridgeStatus();
-        const config = loadConfig();
-        const address = role === "host" ? tr("room.thisComputer") :
-            UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), config.address);
-        const port = status.port > 0 ? status.port :
-            Number(UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)));
+        const address = networkTransport === "server"
+            ? (currentPublicRoom ? tr("publicRoom." + currentPublicRoom) : tr("room.publicServer"))
+            : tr("room.thisComputer");
+        const port = status.port;
         const rows = roomPlayerRows();
         const playerStatus = Player.LocalPlayer ? Player.LocalPlayer.status : null;
         const data = playerStatus ? playerStatus.Data : null;
@@ -3075,20 +3163,17 @@ function buildUi(font: any): void {
 
         uiStatus = makeText(configBody.transform, "Status", statusLabel(), font, 30, 18, 660, 46, 27);
         (uiStatus as any).alignment = 4;
-        makeText(configBody.transform, "AddressLabel", tr("field.address"), font, 30, 78, 135, 46, 24);
-        makeText(configBody.transform, "PortLabel", tr("field.port"), font, 440, 78, 72, 46, 24);
-        uiAddress = makeInput(configBody.transform, "Address", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), config.address), tr("placeholder.address"), font, 170, 76, 250);
-        uiPort = makeInput(configBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 520, 76, 170);
-        makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 136, 135, 46, 24);
-        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 134, 520);
-
-        makeButton(configBody.transform, "Host", tr("button.host"), font, 30, 202, 205, startHostFromUi, 56);
-        makeButton(configBody.transform, "Join", tr("button.join"), font, 257, 202, 205, joinFromUi, 56);
-        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 484, 202, 205, stopFromUi, 56);
+        makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 82, 135, 46, 24);
+        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 80, 520);
+        makeText(configBody.transform, "PublicTitle", tr("publicRoom.title"), font, 30, 145, 660, 42, 27);
+        makeButton(configBody.transform, "PublicRoom1", tr("publicRoom.public-1"), font, 30, 198, 205, () => enterPublicRoomFromUi("public-1"), 56);
+        makeButton(configBody.transform, "PublicRoom2", tr("publicRoom.public-2"), font, 257, 198, 205, () => enterPublicRoomFromUi("public-2"), 56);
+        makeButton(configBody.transform, "PublicRoom3", tr("publicRoom.public-3"), font, 484, 198, 205, () => enterPublicRoomFromUi("public-3"), 56);
+        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 270, 205, stopFromUi, 52);
         // 联机存档由建房流程自动选择最近的有效存档，不再创建“选择存档”子页面，
         // 也不提供与自动续档规则冲突的“新建线上存档”按钮。
-        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 298, 660, 70, 20);
-        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 365, 660, 235, 18);
+        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 342, 660, 70, 18);
+        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 420, 660, 200, 18);
         (uiPlayerInfo as any).alignment = 0;
         refreshPlayerInfoUi();
 
@@ -3201,6 +3286,7 @@ function updateBridge(player: Player | null): void {
     // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
     keepOnlineWorldRunning();
     updateOnlineWorldClock();
+    updateServerSceneAuthority();
     // 状态文件只采样一次，再从内存队列处理事件。旧实现每处理一个事件都会重新读文件，
     // 会放大 Windows 共享冲突，并在完整资料包到达时阻塞 Unity 主线程。
     const pollNow = Number(UnityEngine.Time.unscaledTime);
@@ -3220,7 +3306,7 @@ function updateBridge(player: Player | null): void {
     }
     if (player) {
         const now = Number(UnityEngine.Time.unscaledTime);
-        if (role === "client" && now >= nextPresenceAt) {
+        if (role === "client" && networkTransport !== "server" && now >= nextPresenceAt) {
             nextPresenceAt = now + PRESENCE_INTERVAL;
             send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         }

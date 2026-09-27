@@ -21,20 +21,17 @@ function buildUi(font: any): void {
 
         uiStatus = makeText(configBody.transform, "Status", statusLabel(), font, 30, 18, 660, 46, 27);
         (uiStatus as any).alignment = 4;
-        makeText(configBody.transform, "AddressLabel", tr("field.address"), font, 30, 78, 135, 46, 24);
-        makeText(configBody.transform, "PortLabel", tr("field.port"), font, 440, 78, 72, 46, 24);
-        uiAddress = makeInput(configBody.transform, "Address", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), config.address), tr("placeholder.address"), font, 170, 76, 250);
-        uiPort = makeInput(configBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 520, 76, 170);
-        makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 136, 135, 46, 24);
-        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 134, 520);
-
-        makeButton(configBody.transform, "Host", tr("button.host"), font, 30, 202, 205, startHostFromUi, 56);
-        makeButton(configBody.transform, "Join", tr("button.join"), font, 257, 202, 205, joinFromUi, 56);
-        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 484, 202, 205, stopFromUi, 56);
+        makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 82, 135, 46, 24);
+        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 80, 520);
+        makeText(configBody.transform, "PublicTitle", tr("publicRoom.title"), font, 30, 145, 660, 42, 27);
+        makeButton(configBody.transform, "PublicRoom1", tr("publicRoom.public-1"), font, 30, 198, 205, () => enterPublicRoomFromUi("public-1"), 56);
+        makeButton(configBody.transform, "PublicRoom2", tr("publicRoom.public-2"), font, 257, 198, 205, () => enterPublicRoomFromUi("public-2"), 56);
+        makeButton(configBody.transform, "PublicRoom3", tr("publicRoom.public-3"), font, 484, 198, 205, () => enterPublicRoomFromUi("public-3"), 56);
+        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 270, 205, stopFromUi, 52);
         // 联机存档由建房流程自动选择最近的有效存档，不再创建“选择存档”子页面，
         // 也不提供与自动续档规则冲突的“新建线上存档”按钮。
-        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 298, 660, 70, 20);
-        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 365, 660, 235, 18);
+        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 342, 660, 70, 18);
+        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 420, 660, 200, 18);
         (uiPlayerInfo as any).alignment = 0;
         refreshPlayerInfoUi();
 

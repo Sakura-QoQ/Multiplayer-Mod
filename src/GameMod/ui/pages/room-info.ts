@@ -13,11 +13,10 @@ function refreshRoomInfoUi(force = false): void {
     if (!uiRoomSummary || !uiRoomTime || !uiRoomPlayers || uiPanelMode !== "room") return;
     try {
         const status = readBridgeStatus();
-        const config = loadConfig();
-        const address = role === "host" ? tr("room.thisComputer") :
-            UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), config.address);
-        const port = status.port > 0 ? status.port :
-            Number(UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)));
+        const address = networkTransport === "server"
+            ? (currentPublicRoom ? tr("publicRoom." + currentPublicRoom) : tr("room.publicServer"))
+            : tr("room.thisComputer");
+        const port = status.port;
         const rows = roomPlayerRows();
         const playerStatus = Player.LocalPlayer ? Player.LocalPlayer.status : null;
         const data = playerStatus ? playerStatus.Data : null;

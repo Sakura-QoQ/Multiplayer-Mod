@@ -7,10 +7,32 @@ function processEvent(rawEvent: string): void {
         updateStatusText();
         return;
     }
+    if (event.type === "roomReady") {
+        const room = JSON.parse(event.message || "{}");
+        const serverAuthority = room.serverAuthority === true;
+        const creator = !serverAuthority && room.creator === true;
+        role = creator ? "host" : "client";
+        networkTransport = "server";
+        currentPublicRoom = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PublicRoom"), currentPublicRoom);
+        localNetworkId = creator ? 0 : Math.trunc(Number(room.localPeerId));
+        serverTimeSeedSent = false;
+        authoritativeServerScene = "";
+        lastServerSceneRequest = "";
+        log("Dedicated room ready localPeer=" + localNetworkId + " authorityPeer=" +
+            Math.trunc(Number(room.authorityPeerId)) + " serverAuthority=" + serverAuthority);
+        updateStatusText();
+        if (mainMenuInstance && !clientEntryStarted) {
+            clientEntryStarted = true;
+            enterOnlineSave();
+        }
+        return;
+    }
     if (event.type === "connected") {
         log("Connection established peer=" + event.peerId);
-        // 客户端建立 TCP 连接后先发送协议版本和玩家名，由房主确认兼容性。
-        if (role === "client") {
+        // 公开服务器模式没有玩家房主；正数 peer 只表示其他普通成员发生变化。
+        if (networkTransport === "server") {
+            if (Number(event.peerId) > 0) lastLocalProfileJson = "";
+        } else if (role === "client") {
             localNetworkId = -1;
             send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
         }
@@ -69,6 +91,20 @@ function processEvent(rawEvent: string): void {
         } else if (packet.type === "worldTime" && validWorldTime(packet)) {
             // 星型拓扑中只有客户端接受服务器发来的权威时间；房主忽略客户端伪造的时间包。
             if (role === "client") applyAuthoritativeWorldTime(packet);
+        } else if (packet.type === "serverScene" && networkTransport === "server" &&
+            typeof packet.scene === "string" && packet.scene.length > 0 && packet.scene.length <= 128) {
+            authoritativeServerScene = packet.scene;
+            lastServerSceneRequest = packet.scene;
+            if (GameManager.InGame && String(GameManager.NowSceneName || "") !== packet.scene &&
+                pendingHostScene !== packet.scene) {
+                pendingHostScene = packet.scene;
+                try {
+                    GameManager.MoveToScene(packet.scene, () => { pendingHostScene = ""; });
+                } catch (error) {
+                    pendingHostScene = "";
+                    log("Failed to follow the server-authorized scene: " + error);
+                }
+            }
         } else if (packet.type === "sleepRequest" && role === "host" && validSleepMode(packet.mode)) {
             sleepReady[String(event.peerId)] = {
                 mode: packet.mode,
@@ -120,6 +156,14 @@ function processEvent(rawEvent: string): void {
             delete lastRemoteLiveDataSequences[String(event.peerId)];
             delete sleepReady[String(event.peerId)];
             send(0, { type: "playerLeft", ownerId: Number(event.peerId) });
+        } else if (networkTransport === "server" && Number(event.peerId) > 0) {
+            destroyRemotePlayer(Number(event.peerId));
+            delete peerNames[String(event.peerId)];
+            delete remoteProfiles[String(event.peerId)];
+            delete remoteProfileRevisions[String(event.peerId)];
+            delete latestPlayerStates[String(event.peerId)];
+            delete lastRemoteSequences[String(event.peerId)];
+            delete lastRemoteLiveDataSequences[String(event.peerId)];
         } else {
             localNetworkId = -1;
             clearRemotePlayers();

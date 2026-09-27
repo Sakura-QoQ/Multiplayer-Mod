@@ -52,6 +52,7 @@ function startBridge(): void {
     currentPlayerName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName);
     // 原生网络层不会因为场景切换而卸载，因此新一代脚本应接管现有连接，而不是重新连接。
     const existing = readBridgeStatus();
+    networkTransport = existing.transport === "server" ? "server" : "direct";
     if (existing.state === "hosting") {
         role = "host";
         localNetworkId = 0;
@@ -60,7 +61,7 @@ function startBridge(): void {
     }
     if (existing.state === "connecting" || existing.state === "connected") {
         role = "client";
-        localNetworkId = -1;
+        localNetworkId = networkTransport === "server" ? existing.localPeerId : -1;
         log("Reattached to the client connection from the previous scene");
         // 场景切换会重新载入脚本；重新握手可恢复本代脚本丢失的 peerId 和玩家名映射。
         if (existing.state === "connected") send(0, { type: "hello", protocol: PROTOCOL_VERSION, playerName: currentPlayerName });
@@ -84,25 +85,30 @@ function valueOr(input: UnityEngine.UI.InputField | null, fallback: string): str
     } catch (_error) { return fallback; }
 }
 
-function startHostFromUi(): void {
+function enterPublicRoomFromUi(roomId: string): void {
     if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
     const config = loadConfig();
-    const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
     UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Transport"), "server");
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PublicRoom"), roomId);
     UnityEngine.PlayerPrefs.Save();
-    updateStatusText(tr("status.startingHost", { port }));
-    // host 命令内部会安全停止旧连接，不再先发 stop，避免单槽 IPC 把 stop 覆盖掉。
-    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
-    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
+    role = "client";
+    networkTransport = "server";
+    currentPublicRoom = roomId;
+    localNetworkId = -1;
+    clientEntryStarted = false;
+    updateStatusText(tr("status.enteringPublicRoom", { room: tr("publicRoom." + roomId) }));
+    const command = "publicEnter?room=" + encodeURIComponent(roomId) +
+        "&player=" + encodeURIComponent(currentPlayerName) + "&max=" + config.maxPlayers;
+    const sequence = submitBridgeCommandTracked(command);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.publicRoomFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
-        if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
-        role = "host";
-        localNetworkId = 0;
-        toast(tr("toast.hostStarted", { port }));
-        enterOnlineSave();
+        if (result !== "0") {
+            role = "off";
+            networkTransport = "direct";
+            toast(tr("toast.publicRoomFailed", { code: result }));
+        }
     });
 }
 

@@ -8,6 +8,8 @@ type MultiplayerConfig = {
     port: number;
     maxPlayers: number;
     playerName: string;
+    roomId: string;
+    roomKey: string;
     smokeTestAutoLoad: boolean;
     smokeTestUiOpen: boolean;
     smokeTestMotion: boolean;
@@ -39,7 +41,8 @@ function prefKey(baseName: string): string {
     return BRIDGE_CHANNEL === "default" ? baseName : baseName + "." + BRIDGE_CHANNEL;
 }
 
-type BridgeStatus = { state: string; port: number; peers: number };
+type BridgeStatus = { state: string; port: number; peers: number; transport: string;
+    localPeerId: number; authorityPeerId: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
     position: { x: number; y: number; z: number } | null;

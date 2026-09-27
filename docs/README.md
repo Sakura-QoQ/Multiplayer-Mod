@@ -1,6 +1,6 @@
-# Documentation
+# Dedicated-server documentation
 
-PlayerHostedMultiplayer is a player-hosted Fallen Flower Mod. Start with the root
+PlayerHostedMultiplayer is a dedicated-server Fallen Flower Mod. Start with the root
 [README](../README.md) if you only need to install or use it.
 
 | Document | Audience | Purpose |
@@ -9,6 +9,6 @@ PlayerHostedMultiplayer is a player-hosted Fallen Flower Mod. Start with the roo
 | [Development](DEVELOPMENT.md) | Contributors | Build, install, validation and release workflow |
 | [Player profile fields](../PLAYER_PROFILE_FIELDS.md) | Contributors | Game save fields carried by profile synchronization |
 | [Verification report](../VERIFICATION.md) | Testers | Verified scope, limits and evidence paths |
-| [Room server](../server/README.md) | Server developers | Experimental Ubuntu relay; not connected to the current Mod client |
+| [Room server](../server/README.md) | Server administrators | Deploy, update, configure and troubleshoot the required Ubuntu relay |
 
 [简体中文文档索引](README.zh-CN.md)

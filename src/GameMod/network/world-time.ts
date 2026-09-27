@@ -33,7 +33,22 @@ function resetOnlineWorldClockFromGame(): void {
 }
 
 function sendAuthoritativeWorldTime(force = false): void {
-    if (role !== "host" || !GameManager.InGame || !GameManager.Singleton) return;
+    if (role === "off" || !GameManager.InGame || !GameManager.Singleton) return;
+    if (networkTransport === "server") {
+        if (serverTimeSeedSent) return;
+        const status = Player.LocalPlayer ? Player.LocalPlayer.status : null;
+        const data = status ? status.Data : null;
+        send(0, {
+            type: "serverTimeSeed",
+            gameTime: Number(GameManager.Singleton.gameTime),
+            day: data ? Number(data.day) : 0,
+            timeOfDay: data ? Number(data.timeOfDay) : 0,
+            timeOffset: status ? Number(status.timeOffset) : 0
+        });
+        serverTimeSeedSent = true;
+        return;
+    }
+    if (role !== "host") return;
     const now = Number(UnityEngine.Time.unscaledTime);
     if (!force && now < nextWorldTimeAt) return;
     nextWorldTimeAt = advanceFixedDeadline(nextWorldTimeAt, now, WORLD_TIME_INTERVAL);
@@ -82,6 +97,14 @@ function applyAuthoritativeWorldTime(packet: WorldTimePacket): void {
     finally { applyingAuthoritativeTime = false; }
 }
 
+function updateServerSceneAuthority(): void {
+    if (networkTransport !== "server" || role === "off" || !GameManager.InGame) return;
+    const localScene = String(GameManager.NowSceneName || "");
+    if (!localScene || localScene === authoritativeServerScene || localScene === lastServerSceneRequest) return;
+    lastServerSceneRequest = localScene;
+    send(0, { type: "serverSceneRequest", expectedScene: authoritativeServerScene, scene: localScene });
+}
+
 // PlayerStatus 没有 SetDay，日期只能通过 AddDay 向前推进。若加入者的线上角色日期
 // 比房主更晚，房主先采用房间内最大的日期，再广播给所有人；之后客户端的本地
 // AddTime/AddDay 会被拦截，因此整个会话不会再次分叉，也不需要倒退日期破坏任务状态。
@@ -113,6 +136,17 @@ function invokeApprovedSleep(mode: SleepMode): void {
         // 睡眠可能一次性改写 gameTime；立即把新值纳入 Mod 权威时钟，不能在下一帧
         // 又被睡眠前的旧锚点覆盖。
         resetOnlineWorldClockFromGame();
+        if (networkTransport === "server") {
+            const status = Player.LocalPlayer ? Player.LocalPlayer.status : null;
+            const data = status ? status.Data : null;
+            send(0, {
+                type: "serverTimeCommit",
+                gameTime: Number(GameManager.Singleton ? GameManager.Singleton.gameTime : onlineClockGameTime),
+                day: data ? Number(data.day) : 0,
+                timeOfDay: data ? Number(data.timeOfDay) : 0,
+                timeOffset: status ? Number(status.timeOffset) : 0
+            });
+        }
     }
     catch (error) { log("Failed to execute unanimous sleep: " + error); }
     finally { sleepConsensusExecuting = false; }
@@ -174,7 +208,10 @@ function resendPendingSleepApproval(): void {
 function requestConsensusSleep(mode: SleepMode, ctx: IHookContext): void {
     if (role === "off" || sleepConsensusExecuting) return;
     ctx.Intercept();
-    if (role === "host") {
+    if (networkTransport === "server") {
+        send(0, { type: "sleepRequest", mode } as SleepRequestPacket);
+        toast(tr("toast.sleepWaiting"));
+    } else if (role === "host") {
         sleepReady["0"] = { mode, at: Number(UnityEngine.Time.unscaledTime) };
         const waitingForRemotePlayers = Object.keys(peerNames).length > 0;
         tryApproveSleep();

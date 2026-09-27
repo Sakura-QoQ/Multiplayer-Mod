@@ -13,19 +13,17 @@ function refreshLocalizedUi(): void {
         if (!uiPanel) return;
         const root = uiPanel.transform;
         const labels: Record<string, string> = {
-            AddressLabel: "field.address",
-            PortLabel: "field.port",
             NameLabel: "field.playerName",
-            Host: "button.host",
-            Join: "button.join",
             Stop: "button.stop",
+            PublicTitle: "publicRoom.title",
+            PublicRoom1: "publicRoom.public-1",
+            PublicRoom2: "publicRoom.public-2",
+            PublicRoom3: "publicRoom.public-3",
             Privacy: "privacy",
             Save: "save.notRead",
             Cancel: "button.cancel"
         };
         for (const name of Object.keys(labels)) setChildText(root, name, tr(labels[name]));
-        try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
-        try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
         if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" : "panel.title");
         refreshPlayerListUi(true);

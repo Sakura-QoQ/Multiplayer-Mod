@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace FallenFlower.MultiplayerRoomServer;
@@ -21,6 +22,7 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
     {
         _listener.Start(512);
         Console.WriteLine($"Fallen Flower room server listening on {options.ListenAddress}:{options.Port}");
+        var clockTask = RunAuthoritativeClockAsync(_shutdown.Token);
         try
         {
             while (!_shutdown.IsCancellationRequested)
@@ -31,6 +33,11 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             }
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+        finally
+        {
+            try { await clockTask; }
+            catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+        }
     }
 
     public void Stop()
@@ -85,6 +92,9 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
             case "room.join":
                 await JoinRoomAsync(client, root, cancellationToken);
                 break;
+            case "room.enter":
+                await EnterPublicRoomAsync(client, root, cancellationToken);
+                break;
             case "room.info":
                 await SendRoomInfoAsync(client, cancellationToken);
                 break;
@@ -130,7 +140,9 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         client.Room = room;
         client.PeerId = peerId;
         client.PlayerName = playerName;
-        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId, capacity }, cancellationToken);
+        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId,
+            authorityPeerId = room.AuthorityPeerId, creator = true,
+            players = room.Members.Count, capacity }, cancellationToken);
         Console.WriteLine($"room created id={roomId} capacity={capacity}");
     }
 
@@ -147,8 +159,51 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         client.Room = room;
         client.PeerId = peerId;
         client.PlayerName = playerName;
-        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId, capacity = room.Capacity }, cancellationToken);
+        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId,
+            authorityPeerId = room.AuthorityPeerId, creator = false,
+            players = room.Members.Count, capacity = room.Capacity }, cancellationToken);
         await BroadcastAsync(room, new { type = "room.playerJoined", peerId, playerName }, client, cancellationToken);
+    }
+
+    private async Task EnterPublicRoomAsync(ClientConnection client, JsonElement root, CancellationToken cancellationToken)
+    {
+        EnsureNotInRoom(client);
+        var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
+        if (!RoomIdPattern().IsMatch(roomId)) throw new ProtocolException("invalid_room_id", "roomId contains invalid characters");
+        var roomName = FrameProtocol.OptionalString(root, "roomName", 80);
+        var playerName = FrameProtocol.RequiredString(root, "playerName", 64);
+        var requestedCapacity = root.TryGetProperty("maxPlayers", out var capacityElement) && capacityElement.TryGetInt32(out var parsed)
+            ? parsed : options.MaxPlayersPerRoom;
+        var capacity = Math.Clamp(requestedCapacity, 2, options.MaxPlayersPerRoom);
+        var creator = false;
+
+        if (!_rooms.TryGetValue(roomId, out var room) || room.IsClosed)
+        {
+            if (_rooms.Count >= options.MaxRooms) throw new ProtocolException("server_full", "room limit reached");
+            var candidate = new Room(roomId, string.Empty, roomName, capacity, serverAuthoritative: true);
+            if (_rooms.TryAdd(roomId, candidate))
+            {
+                room = candidate;
+                creator = true;
+            }
+            else if (!_rooms.TryGetValue(roomId, out room) || room.IsClosed)
+                throw new ProtocolException("room_busy", "room is changing; retry");
+        }
+        if (room.Key.Length != 0) throw new ProtocolException("private_room", "room requires an explicit key");
+        if (!room.TryAdd(client, out var peerId)) throw new ProtocolException("room_full", "room is full");
+        // 公开房间的最高权限固定属于服务器（逻辑 Peer 0），所有玩家都是普通参与者。
+        creator = false;
+        client.Room = room;
+        client.PeerId = peerId;
+        client.PlayerName = playerName;
+        await client.SendAsync(new { type = "room.ready", protocol = ProtocolVersion, roomId, peerId,
+            authorityPeerId = 0, creator, serverAuthority = true,
+            players = room.Members.Count, capacity = room.Capacity,
+            peerIds = room.Members.Keys.Where(id => id != peerId).OrderBy(id => id).ToArray() }, cancellationToken);
+        if (room.Members.Count == 1)
+            Console.WriteLine($"public room created id={roomId} capacity={room.Capacity}");
+        else
+            await BroadcastAsync(room, new { type = "room.playerJoined", peerId, playerName }, client, cancellationToken);
     }
 
     private async Task RelayAsync(ClientConnection source, JsonElement root, CancellationToken cancellationToken)
@@ -156,6 +211,51 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         var room = RequireRoom(source);
         var payload = FrameProtocol.RequiredString(root, "payload", 60_000);
         var targetPeerId = root.TryGetProperty("targetPeerId", out var target) && target.TryGetInt64(out var parsed) ? parsed : -1;
+
+        if (room.ServerAuthoritative && targetPeerId == 0)
+        {
+            JsonObject? packet;
+            try { packet = JsonNode.Parse(payload) as JsonObject; }
+            catch (JsonException) { throw new ProtocolException("invalid_payload", "public-room payload is invalid JSON"); }
+            if (packet is null) throw new ProtocolException("invalid_payload", "public-room payload must be an object");
+            var packetType = packet["type"]?.GetValue<string>() ?? string.Empty;
+            if (packetType == "worldTime") return; // 玩家不能覆盖服务器权威时钟。
+            if (packetType == "serverTimeSeed")
+            {
+                room.SeedClock(ReadDouble(packet, "gameTime"), ReadInt(packet, "day"),
+                    ReadInt(packet, "timeOfDay"), ReadDouble(packet, "timeOffset"));
+                return;
+            }
+            if (packetType == "serverTimeCommit")
+            {
+                room.CommitApprovedSleep(ReadDouble(packet, "gameTime"), ReadInt(packet, "day"),
+                    ReadInt(packet, "timeOfDay"), ReadDouble(packet, "timeOffset"));
+                return;
+            }
+            if (packetType == "serverSceneRequest")
+            {
+                var expectedScene = packet["expectedScene"]?.GetValue<string>() ?? string.Empty;
+                var requestedScene = packet["scene"]?.GetValue<string>() ?? string.Empty;
+                if (expectedScene.Length > 128 || requestedScene.Length is 0 or > 128)
+                    throw new ProtocolException("invalid_scene", "scene is invalid");
+                await BroadcastServerPacketAsync(room, room.RequestScene(expectedScene, requestedScene), cancellationToken);
+                return;
+            }
+            if (packetType == "sleepRequest")
+            {
+                var mode = packet["mode"]?.GetValue<string>() ?? string.Empty;
+                if (mode is not ("short" or "tomorrow"))
+                    throw new ProtocolException("invalid_sleep_mode", "sleep mode is invalid");
+                var approval = room.RequestSleep(source.PeerId, mode);
+                if (approval is not null) await BroadcastServerPacketAsync(room, approval, cancellationToken);
+                return;
+            }
+            if (packetType is "playerState" or "playerLiveData" or "playerProfile")
+                packet["ownerId"] = source.PeerId; // 服务端覆盖来源，玩家不能冒充其他成员。
+            payload = packet.ToJsonString();
+            await BroadcastAsync(room, new { type = "room.message", sourcePeerId = source.PeerId, payload }, source, cancellationToken);
+            return;
+        }
         var message = new { type = "room.message", sourcePeerId = source.PeerId, payload };
 
         if (targetPeerId >= 0)
@@ -181,6 +281,12 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         target.Room = null;
         await TrySendAsync(target, new { type = "room.kicked", roomId = room.Id }, cancellationToken);
         target.Client.Dispose();
+        if (peerId == room.AuthorityPeerId)
+        {
+            await RemoveRoomAsync(room, "authority_kicked", cancellationToken);
+            await requester.SendAsync(new { type = "admin.ok", command = "admin.room.kick", roomId, peerId }, cancellationToken);
+            return;
+        }
         await BroadcastAsync(room, new { type = "room.playerLeft", peerId }, null, cancellationToken);
         await requester.SendAsync(new { type = "admin.ok", command = "admin.room.kick", roomId, peerId }, cancellationToken);
     }
@@ -247,6 +353,18 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         if (room is null) return;
         client.Room = null;
         room.Members.TryRemove(client.PeerId, out _);
+        room.Remove(client.PeerId);
+        if (room.ServerAuthoritative)
+        {
+            await BroadcastAsync(room, new { type = "room.playerLeft", peerId = client.PeerId }, null, cancellationToken);
+            return;
+        }
+        // 游戏时间和场景以创建者为权威。创建者离开后关闭房间，避免剩余玩家进入分裂世界。
+        if (client.PeerId == room.AuthorityPeerId)
+        {
+            await RemoveRoomAsync(room, "authority_left", cancellationToken);
+            return;
+        }
         await BroadcastAsync(room, new { type = "room.playerLeft", peerId = client.PeerId }, null, cancellationToken);
     }
 
@@ -299,6 +417,29 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         var destinations = room.Members.Values.Where(member => member != excluded).ToArray();
         await Task.WhenAll(destinations.Select(member => TrySendAsync(member, value, cancellationToken)));
     }
+
+    private async Task RunAuthoritativeClockAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(200));
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            foreach (var room in _rooms.Values.Where(item => item.ServerAuthoritative && !item.IsClosed))
+            {
+                var packet = room.CreateClockPacket();
+                if (packet is not null) await BroadcastServerPacketAsync(room, packet, cancellationToken);
+            }
+        }
+    }
+
+    private static Task BroadcastServerPacketAsync(Room room, object packet, CancellationToken cancellationToken) =>
+        BroadcastAsync(room, new { type = "room.message", sourcePeerId = 0,
+            payload = JsonSerializer.Serialize(packet) }, null, cancellationToken);
+
+    private static double ReadDouble(JsonObject packet, string name) =>
+        packet[name]?.GetValue<double>() is double value && double.IsFinite(value) ? value : 0;
+
+    private static int ReadInt(JsonObject packet, string name) =>
+        packet[name]?.GetValue<int>() is int value ? value : 0;
 
     private static void Configure(TcpClient client)
     {

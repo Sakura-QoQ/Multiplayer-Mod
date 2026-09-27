@@ -260,33 +260,16 @@ function createInitialOnlineSave(menu: MainMenu): void {
     });
 }
 
-function joinFromUi(): void {
-    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
-    const config = loadConfig();
-    const address = valueOr(uiAddress, config.address);
-    const port = Number(valueOr(uiPort, String(config.port)));
-    currentPlayerName = valueOr(uiName, config.playerName);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
-    UnityEngine.PlayerPrefs.Save();
-    updateStatusText(tr("status.connectingTo", { address, port }));
-    clientEntryStarted = false;
-    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
-    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
-    waitForBridgeResponse(mainMenuInstance, sequence, result => {
-        if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
-        role = "client";
-        localNetworkId = -1;
-    });
-}
-
 function stopFromUi(): void {
     try { bridgeCall("stop"); } catch (_error) { }
     role = "off";
+    networkTransport = "direct";
+    currentPublicRoom = "";
     localNetworkId = -1;
     clientEntryStarted = false;
+    serverTimeSeedSent = false;
+    authoritativeServerScene = "";
+    lastServerSceneRequest = "";
     clearRemotePlayers();
     outgoingMessages.splice(0, outgoingMessages.length);
     for (const key of Object.keys(sleepReady)) delete sleepReady[key];

@@ -19,6 +19,11 @@ internal static partial class Program
             AddEvent(bridgeEvent);
             changed = true;
         }
+        while (RoomRelay.TryPoll(out var roomEvent))
+        {
+            AddEvent(roomEvent);
+            changed = true;
+        }
         return changed;
     }
 
@@ -43,9 +48,12 @@ internal static partial class Program
             builder.Append("{\"protocol\":").Append(ProtocolVersion)
                 .Append(",\"running\":true")
                 .Append(",\"heartbeatUtcTicks\":").Append(DateTime.UtcNow.Ticks)
-                .Append(",\"state\":\"").Append(Escape(Node.State)).Append('"')
-                .Append(",\"port\":").Append(Node.BoundPort)
-                .Append(",\"peers\":").Append(Node.PeerCount)
+                .Append(",\"state\":\"").Append(Escape(RoomRelay.IsRunning ? RoomRelay.State : Node.State)).Append('"')
+                .Append(",\"transport\":\"").Append(RoomRelay.IsRunning ? "server" : "direct").Append('"')
+                .Append(",\"port\":").Append(RoomRelay.IsRunning ? RoomRelay.RemotePort : Node.BoundPort)
+                .Append(",\"peers\":").Append(RoomRelay.IsRunning ? RoomRelay.PeerCount : Node.PeerCount)
+                .Append(",\"localPeerId\":").Append(RoomRelay.IsRunning ? RoomRelay.LocalPeerId : 0)
+                .Append(",\"authorityPeerId\":").Append(RoomRelay.IsRunning ? RoomRelay.AuthorityPeerId : 0)
                 .Append(",\"responseSequence\":").Append(_responseSequence)
                 .Append(",\"response\":\"").Append(Escape(_response)).Append("\",\"saves\":[");
             for (var index = 0; index < saves.Count; index++)
