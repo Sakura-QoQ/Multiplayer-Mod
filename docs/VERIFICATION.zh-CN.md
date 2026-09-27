@@ -1,4 +1,9 @@
-# v0.14.0 验证报告
+# v0.14.1 验证报告
+
+- 修复重进线上存档后全场景交互点消失：不再拦截原版 `PlayerStatus.SetTime`，让读档期间依赖它的场景条件与交互注册完整刷新。
+- 修复学校课程结束后玩家永久失去控制：不再拦截剧情事务内部的 `AddTime/AddDay`；服务器权威时间改为在原版事务完成后通过 `worldTime` 校准。
+- 退出阶段仅在 `WindowManager.Singleton` 存活时查询窗口，避免 Unity 销毁单例后继续调用 `IsOpened` 的空引用。
+- 构建增加回归门：源码一旦重新注册这三个危险时间 Hook，打包会直接失败。
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
 - 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。

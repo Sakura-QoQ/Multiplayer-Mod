@@ -1,4 +1,9 @@
-# Verification — v0.14.0
+# Verification — v0.14.1
+
+- Fixed all scene interaction points disappearing after reopening an online save by allowing the native load transaction to call `PlayerStatus.SetTime` and refresh scene conditions/interactions.
+- Fixed the player remaining locked after a school class by allowing story transactions to complete their native `AddTime/AddDay` calls; authoritative `worldTime` now reconciles the phase afterward.
+- Window polling now requires a live `WindowManager.Singleton`, preventing the shutdown-time `IsOpened` null reference seen in `Player.log`.
+- The build now rejects any future attempt to register interception hooks for these three native time methods.
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
