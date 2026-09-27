@@ -3512,13 +3512,10 @@ function updateBridge(player: Player | null): void {
     // 房间时钟和玩家名单会变化，只读暂停页保持实时刷新。
     if (uiPanelMode === "room" && updateFrames % 10 === 0) refreshRoomInfoUi();
     updateRemotePlayers();
-    if (!bridgeAvailable || role === "off") return;
-    // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
-    keepOnlineWorldRunning();
-    updateOnlineWorldClock();
-    updateServerSceneAuthority();
+    if (!bridgeAvailable) return;
     // 状态文件只采样一次，再从内存队列处理事件。旧实现每处理一个事件都会重新读文件，
     // 会放大 Windows 共享冲突，并在完整资料包到达时阻塞 Unity 主线程。
+    // 房间浏览发生在 role="off" 阶段，因此必须先处理 room.list，再判断是否已进入会话。
     const pollNow = Number(UnityEngine.Time.unscaledTime);
     if (pollNow >= nextBridgePollAt) {
         // 与 20 Hz 玩家快照保持同一读取节拍，避免桥接层把多个状态包合并成一次可见更新。
@@ -3534,6 +3531,11 @@ function updateBridge(player: Player | null): void {
         const eventJson = pendingBridgeEvents.shift() || "";
         if (eventJson) processEvent(eventJson);
     }
+    if (role === "off") return;
+    // Unity 在 timeScale=0 时仍执行 Update；解除逻辑暂停与世界时钟，但不销毁暂停窗口。
+    keepOnlineWorldRunning();
+    updateOnlineWorldClock();
+    updateServerSceneAuthority();
     if (player) {
         const now = Number(UnityEngine.Time.unscaledTime);
         if (role === "client" && networkTransport !== "server" && now >= nextPresenceAt) {
