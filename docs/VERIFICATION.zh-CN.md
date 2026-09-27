@@ -1,4 +1,4 @@
-# v0.13.8 验证报告
+# v0.13.9 验证报告
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
 - 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。
@@ -56,10 +56,10 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、单人可睡到服务器权威的下一天、时钟按配置的 3,600 秒完整日以 240 个原生时段单位推进、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发及全员睡眠正常、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
+测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、单人可睡到服务器权威的下一天、时钟按配置的 3,600 秒完整日以 240 个原生时段单位推进、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、双向转发及全员睡眠正常、替补客户端取得已释放的最小 ID、静默连接由 TCP 空闲清理，并验证持续发送固定坐标的连接按挂机清理。全部测试玩家断开后，最终列表必须只包含空的常驻 `public-1`，不能变空，也不能残留多余空分片。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
 
 ```text
-PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
+PASS permanent public room, auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## 真实游戏证据

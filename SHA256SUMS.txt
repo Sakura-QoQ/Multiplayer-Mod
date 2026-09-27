@@ -1,1 +1,1 @@
-fd10077fbdc70d73eb6a3fd2411091ca9fda5f758c36711732f588445e1709fc  PlayerHostedMultiplayer-v0.13.8-win-x64.zip
+c956b633dc996ec7f70070b6aa81d83aca18cb4e503740c5b8efc56d74e4e523  PlayerHostedMultiplayer-v0.13.9-win-x64.zip

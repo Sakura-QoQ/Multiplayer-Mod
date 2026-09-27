@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.8-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.13.9-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.13.8-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.13.9-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -31,7 +31,7 @@ For local direct play, use **Host** or **Join** with an address and port. A dire
 
 ## Current behavior
 
-- The server starts with one real public room. When every room is full it creates the next room automatically; redundant empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
+- `public-1` is the permanent server room and remains listed when every player leaves. When every joinable room is full the server creates another room automatically; only redundant non-permanent empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
 - `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
 - The Ubuntu service is logical authority peer `0`. Every public player receives the room's smallest available positive ordinary-member ID; released IDs are reused immediately, and the first player has no special authority.
 - The server owns membership, the 5 Hz shared clock, scene arbitration and unanimous sleep approval. One complete game day lasts 3,600 real seconds. It relays player-owned state but does not run Unity gameplay or store player saves.

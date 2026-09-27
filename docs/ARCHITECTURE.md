@@ -43,7 +43,7 @@ Profile transfer is for remote appearance and player-information views. Receivin
 
 ## Room lifecycle
 
-1. The server creates one real public room at startup; `room.list` returns only actual rooms with live population and server-defined capacity.
+1. The server permanently maintains `public-1`; `room.list` returns actual rooms with live population and server-defined capacity even after every player leaves.
 2. `room.enter` joins the selected listed room without a password; public capacity is never supplied by a client.
 3. The server remains logical peer `0`; every player receives the smallest available positive member ID. A departed member's ID is immediately reusable, including ID `1`.
 4. When all public rooms are full the server creates the next numbered room. Redundant empty rooms are reclaimed while one joinable empty room is retained.

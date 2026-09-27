@@ -12,18 +12,18 @@
 
 ## 发行文件
 
-- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.8-win-x64.zip`
+- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.13.9-win-x64.zip`
 
 发布工作流会把玩家 ZIP 和校验文件上传到对应的公开 GitHub Release，也可以在 Actions 页面手动重新运行。服务器源码直接走自动部署流程，不生成服务器 ZIP。
 
 ## 安装与进入游戏
 
-1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.8-win-x64.zip`。
+1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.13.9-win-x64.zip`。
 2. 通过该启动器启动游戏。
 3. 点击主菜单“新建游戏”上方的“联机”。
 4. 输入玩家名，打开“公开服务器”，查看服务器管理的真实房间及实时人数/容量后选择房间。
 
-主菜单右下角会在原版游戏版本号左侧显示 `Multiplayer v0.13.8`。该文本直接读取 `mod/info.json`，与玩家 ZIP 文件名使用同一个版本来源。
+主菜单右下角会在原版游戏版本号左侧显示 `Multiplayer v0.13.9`。该文本直接读取 `mod/info.json`，与玩家 ZIP 文件名使用同一个版本来源。
 
 ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安装 Node.js、TypeScript、.NET、Visual Studio，也不需要额外启动脚本。Mod 不写 Windows 注册表、不安装服务、不请求提权，也不调用软件安装器；运行偏好只放在游戏内存，会话身份通过 Mod 自己的轮换 JSON 状态文件和线上存档文件名保持。公开服务器只需要出站 TCP；玩家电脑不开放入站端口。
 
@@ -33,7 +33,7 @@ ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安�
 
 ## 当前功能
 
-- 服务器启动时只建立一个真实公开房间；全部现有房间满员后才自动建立下一间，并回收多余空房间。公开房间容量只由服务器的 `FF_ROOM_MAX_PLAYERS` 决定。
+- `public-1` 是服务器常驻公开房间，所有玩家退出后仍会显示。全部可加入房间满员后才自动建立下一间，并只回收非常驻的多余空房间。公开房间容量只由服务器的 `FF_ROOM_MAX_PLAYERS` 决定。
 - 玩家 Mod 配置中的 `localMaxPlayers` 只用于本机建立本地直连房间；公开服务器玩家不能决定或降低房间容量。
 - Ubuntu 服务固定为逻辑权威 Peer `0`。公开玩家取得房间内最小的空闲正数 ID；玩家离开后编号立即复用，第一个玩家也没有特殊权限。
 - 服务器负责成员、5 Hz 统一时钟、场景裁决和全员睡眠批准；完整游戏日固定为现实 3,600 秒。它转发玩家数据，但不运行 Unity 游戏逻辑，也不保存玩家存档。

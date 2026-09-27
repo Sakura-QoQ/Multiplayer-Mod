@@ -1,4 +1,4 @@
-# Verification — v0.13.8
+# Verification — v0.13.9
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
@@ -56,10 +56,10 @@ The current room adapter self-test also passes when the test server is started w
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, a single player can sleep until the server-owned next day, the clock advances at 240 native period units per configured 3,600-second day, two ordinary clients fill the room, the server creates the next room, authority remains peer `0`, bidirectional relay and unanimous sleep work, a replacement receives the smallest released ID, a silent connection is removed by TCP inactivity cleanup, and a connection continuously sending a fixed position is removed as AFK. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
+With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, a single player can sleep until the server-owned next day, the clock advances at 240 native period units per configured 3,600-second day, two ordinary clients fill the room, the server creates the next room, authority remains peer `0`, bidirectional relay and unanimous sleep work, a replacement receives the smallest released ID, a silent connection is removed by TCP inactivity cleanup, and a connection continuously sending a fixed position is removed as AFK. After all test players disconnect, the final list must contain exactly the empty permanent `public-1` room and no redundant empty shard. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
 
 ```text
-PASS public room auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
+PASS permanent public room, auto-entry, one-hour clock, solo and unanimous sleep, TCP inactivity and AFK timeouts, reusable peer IDs, server authority and bidirectional relay
 ```
 
 ## Full-game evidence
