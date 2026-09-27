@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
-using Microsoft.Win32;
 
 namespace FallenFlower.MultiplayerBridgeHost;
 
@@ -25,9 +24,12 @@ internal static partial class Program
                 "roomCreate" => RestartRoomRelay(values, true),
                 "roomJoin" => RestartRoomRelay(values, false),
                 "publicEnter" => EnterPublicRoom(values),
+                "publicList" => ListPublicRooms(),
                 "send" => Send(values),
                 "beginSave" => BeginOnlineSave(values),
                 "prepareSave" => PrepareOnlineSave(values),
+                "releaseSave" => ReleasePreparedOnlineSave(),
+                "enableSaveWrites" => EnableOnlineSaveWrites(),
                 "renameSave" => RenameOnlineSave(values),
                 "flushSave" => FlushOnlineSave(),
                 "beginRawSave" => BeginRawOnlineSave(values),
@@ -55,9 +57,18 @@ internal static partial class Program
         return 0;
     }
 
+    private static int EnableOnlineSaveWrites()
+    {
+        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return -2;
+        _onlineSaveWritesEnabled = true;
+        return 0;
+    }
+
     private static int BeginRawOnlineSave(Dictionary<string, string> values)
     {
         var onlineName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
+        if (!_onlineSaveWritesEnabled) return -8;
+        if (!onlineName.Equals(_activeOnlineSaveName, StringComparison.Ordinal)) return -4;
         if (onlineName.Length == 0 ||
             !int.TryParse(values.GetValueOrDefault("chunks", "0"), out var chunks) || chunks < 1 || chunks > 2048)
             return -2;
@@ -82,6 +93,7 @@ internal static partial class Program
 
     private static int CommitRawOnlineSave()
     {
+        if (!_onlineSaveWritesEnabled) return -8;
         if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0 ||
             _rawSaveExpectedChunks <= 0 || _rawSaveReceivedChunks != _rawSaveExpectedChunks)
             return -2;
@@ -90,12 +102,18 @@ internal static partial class Program
             var json = RawSaveBuffer.ToString();
             using var document = JsonDocument.Parse(json);
             if (document.RootElement.ValueKind != JsonValueKind.Object) return -7;
+            // 保存时直接生成正式双层密文，不再落一个长期 MPActive 工作副本。
+            // 原子替换保证旧的 MPOnline 在新文件完整写成前始终可恢复。
+            var inner = EncryptGameSave(json);
+            var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
+            WriteAtomic(onlinePath, EncryptOuterLayer(inner));
+            var verified = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
+            if (!verified.AsSpan().SequenceEqual(inner)) return -5;
             var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
-            WriteAtomic(activePath, EncryptGameSave(json));
+            if (File.Exists(activePath)) File.Delete(activePath);
             ProtectedHashes.Remove(activePath);
-            var result = FlushOnlineSave();
-            if (result == 0) AddEvent(new BridgeEvent("saveFlushed", 0, _activeOnlineSaveName));
-            return result;
+            AddEvent(new BridgeEvent("saveFlushed", 0, _activeOnlineSaveName));
+            return 0;
         }
         catch (JsonException) { return -7; }
         finally
@@ -129,8 +147,8 @@ internal static partial class Program
         }
     }
 
-    // UcModLauncher 的 Jint 环境可以稳定写 Player.log，但 PlayerPrefs 不一定落入普通注册表。
-    // 这里只读取上次偏移之后的新内容，并且只接受带专用标记、整数序号和单行命令的记录。
+    // UcModLauncher 的 Jint 环境可以稳定写 Player.log。这里只读取上次偏移之后的新内容，
+    // 并且只接受带专用标记、整数序号和单行命令的记录，不访问 Windows 注册表。
     private static bool DrainGameLogCommands()
     {
         try
@@ -224,6 +242,14 @@ internal static partial class Program
             ReadInt(values, "max", 8));
     }
 
+    private static int ListPublicRooms()
+    {
+        Node.Stop();
+        RoomRelay.Stop();
+        var endpoint = PublicServerEndpoint.Decrypt();
+        return RoomRelay.ListPublicRooms(endpoint.Host, endpoint.Port);
+    }
+
     private static int Stop()
     {
         Node.Stop();
@@ -234,6 +260,7 @@ internal static partial class Program
     // 游戏脚本先提交完整 GetSave JSON；这里验证工作副本和正式双层密文已经一致。
     private static int FlushOnlineSave()
     {
+        if (!_onlineSaveWritesEnabled) return -8;
         RedirectOnlineAutoSave();
         // 退出前不能“尽力而为”后仍返回成功。只有当前 MPActive_ 已经被完整封装为
         // MPOnline_，并且正式档确实存在且非空，游戏端才可以继续执行原版退出回调。
@@ -249,7 +276,7 @@ internal static partial class Program
             if (!File.Exists(activePath) || new FileInfo(activePath).Length == 0) return -6;
             var active = File.ReadAllBytes(activePath);
             if (!active.AsSpan().StartsWith("Encrypted"u8)) return -5;
-            ProtectActiveSaves(deleteActive: false);
+            ProtectActiveSaves(deleteActive: true);
             if (File.Exists(onlinePath) && new FileInfo(onlinePath).Length > 0)
             {
                 var unpacked = DecryptOuterLayer(File.ReadAllBytes(onlinePath));

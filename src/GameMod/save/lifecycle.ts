@@ -124,6 +124,8 @@ function enterOnlineSave(): void {
     }
 
     const config = loadConfig();
+    onlineSaveWriteEnabled = false;
+    onlineSaveSessionReady = false;
     const forcedTestSave = BRIDGE_CHANNEL !== "default" && config.smokeTestOnlineLifecycle &&
         hasUuidV7OnlineName(config.smokeTestOnlineSaveName) ? config.smokeTestOnlineSaveName : "";
     if (forcedTestSave) {
@@ -218,9 +220,19 @@ function enterOnlineSave(): void {
                     log("Loaded online save: " + selectedSaveName);
                     // 原版晚加载不会再执行初始化阶段的 PlayerPosition；等订阅组件收尾后补应用场景位置。
                     JintCoroutine.WaitForSeconds(manager, 2, () => {
+                        // 原版晚加载在部分版本不会重新构建 PlayerCloth，显式应用存档中已装备服装。
+                        applyPreparedOnlineClothing();
                         applyPreparedOnlineLocation(() => {
+                            const releaseResult = submitBridgeCommandAndWait("releaseSave");
+                            if (releaseResult !== "0")
+                                log("Failed to release the temporary online-save working copy; error code=" + releaseResult);
+                            const enableResult = releaseResult === "0"
+                                ? submitBridgeCommandAndWait("enableSaveWrites") : "-8";
+                            onlineSaveWriteEnabled = enableResult === "0";
+                            onlineSaveSessionReady = onlineSaveWriteEnabled;
+                            if (!onlineSaveWriteEnabled)
+                                log("Online-save writes remain blocked because loading did not finish safely; error code=" + enableResult);
                             if (config.smokeTestOnlineLifecycle) waitForSavableGame(manager, () => {
-                                onlineSaveSessionReady = true;
                                 log("Diagnostics: resumed online save reached a playable state save=" + selectedSaveName);
                             });
                         });
@@ -233,6 +245,8 @@ function enterOnlineSave(): void {
 function createInitialOnlineSave(menu: MainMenu): void {
     // 磁盘上确实没有线上档时才从游戏的新游戏初始状态开始，绝不复制任何单机存档。
     selectedSaveName = makeOnlineSaveName();
+    onlineSaveWriteEnabled = false;
+    onlineSaveSessionReady = false;
     const activeName = activeSaveName(selectedSaveName);
     UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
     UnityEngine.PlayerPrefs.Save();
@@ -247,9 +261,11 @@ function createInitialOnlineSave(menu: MainMenu): void {
                 GameManager.SaveName = activeName;
                 // Jint 再入调用原生 SaveGame 会在部分版本留下 0 字节 StreamWriter 文件。
                 // 直接提交 GetSave JSON，由桥按原版算法生成第一层，再套 Mod 第二层。
-                const saveResult = writeOnlineSaveSnapshot(manager);
+                const enableResult = submitBridgeCommandAndWait("enableSaveWrites");
+                onlineSaveWriteEnabled = enableResult === "0";
+                const saveResult = onlineSaveWriteEnabled ? writeOnlineSaveSnapshot(manager) : enableResult;
                 if (saveResult === "0") {
-                    if (loadConfig().smokeTestOnlineLifecycle) onlineSaveSessionReady = true;
+                    onlineSaveSessionReady = true;
                     log("Diagnostics: first online save was committed to the formal encrypted container save=" + selectedSaveName);
                 } else log("Failed to commit the first online save; error code=" + saveResult);
                 closePanel();
@@ -263,6 +279,8 @@ function createInitialOnlineSave(menu: MainMenu): void {
 function stopFromUi(): void {
     try { bridgeCall("stop"); } catch (_error) { }
     role = "off";
+    onlineSaveWriteEnabled = false;
+    onlineSaveSessionReady = false;
     networkTransport = "direct";
     currentPublicRoom = "";
     localNetworkId = -1;

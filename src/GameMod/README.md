@@ -4,9 +4,9 @@ This directory is the editable source for the in-game Mod. `build.ps1` concatena
 `source-order.json` into `mod/main.ts` because UcModLauncher loads one script entry and does not
 resolve TypeScript modules. The generated file must not be edited directly.
 
-The production path is public-server mode: the three fixed buttons start `RoomRelayClient` through the
-bundled bridge, and all peers connect outbound to the Ubuntu room server. Address, room-ID, password
-and direct host/join controls are not exposed in the player UI.
+The main page keeps local direct Host/Join. Public servers requests the fixed room list and live
+population/capacity through the bundled bridge before the player selects a room. The public endpoint
+and room IDs stay hidden from editable UI configuration.
 
 - `core/`: shared protocol types, constants, state and runtime helpers.
 - `network/bridge/`: IPC state snapshots and bundled bridge process communication.
@@ -19,7 +19,7 @@ and direct host/join controls are not exposed in the player UI.
 - `player/state/`: frequent transform/action snapshots and per-frame remote rendering.
 - `save/`: online-save entry, redirection, protection and exit-save flow.
 - `ui/components/`: reusable Unity UI primitives. Pages construct controls through these helpers.
-- `ui/pages/`: one-click public-server selection, read-only pause room page and player lists.
+- `ui/pages/`: local Host/Join, public-room browser, read-only pause room page and player lists.
 - `ui/i18n/<language>/strings.json`: UI translations, organized by language abbreviation.
 - `hooks/`: the only game-hook registration and startup entry.
 - `diagnostics/`: dual-instance verification behavior; inactive on the default channel.

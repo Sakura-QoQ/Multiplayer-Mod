@@ -2,6 +2,10 @@
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function writeOnlineSaveSnapshot(manager: GameManager): string {
     if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
+    if (!onlineSaveWriteEnabled) {
+        log("Blocked an online-save write while the saved state is still loading");
+        return "-8";
+    }
     try {
         const raw = manager.GetSave() || "";
         if (!raw) { log("Online-save snapshot is empty"); return "-7"; }

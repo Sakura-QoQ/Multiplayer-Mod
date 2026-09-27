@@ -112,3 +112,67 @@ function enterPublicRoomFromUi(roomId: string): void {
     });
 }
 
+function startHostFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    const config = loadConfig();
+    const port = Number(valueOr(uiPort, String(config.port)));
+    currentPlayerName = valueOr(uiName, config.playerName);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.Save();
+    networkTransport = "direct";
+    updateStatusText(tr("status.startingHost", { port }));
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
+        role = "host";
+        localNetworkId = 0;
+        toast(tr("toast.hostStarted", { port }));
+        enterOnlineSave();
+    });
+}
+
+function joinFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    const config = loadConfig();
+    const address = valueOr(uiAddress, config.address || "127.0.0.1");
+    const port = Number(valueOr(uiPort, String(config.port)));
+    currentPlayerName = valueOr(uiName, config.playerName);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.Save();
+    networkTransport = "direct";
+    clientEntryStarted = false;
+    updateStatusText(tr("status.connectingTo", { address, port }));
+    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
+        role = "client";
+        localNetworkId = -1;
+    });
+}
+
+function requestPublicRoomListFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    openPanelMode("public");
+    updateStatusText(tr("status.loadingPublicRooms"));
+    const sequence = submitBridgeCommandTracked("publicList");
+    if (sequence < 0) toast(tr("toast.publicRoomListFailed"));
+}
+
+function refreshPublicRoomButtons(): void {
+    for (const roomId of ["public-1", "public-2", "public-3"]) {
+        const entry = publicRoomEntries.find(item => item.roomId === roomId);
+        const label = tr("publicRoom." + roomId) + "    " +
+            tr("publicRoom.players", { players: entry ? entry.players : 0, capacity: entry ? entry.capacity : 8 });
+        const button = uiPublicRoomButtons[roomId];
+        const text = button ? findTextInChildren(button.transform) : null;
+        if (text) text.text = label;
+    }
+}
+

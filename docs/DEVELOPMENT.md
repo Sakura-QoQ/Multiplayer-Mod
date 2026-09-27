@@ -13,6 +13,9 @@ Player machines need only the Mod ZIP and game launcher; production traffic uses
 Node.js and the TypeScript compiler are not used. The in-game files use TypeScript-style syntax
 under UcModLauncher's Jint environment and are assembled as text.
 
+The bridge never opens or modifies the Windows registry. Game-to-bridge commands use marked lines in
+Unity `Player.log`; bridge-to-game snapshots use rotating JSON files inside the Mod's `Bridge` directory.
+
 ## Build and install
 
 ```powershell

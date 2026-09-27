@@ -40,6 +40,9 @@ public sealed class RoomRelayClient : IDisposable
     public int EnterPublicRoom(string host, int port, string roomId, string playerName, int maxPlayers)
         => StartCore(host, port, "enter", roomId, string.Empty, roomId, playerName, maxPlayers);
 
+    public int ListPublicRooms(string host, int port)
+        => StartCore(host, port, "list", "public-list", string.Empty, string.Empty, "Player", 2);
+
     private int StartCore(string host, int port, string entryMode, string roomId, string roomKey,
         string roomName, string playerName, int maxPlayers)
     {
@@ -133,7 +136,9 @@ public sealed class RoomRelayClient : IDisposable
             client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
             _client = client;
             _sendLock = new SemaphoreSlim(1, 1);
-            var request = _entryMode == "create"
+            var request = _entryMode == "list"
+                ? "{\"type\":\"room.list\"}"
+                : _entryMode == "create"
                 ? "{\"type\":\"room.create\",\"roomId\":" + Quote(roomId) +
                     ",\"roomKey\":" + Quote(roomKey) + ",\"roomName\":" + Quote(roomName) +
                     ",\"playerName\":" + Quote(playerName) + ",\"maxPlayers\":" + maxPlayers + "}"
@@ -155,7 +160,7 @@ public sealed class RoomRelayClient : IDisposable
         {
             client.Dispose();
             Volatile.Write(ref _state, "stopped");
-            Enqueue(new BridgeEvent("disconnected", _isAuthority ? LocalPeerId : 0));
+            if (_entryMode != "list") Enqueue(new BridgeEvent("disconnected", _isAuthority ? LocalPeerId : 0));
         }
     }
 
@@ -168,6 +173,9 @@ public sealed class RoomRelayClient : IDisposable
             var type = root.TryGetProperty("type", out var typeElement) ? typeElement.GetString() ?? string.Empty : string.Empty;
             switch (type)
             {
+                case "room.list":
+                    Enqueue(new BridgeEvent("roomList", 0, root.GetRawText()));
+                    return;
                 case "room.ready":
                     var local = root.GetProperty("peerId").GetInt64();
                     // 兼容首版服务器：该版本按顺序从 1 分配 peerId，房间创建者固定为 1。

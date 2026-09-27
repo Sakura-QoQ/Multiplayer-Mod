@@ -1,7 +1,7 @@
 // 网络配置。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function loadConfig(): MultiplayerConfig {
-    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, maxPlayers: 8,
+    const defaults: MultiplayerConfig = { mode: "off", address: "127.0.0.1", port: 27777, maxPlayers: 8,
         playerName: "Player", roomId: "fallen-flower", roomKey: "", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
         smokeTestSceneSync: false, smokeTestSleepConsensus: false, smokeTestAppearance: false,
         smokeTestPhone: false, smokeTestPauseMenu: false, smokeTestOnlineLifecycle: false,

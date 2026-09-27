@@ -23,6 +23,10 @@ RegisterHook("System.Void GameManager::SaveGame(System.String)",
         const onlineName = onlineActiveSaveName();
         if (!onlineName) return;
         ctx.Intercept();
+        if (!onlineSaveWriteEnabled) {
+            log("Ignored the default autosave while the online save is loading");
+            return;
+        }
         GameManager.SaveName = onlineName;
         const result = writeOnlineSaveSnapshot(self);
         if (result === "0") log("Redirected the default autosave to the online save: " + onlineName);

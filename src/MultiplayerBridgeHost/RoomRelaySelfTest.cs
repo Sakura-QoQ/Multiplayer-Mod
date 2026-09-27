@@ -7,7 +7,16 @@ internal static partial class Program
 {
     private static async Task SelfTestRoomRelayAsync(string address, int port)
     {
-        var roomId = "selftest-" + Guid.NewGuid().ToString("N")[..12];
+        using (var browser = new RoomRelayClient())
+        {
+            if (browser.ListPublicRooms(address, port) != 0)
+                throw new InvalidOperationException("Could not request the public room list");
+            var listEvent = await WaitForEventAsync(browser, "roomList", TimeSpan.FromSeconds(10));
+            using var list = JsonDocument.Parse(listEvent.Message);
+            if (!list.RootElement.TryGetProperty("rooms", out var rooms) || rooms.GetArrayLength() < 3)
+                throw new InvalidOperationException("Public room list did not include the fixed rooms");
+        }
+        const string roomId = "public-1";
         using var creator = new RoomRelayClient();
         using var joiner = new RoomRelayClient();
         if (creator.EnterPublicRoom(address, port, roomId, "Creator", 4) != 0)
@@ -27,6 +36,18 @@ internal static partial class Program
         var joinerReady = await WaitForEventAsync(joiner, "roomReady", TimeSpan.FromSeconds(10));
         if (joinerReady.PeerId <= 0 || joinerReady.PeerId == creatorReady.PeerId)
             throw new InvalidOperationException("Joiner received an invalid peer ID");
+
+        using (var populatedBrowser = new RoomRelayClient())
+        {
+            if (populatedBrowser.ListPublicRooms(address, port) != 0)
+                throw new InvalidOperationException("Could not refresh the populated room list");
+            var populatedEvent = await WaitForEventAsync(populatedBrowser, "roomList", TimeSpan.FromSeconds(10));
+            using var populated = JsonDocument.Parse(populatedEvent.Message);
+            var listedRoom = populated.RootElement.GetProperty("rooms").EnumerateArray()
+                .FirstOrDefault(room => room.GetProperty("roomId").GetString() == roomId);
+            if (listedRoom.ValueKind == JsonValueKind.Undefined || listedRoom.GetProperty("players").GetInt32() != 2)
+                throw new InvalidOperationException("Public room population did not update to two players");
+        }
 
         _ = await WaitForEventAsync(joiner, "connected", TimeSpan.FromSeconds(5));
         const string creatorPayload = "{\"type\":\"selfTest\",\"value\":\"creator-to-member\"}";

@@ -1,6 +1,6 @@
 # Fallen Flower dedicated room server
 
-Required Docker public-room authority service for PlayerHostedMultiplayer v0.11.0. It does not run the game, read saves or simulate Unity gameplay. It validates the packet envelope and member identity, coordinates shared time/scene/sleep, and relays player-owned data without interpreting save-profile fields.
+Required Docker public-room authority service for PlayerHostedMultiplayer v0.12.0. It does not run the game, read saves or simulate Unity gameplay. It validates the packet envelope and member identity, coordinates shared time/scene/sleep, and relays player-owned data without interpreting save-profile fields.
 
 The service is logical authority peer `0`. It owns membership, the 5 Hz room clock, scene arbitration, unanimous sleep approval and moderation. Every player is an ordinary positive-ID member; one player leaving never grants authority to another or closes the public room.
 
@@ -72,21 +72,21 @@ Test-NetConnection 3.10.232.221 -Port 27777
 Fallen Flower room server listening on 0.0.0.0:27777
 ```
 
-## Update v0.11.0
+## Update v0.12.0
 
 The server update archive preserves the existing `server/.env` because the archive does not contain
 that file. After uploading it to `/tmp`:
 
 ```bash
-sudo unzip -o /tmp/FallenFlowerRoomServer-v0.11.0-source.zip -d /opt
+sudo unzip -o /tmp/FallenFlowerRoomServer-v0.12.0-source.zip -d /opt
 cd /opt/Multiplayer-Mod/server
 sudo docker compose up -d --build --force-recreate
 sudo docker compose ps
 sudo docker compose logs --tail=100 room-server
 ```
 
-After the v0.11.0 server is running, players only enter a name and select Public Server 1, 2 or 3.
-The endpoint and fixed room IDs are built into the Mod; public rooms do not use passwords.
+After v0.12.0 is running, Public servers displays the fixed rooms with live population/capacity.
+Players choose from that list; the endpoint and room IDs are built in and public rooms do not use passwords.
 
 ## Container security
 
@@ -125,6 +125,6 @@ in `room.ready`. It replaces `ownerId` in player state/profile packets with the 
 | --- | --- | --- |
 | Container shows `Restarting (1)` | Invalid configuration | Run `docker compose logs`; ensure `FF_ROOM_MAX_PLAYERS` is 2–32 |
 | TCP test fails | Cloud firewall or port mapping | Open TCP 27777 and confirm Compose publishes `0.0.0.0:27777->27777/tcp` |
-| Mod reports `unknown command` | Server is older than v0.11.0 | Upload this server source and rebuild the container |
+| Mod reports `unknown command` | Server is older than v0.12.0 | Upload this server source and rebuild the container |
 | Public room is full | The configured per-room limit was reached | Select another public server or increase `FF_ROOM_MAX_PLAYERS` and restart |
 | All players disconnect | Network or server interruption | Check the container; ordinary player exits do not close a public room |

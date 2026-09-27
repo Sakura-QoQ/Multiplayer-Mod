@@ -43,8 +43,10 @@ function prefKey(baseName: string): string {
 
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
     localPeerId: number; authorityPeerId: number };
+type PublicRoomEntry = { roomId: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
+    cloth: string[];
     position: { x: number; y: number; z: number } | null;
     rotation: { x: number; y: number; z: number } | null;
 };

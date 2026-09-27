@@ -16,8 +16,8 @@ type BridgeStateFile = {
     events?: { sequence: number; type: string; peerId: number; message?: string }[];
 };
 
-// 联机桥是随 Mod 打包的独立程序。脚本只使用游戏官方允许的 PlayerPrefs 和 ReadModFile，
-// 不再向游戏根目录注入 DLL，因此不会触发游戏的 AntiTamperChecker。
+// 联机桥是随 Mod 打包的独立程序。命令经 Player.log 传出，状态经 ReadModFile 读取；
+// 不访问注册表，也不再向游戏根目录注入 DLL，因此不会触发 AntiTamperChecker。
 function readBridgeState(): BridgeStateFile | null {
     try {
         // 桥接写当前 50ms 槽，游戏读取两个槽之前的不可变快照。三槽轮转让
@@ -93,6 +93,17 @@ function applyPreparedOnlineLocation(onApplied?: () => void): void {
         catch (error) { log("Failed to restore the online-save scene: " + error); }
     }
     applyTransform();
+}
+
+function applyPreparedOnlineClothing(): void {
+    const metadata = preparedOnlineSaveMetadata;
+    if (!metadata || !Array.isArray(metadata.cloth)) return;
+    try {
+        const player = Player.LocalPlayer;
+        if (!player || !player.cloth) return;
+        setRuntimeClothes(player.cloth, metadata.cloth.map(id => String(id)).slice(0, 128));
+        log("Restored online-save clothing: items=" + metadata.cloth.length);
+    } catch (error) { log("Failed to restore online-save clothing: " + error); }
 }
 
 function bridgeStateIsFresh(state: BridgeStateFile | null): boolean {
@@ -183,7 +194,7 @@ function submitBridgeCommandAndWait(command: string, timeoutMilliseconds = 5000)
     return "-9";
 }
 
-// PlayerPrefs 只有一个命令槽。关键操作必须等待桥接程序回写相同序号，不能依赖固定延时，
+// Player.log 命令带有唯一序号。关键操作必须等待桥接程序回写相同序号，不能依赖固定延时，
 // 否则慢硬盘或首次启动时 prepareSave 会被后续 LoadGame 抢跑。
 function waitForBridgeResponse(owner: UnityEngine.MonoBehaviour, sequence: number,
     callback: (result: string) => void, remaining = 360): void {

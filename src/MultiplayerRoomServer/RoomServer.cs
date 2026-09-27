@@ -11,6 +11,7 @@ namespace FallenFlower.MultiplayerRoomServer;
 internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposable
 {
     private const int ProtocolVersion = 1;
+    private static readonly string[] PublicRoomIds = ["public-1", "public-2", "public-3"];
     private readonly ConcurrentDictionary<string, Room> _rooms = new(StringComparer.OrdinalIgnoreCase);
     private readonly TcpListener _listener = new(options.ListenAddress, options.Port);
     private readonly CancellationTokenSource _shutdown = new();
@@ -170,6 +171,8 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
         EnsureNotInRoom(client);
         var roomId = FrameProtocol.RequiredString(root, "roomId", 48);
         if (!RoomIdPattern().IsMatch(roomId)) throw new ProtocolException("invalid_room_id", "roomId contains invalid characters");
+        if (!PublicRoomIds.Contains(roomId, StringComparer.OrdinalIgnoreCase))
+            throw new ProtocolException("unknown_public_room", "public room is not available");
         var roomName = FrameProtocol.OptionalString(root, "roomName", 80);
         var playerName = FrameProtocol.RequiredString(root, "playerName", 64);
         var requestedCapacity = root.TryGetProperty("maxPlayers", out var capacityElement) && capacityElement.TryGetInt32(out var parsed)
@@ -326,9 +329,13 @@ internal sealed partial class RoomServer(ServerOptions options) : IAsyncDisposab
 
     private async Task SendRoomListAsync(ClientConnection client, CancellationToken cancellationToken)
     {
-        var rooms = _rooms.Values.Where(room => !room.IsClosed && room.Key.Length == 0)
-            .OrderBy(room => room.Id).Take(500)
-            .Select(room => new { roomId = room.Id, roomName = room.Name, players = room.Members.Count, capacity = room.Capacity })
+        var rooms = PublicRoomIds.Select(roomId =>
+        {
+            var exists = _rooms.TryGetValue(roomId, out var room) && !room.IsClosed;
+            return new { roomId, roomName = roomId,
+                players = exists ? room!.Members.Count : 0,
+                capacity = exists ? room!.Capacity : options.MaxPlayersPerRoom };
+        })
             .ToArray();
         await client.SendAsync(new { type = "room.list", rooms }, cancellationToken);
     }

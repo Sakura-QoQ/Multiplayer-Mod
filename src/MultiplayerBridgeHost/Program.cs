@@ -4,15 +4,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
-using Microsoft.Win32;
 
 namespace FallenFlower.MultiplayerBridgeHost;
 
 internal static partial class Program
 {
-    private const string RegistryPath = @"Software\DefaultCompany\FallenFlower";
-    private const string CommandValueName = "MPB.IpcCommand";
-    private const string SequenceValueName = "MPB.IpcCommandSequence";
     private const int ProtocolVersion = 8;
     private const int MaxRetainedEvents = 128;
     private const string OnlineSavePrefix = "MPOnline_";
@@ -36,14 +32,13 @@ internal static partial class Program
     private static readonly Dictionary<string, string> ProtectedHashes = new(StringComparer.OrdinalIgnoreCase);
     private static string _activeOnlineSaveName = string.Empty;
     private static string _activeSaveDirectory = string.Empty;
+    private static bool _onlineSaveWritesEnabled;
     private static byte[]? _singlePlayerAutoSaveBackup;
     private static bool _singlePlayerAutoSaveExisted;
     private static string _autoSaveObservedHash = string.Empty;
     private static long _gameLogPosition;
     private static string _gameLogRemainder = string.Empty;
     private static string _channel = "default";
-    private static string _commandValueName = CommandValueName;
-    private static string _sequenceValueName = SequenceValueName;
     private static string _logCommandMarker = DefaultLogCommandMarker;
     private static string? _gameLogPathOverride;
     private static string _saveProtectionName = string.Empty;
@@ -92,20 +87,15 @@ internal static partial class Program
         var bridgeDirectory = AppContext.BaseDirectory;
         var statePath = Path.Combine(bridgeDirectory,
             _channel == "default" ? "state.json" : $"state.{_channel}.json");
-        using var registry = Registry.CurrentUser.CreateSubKey(RegistryPath, true);
-        if (registry is null) return;
-
-        var lastCommandSequence = ReadInt(registry, _sequenceValueName);
         var startedAt = Stopwatch.StartNew();
         var gameWasSeen = false;
         var noProcessSince = Stopwatch.StartNew();
         var saveProtectionTimer = Stopwatch.StartNew();
         var stateWriteTimer = Stopwatch.StartNew();
         InitializeGameLogPosition();
-        // 上次游戏异常退出时也只补做正式档封装，不删除运行期工作档。
-        // 工作档是可恢复的最后一道保险，正式档写入失败时不能让玩家进度一起消失。
+        // 兼容旧版遗留的工作档：先补做正式档封装，再删除工作档。
         if (!_networkOnly && Process.GetProcessesByName("FallenFlower").Length == 0)
-            ProtectActiveSaves(deleteActive: false);
+            ProtectActiveSaves(deleteActive: true);
         WriteState(statePath);
 
         try
@@ -114,14 +104,6 @@ internal static partial class Program
             {
                 var dirty = DrainNetworkEvents();
                 if (DrainGameLogCommands()) dirty = true;
-                var currentSequence = ReadInt(registry, _sequenceValueName);
-                if (currentSequence != lastCommandSequence)
-                {
-                    lastCommandSequence = currentSequence;
-                    var command = ReadString(registry, _commandValueName);
-                    HandleCommand(command, currentSequence);
-                    dirty = true;
-                }
 
                 // 有大量位置包时最多 20 Hz 刷新状态，完整保留 20 Hz 玩家快照；空闲时仍每秒刷新心跳。
                 // 三槽快照由游戏读取旧槽，避免桥接写入与 ReadModFile 竞争同一路径。
@@ -134,8 +116,12 @@ internal static partial class Program
                 // 定期保护工作副本，并兼容旧版脚本可能留下的原版自动存档写入。
                 if (!_networkOnly && saveProtectionTimer.ElapsedMilliseconds >= 500)
                 {
-                    RedirectOnlineAutoSave();
-                    ProtectActiveSaves(deleteActive: false);
+                    // 已有存档处于只读加载阶段时，桥接层也禁止封装或替换正式档。
+                    if (_activeOnlineSaveName.Length == 0 || _onlineSaveWritesEnabled)
+                    {
+                        RedirectOnlineAutoSave();
+                        ProtectActiveSaves(deleteActive: false);
+                    }
                     saveProtectionTimer.Restart();
                 }
 
@@ -176,11 +162,17 @@ internal static partial class Program
         {
             if (!_networkOnly)
             {
-                RedirectOnlineAutoSave();
-                // 退出时生成/刷新双层加密的 MPOnline 正式档，同时保留 MPActive 工作档。
-                // 下一次联机优先继续同一 UUID，不能把一次正常退出变成“重新建档”。
-                ProtectActiveSaves(deleteActive: false);
-                EnsureActiveRecoveryCopy();
+                if (_onlineSaveWritesEnabled)
+                {
+                    RedirectOnlineAutoSave();
+                    // 退出时封装可能由旧版自动保存留下的工作档；正式 MPOnline 是唯一持久存档。
+                    ProtectActiveSaves(deleteActive: true);
+                }
+                else
+                {
+                    // 载入未完成就退出时只删除解密工作副本，绝不改写正式线上档。
+                    _ = ReleasePreparedOnlineSave();
+                }
                 RestoreSinglePlayerAutoSave();
             }
             Node.Dispose();
@@ -193,8 +185,6 @@ internal static partial class Program
     private static void ConfigureInstance(string[] args)
     {
         _channel = NormalizeChannel(ReadArgument(args, "--channel") ?? "default");
-        _commandValueName = ChannelName(CommandValueName);
-        _sequenceValueName = ChannelName(SequenceValueName);
         _logCommandMarker = _channel == "default"
             ? DefaultLogCommandMarker
             : $"[PlayerHostedMultiplayerIPC:{_channel}]";
@@ -220,10 +210,6 @@ internal static partial class Program
             char.IsAsciiLetterOrDigit(character) || character is '-' or '_').Take(32).ToArray());
         return string.IsNullOrWhiteSpace(normalized) ? "default" : normalized.ToLowerInvariant();
     }
-
-    private static string ChannelName(string baseName) =>
-        _channel == "default" ? baseName : baseName + "." + _channel;
-
 
     // 小型状态载体与主循环放在同一文件，其他实现位于同目录 partial 文件。
     private readonly record struct StateEvent(long Sequence, string Type, long PeerId, string Message);

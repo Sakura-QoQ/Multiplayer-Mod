@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
-using Microsoft.Win32;
 
 namespace FallenFlower.MultiplayerBridgeHost;
 
@@ -34,6 +33,7 @@ internal static partial class Program
 
     private static int PrepareOnlineSave(Dictionary<string, string> values, string? saveDirectoryOverride = null)
     {
+        _onlineSaveWritesEnabled = false;
         var onlineName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
         var strictName = values.GetValueOrDefault("strict", string.Empty) == "1";
         var saveDirectory = saveDirectoryOverride ?? GetSaveDirectory();
@@ -78,6 +78,26 @@ internal static partial class Program
         return 0;
     }
 
+    // MPOnline 带有 Mod 外层加密，原版游戏只能读取临时解出的 Encrypted 工作文件。
+    // 游戏确认加载完成后立即删除工作文件，因此稳定状态下每个角色只保留一个 MPOnline 文件。
+    private static int ReleasePreparedOnlineSave()
+    {
+        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return -2;
+        var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
+        var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
+        try
+        {
+            if (!File.Exists(onlinePath) || new FileInfo(onlinePath).Length == 0) return -5;
+            _ = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
+            if (File.Exists(activePath)) File.Delete(activePath);
+            ProtectedHashes.Remove(activePath);
+            return 0;
+        }
+        catch (IOException) { return -6; }
+        catch (UnauthorizedAccessException) { return -6; }
+        catch (CryptographicException) { return -5; }
+    }
+
     private static string FindLatestOnlineSaveName(string saveDirectory)
     {
         try
@@ -101,6 +121,7 @@ internal static partial class Program
     {
         var onlineName = NormalizeOnlineSaveName(values.GetValueOrDefault("name", string.Empty));
         if (onlineName.Length == 0) return -2;
+        _onlineSaveWritesEnabled = false;
         BeginOnlineSaveSession(onlineName);
         return 0;
     }
@@ -142,7 +163,7 @@ internal static partial class Program
 
     private static void RedirectOnlineAutoSave()
     {
-        if (_activeOnlineSaveName.Length == 0) return;
+        if (_activeOnlineSaveName.Length == 0 || !_onlineSaveWritesEnabled) return;
         try
         {
             var saveDirectory = _activeSaveDirectory;
@@ -177,6 +198,7 @@ internal static partial class Program
         catch { }
         _activeOnlineSaveName = string.Empty;
         _activeSaveDirectory = string.Empty;
+        _onlineSaveWritesEnabled = false;
         _singlePlayerAutoSaveBackup = null;
         _singlePlayerAutoSaveExisted = false;
         _autoSaveObservedHash = string.Empty;

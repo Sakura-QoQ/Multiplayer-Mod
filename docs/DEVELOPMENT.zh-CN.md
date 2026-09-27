@@ -13,6 +13,9 @@
 项目不使用 Node.js 或 TypeScript 编译器。游戏脚本在 UcModLauncher 的 Jint 环境中运行，
 构建时只是按照清单合并 TypeScript 风格的源码文本。
 
+桥接程序不会打开或修改 Windows 注册表。游戏到桥接的命令使用 Unity `Player.log` 中的专用标记行；
+桥接到游戏的状态使用 Mod `Bridge` 目录内的轮换 JSON 文件。
+
 ## 构建和安装
 
 ```powershell

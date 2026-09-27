@@ -47,8 +47,10 @@ function prefKey(baseName: string): string {
 
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
     localPeerId: number; authorityPeerId: number };
+type PublicRoomEntry = { roomId: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
+    cloth: string[];
     position: { x: number; y: number; z: number } | null;
     rotation: { x: number; y: number; z: number } | null;
 };
@@ -167,7 +169,7 @@ const PRESENCE_INTERVAL = 5;
 // 游戏切换场景时会重新执行 Mod 脚本。代次编号可让旧回调自动失效，避免重复轮询和重复按钮事件。
 const SCRIPT_GENERATION = Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) + 1;
 UnityEngine.PlayerPrefs.SetInt(GENERATION_KEY, SCRIPT_GENERATION);
-// 立即落盘也让独立桥接程序与游戏使用同一组 Windows PlayerPrefs 注册表值。
+// 立即保存脚本世代号，防止场景切换后旧脚本继续处理 UI 或网络事件。
 UnityEngine.PlayerPrefs.Save();
 
 // ===== 模块: core/state.ts =====
@@ -205,11 +207,13 @@ let updateFrames = 0;
 let uiRoot: UnityEngine.GameObject | null = null;
 let uiPanel: UnityEngine.GameObject | null = null;
 let uiConfigBody: UnityEngine.GameObject | null = null;
+let uiLocalBody: UnityEngine.GameObject | null = null;
+let uiPublicRoomsBody: UnityEngine.GameObject | null = null;
 let uiRoomInfoBody: UnityEngine.GameObject | null = null;
 let uiRoomSummary: UnityEngine.UI.Text | null = null;
 let uiRoomTime: UnityEngine.UI.Text | null = null;
 let uiRoomPlayers: UnityEngine.UI.Text | null = null;
-let uiPanelMode: "closed" | "config" | "room" = "closed";
+let uiPanelMode: "closed" | "config" | "local" | "public" | "room" = "closed";
 let lastRoomInfoSignature = "";
 let uiTitle: UnityEngine.UI.Text | null = null;
 let uiStatus: UnityEngine.UI.Text | null = null;
@@ -219,6 +223,10 @@ let uiPlayerListTitle: UnityEngine.UI.Text | null = null;
 let uiPlayerListCount: UnityEngine.UI.Text | null = null;
 let uiPlayerListBody: UnityEngine.UI.Text | null = null;
 let uiName: UnityEngine.UI.InputField | null = null;
+let uiAddress: UnityEngine.UI.InputField | null = null;
+let uiPort: UnityEngine.UI.InputField | null = null;
+const uiPublicRoomButtons: Record<string, UnityEngine.GameObject> = {};
+let publicRoomEntries: PublicRoomEntry[] = [];
 let uiMenuButton: UnityEngine.GameObject | null = null;
 let uiPauseButton: UnityEngine.GameObject | null = null;
 let pauseButtonLayout: { setting: UnityEngine.UI.Button; multiplayer: UnityEngine.UI.Button; load: UnityEngine.UI.Button;
@@ -398,8 +406,8 @@ type BridgeStateFile = {
     events?: { sequence: number; type: string; peerId: number; message?: string }[];
 };
 
-// 联机桥是随 Mod 打包的独立程序。脚本只使用游戏官方允许的 PlayerPrefs 和 ReadModFile，
-// 不再向游戏根目录注入 DLL，因此不会触发游戏的 AntiTamperChecker。
+// 联机桥是随 Mod 打包的独立程序。命令经 Player.log 传出，状态经 ReadModFile 读取；
+// 不访问注册表，也不再向游戏根目录注入 DLL，因此不会触发 AntiTamperChecker。
 function readBridgeState(): BridgeStateFile | null {
     try {
         // 桥接写当前 50ms 槽，游戏读取两个槽之前的不可变快照。三槽轮转让
@@ -475,6 +483,17 @@ function applyPreparedOnlineLocation(onApplied?: () => void): void {
         catch (error) { log("Failed to restore the online-save scene: " + error); }
     }
     applyTransform();
+}
+
+function applyPreparedOnlineClothing(): void {
+    const metadata = preparedOnlineSaveMetadata;
+    if (!metadata || !Array.isArray(metadata.cloth)) return;
+    try {
+        const player = Player.LocalPlayer;
+        if (!player || !player.cloth) return;
+        setRuntimeClothes(player.cloth, metadata.cloth.map(id => String(id)).slice(0, 128));
+        log("Restored online-save clothing: items=" + metadata.cloth.length);
+    } catch (error) { log("Failed to restore online-save clothing: " + error); }
 }
 
 function bridgeStateIsFresh(state: BridgeStateFile | null): boolean {
@@ -565,7 +584,7 @@ function submitBridgeCommandAndWait(command: string, timeoutMilliseconds = 5000)
     return "-9";
 }
 
-// PlayerPrefs 只有一个命令槽。关键操作必须等待桥接程序回写相同序号，不能依赖固定延时，
+// Player.log 命令带有唯一序号。关键操作必须等待桥接程序回写相同序号，不能依赖固定延时，
 // 否则慢硬盘或首次启动时 prepareSave 会被后续 LoadGame 抢跑。
 function waitForBridgeResponse(owner: UnityEngine.MonoBehaviour, sequence: number,
     callback: (result: string) => void, remaining = 360): void {
@@ -610,7 +629,7 @@ function bridgeCall(command: string): string {
 // 网络配置。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function loadConfig(): MultiplayerConfig {
-    const defaults: MultiplayerConfig = { mode: "off", address: "", port: 27777, maxPlayers: 8,
+    const defaults: MultiplayerConfig = { mode: "off", address: "127.0.0.1", port: 27777, maxPlayers: 8,
         playerName: "Player", roomId: "fallen-flower", roomKey: "", smokeTestAutoLoad: false, smokeTestUiOpen: false, smokeTestMotion: false,
         smokeTestSceneSync: false, smokeTestSleepConsensus: false, smokeTestAppearance: false,
         smokeTestPhone: false, smokeTestPauseMenu: false, smokeTestOnlineLifecycle: false,
@@ -854,6 +873,70 @@ function enterPublicRoomFromUi(roomId: string): void {
     });
 }
 
+function startHostFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    const config = loadConfig();
+    const port = Number(valueOr(uiPort, String(config.port)));
+    currentPlayerName = valueOr(uiName, config.playerName);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.Save();
+    networkTransport = "direct";
+    updateStatusText(tr("status.startingHost", { port }));
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.maxPlayers);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
+        role = "host";
+        localNetworkId = 0;
+        toast(tr("toast.hostStarted", { port }));
+        enterOnlineSave();
+    });
+}
+
+function joinFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    const config = loadConfig();
+    const address = valueOr(uiAddress, config.address || "127.0.0.1");
+    const port = Number(valueOr(uiPort, String(config.port)));
+    currentPlayerName = valueOr(uiName, config.playerName);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
+    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
+    UnityEngine.PlayerPrefs.Save();
+    networkTransport = "direct";
+    clientEntryStarted = false;
+    updateStatusText(tr("status.connectingTo", { address, port }));
+    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
+    if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
+    waitForBridgeResponse(mainMenuInstance, sequence, result => {
+        if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
+        role = "client";
+        localNetworkId = -1;
+    });
+}
+
+function requestPublicRoomListFromUi(): void {
+    if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
+    openPanelMode("public");
+    updateStatusText(tr("status.loadingPublicRooms"));
+    const sequence = submitBridgeCommandTracked("publicList");
+    if (sequence < 0) toast(tr("toast.publicRoomListFailed"));
+}
+
+function refreshPublicRoomButtons(): void {
+    for (const roomId of ["public-1", "public-2", "public-3"]) {
+        const entry = publicRoomEntries.find(item => item.roomId === roomId);
+        const label = tr("publicRoom." + roomId) + "    " +
+            tr("publicRoom.players", { players: entry ? entry.players : 0, capacity: entry ? entry.capacity : 8 });
+        const button = uiPublicRoomButtons[roomId];
+        const text = button ? findTextInChildren(button.transform) : null;
+        if (text) text.text = label;
+    }
+}
+
 // ===== 模块: save/lifecycle.ts =====
 // 线上存档进入流程。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
@@ -1075,7 +1158,12 @@ function enterOnlineSave(): void {
                     log("Loaded online save: " + selectedSaveName);
                     // 原版晚加载不会再执行初始化阶段的 PlayerPosition；等订阅组件收尾后补应用场景位置。
                     JintCoroutine.WaitForSeconds(manager, 2, () => {
+                        // 原版晚加载在部分版本不会重新构建 PlayerCloth，显式应用存档中已装备服装。
+                        applyPreparedOnlineClothing();
                         applyPreparedOnlineLocation(() => {
+                            const releaseResult = submitBridgeCommandAndWait("releaseSave");
+                            if (releaseResult !== "0")
+                                log("Failed to release the temporary online-save working copy; error code=" + releaseResult);
                             if (config.smokeTestOnlineLifecycle) waitForSavableGame(manager, () => {
                                 onlineSaveSessionReady = true;
                                 log("Diagnostics: resumed online save reached a playable state save=" + selectedSaveName);
@@ -1141,7 +1229,7 @@ function stopFromUi(): void {
 // 消息队列与校验。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function send(peerId: number, message: any): void {
-    // PlayerPrefs 是单槽 IPC，连续写入会覆盖尚未被桥接程序读取的命令，因此先进入游戏侧队列。
+    // 命令最终写入 Player.log；先进入游戏侧队列以控制每帧发送量和消息优先级。
     const data = JSON.stringify(message);
     const type = String(message && message.type || "");
     const priority = type === "playerState" || type === "worldTime" ? 1 :
@@ -2392,6 +2480,22 @@ function processEvent(rawEvent: string): void {
         }
         return;
     }
+    if (event.type === "roomList") {
+        try {
+            const payload = JSON.parse(event.message || "{}");
+            publicRoomEntries = Array.isArray(payload.rooms) ? payload.rooms.map((room: any) => ({
+                roomId: String(room.roomId || ""),
+                players: Math.max(0, Math.trunc(Number(room.players) || 0)),
+                capacity: Math.max(0, Math.trunc(Number(room.capacity) || 0))
+            })).filter((room: PublicRoomEntry) => room.roomId.length > 0) : [];
+            refreshPublicRoomButtons();
+            updateStatusText(tr("status.publicRoomsReady"));
+        } catch (error) {
+            log("Failed to parse the public room list: " + error);
+            toast(tr("toast.publicRoomListFailed"));
+        }
+        return;
+    }
     if (event.type === "connected") {
         log("Connection established peer=" + event.peerId);
         // 公开服务器模式没有玩家房主；正数 peer 只表示其他普通成员发生变化。
@@ -2566,12 +2670,15 @@ function processPlayerProfilePacket(packet: PlayerProfilePacket, sourcePeerId: n
 // ===== 模块: ui/pages/panel-state.ts =====
 // 联机面板状态统一由这里切换，避免配置页和只读房间页各自修改可见性。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
-function setPanelMode(mode: "closed" | "config" | "room"): void {
+function setPanelMode(mode: "closed" | "config" | "local" | "public" | "room"): void {
     uiPanelMode = mode;
     const roomVisible = mode === "room";
     if (uiConfigBody) uiConfigBody.SetActive(mode === "config");
+    if (uiLocalBody) uiLocalBody.SetActive(mode === "local");
+    if (uiPublicRoomsBody) uiPublicRoomsBody.SetActive(mode === "public");
     if (uiRoomInfoBody) uiRoomInfoBody.SetActive(roomVisible);
-    if (uiTitle) uiTitle.text = tr(roomVisible ? "room.title" : "panel.title");
+    if (uiTitle) uiTitle.text = tr(roomVisible ? "room.title" :
+        mode === "local" ? "local.title" : mode === "public" ? "publicRoom.title" : "panel.title");
     if (uiPanel) uiPanel.SetActive(mode !== "closed");
 
     if (mode === "config") {
@@ -2584,7 +2691,7 @@ function setPanelMode(mode: "closed" | "config" | "room"): void {
     }
 }
 
-function openPanelMode(mode: "config" | "room"): void {
+function openPanelMode(mode: "config" | "local" | "public" | "room"): void {
     if (!uiPanel) return;
     syncGameLanguage();
     setPanelMode(mode);
@@ -2906,18 +3013,28 @@ function refreshLocalizedUi(): void {
         const root = uiPanel.transform;
         const labels: Record<string, string> = {
             NameLabel: "field.playerName",
+            AddressLabel: "field.address",
+            PortLabel: "field.port",
             Stop: "button.stop",
-            PublicTitle: "publicRoom.title",
-            PublicRoom1: "publicRoom.public-1",
-            PublicRoom2: "publicRoom.public-2",
-            PublicRoom3: "publicRoom.public-3",
+            LocalMultiplayer: "button.localMultiplayer",
+            PublicServers: "button.publicServers",
+            Host: "button.host",
+            Join: "button.join",
+            LocalBack: "button.back",
+            PublicBack: "button.back",
+            RefreshRooms: "button.refresh",
+            PublicHint: "publicRoom.choose",
             Privacy: "privacy",
             Save: "save.notRead",
             Cancel: "button.cancel"
         };
         for (const name of Object.keys(labels)) setChildText(root, name, tr(labels[name]));
         try { if (uiName && uiName.placeholder) (uiName.placeholder as UnityEngine.UI.Text).text = tr("placeholder.playerName"); } catch (_error) { }
-        if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" : "panel.title");
+        try { if (uiAddress && uiAddress.placeholder) (uiAddress.placeholder as UnityEngine.UI.Text).text = tr("placeholder.address"); } catch (_error) { }
+        try { if (uiPort && uiPort.placeholder) (uiPort.placeholder as UnityEngine.UI.Text).text = tr("placeholder.port"); } catch (_error) { }
+        if (uiTitle) uiTitle.text = tr(uiPanelMode === "room" ? "room.title" :
+            uiPanelMode === "local" ? "local.title" : uiPanelMode === "public" ? "publicRoom.title" : "panel.title");
+        refreshPublicRoomButtons();
         refreshPlayerListUi(true);
         if (uiPanelMode === "room") {
             lastRoomInfoSignature = "";
@@ -3184,17 +3301,40 @@ function buildUi(font: any): void {
         (uiStatus as any).alignment = 4;
         makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 82, 135, 46, 24);
         uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 80, 520);
-        makeText(configBody.transform, "PublicTitle", tr("publicRoom.title"), font, 30, 145, 660, 42, 27);
-        makeButton(configBody.transform, "PublicRoom1", tr("publicRoom.public-1"), font, 30, 198, 205, () => enterPublicRoomFromUi("public-1"), 56);
-        makeButton(configBody.transform, "PublicRoom2", tr("publicRoom.public-2"), font, 257, 198, 205, () => enterPublicRoomFromUi("public-2"), 56);
-        makeButton(configBody.transform, "PublicRoom3", tr("publicRoom.public-3"), font, 484, 198, 205, () => enterPublicRoomFromUi("public-3"), 56);
-        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 270, 205, stopFromUi, 52);
+        makeButton(configBody.transform, "LocalMultiplayer", tr("button.localMultiplayer"), font, 30, 160, 319, () => openPanelMode("local"), 58);
+        makeButton(configBody.transform, "PublicServers", tr("button.publicServers"), font, 370, 160, 319, requestPublicRoomListFromUi, 58);
+        makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 240, 205, stopFromUi, 52);
         // 联机存档由建房流程自动选择最近的有效存档，不再创建“选择存档”子页面，
         // 也不提供与自动续档规则冲突的“新建线上存档”按钮。
-        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 342, 660, 70, 18);
-        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 420, 660, 200, 18);
+        makeText(configBody.transform, "Privacy", tr("privacy"), font, 30, 320, 660, 70, 18);
+        uiPlayerInfo = makeText(configBody.transform, "Players", tr("players.title"), font, 30, 405, 660, 200, 18);
         (uiPlayerInfo as any).alignment = 0;
         refreshPlayerInfoUi();
+
+        uiLocalBody = makeSolidRect(shell.panel.transform, "LocalBody",
+            new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
+        makeText(uiLocalBody.transform, "AddressLabel", tr("field.address"), font, 30, 55, 135, 46, 24);
+        uiAddress = makeInput(uiLocalBody.transform, "Address", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Address"), "127.0.0.1"), tr("placeholder.address"), font, 170, 55, 520);
+        makeText(uiLocalBody.transform, "PortLabel", tr("field.port"), font, 30, 125, 135, 46, 24);
+        uiPort = makeInput(uiLocalBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 170, 125, 520);
+        makeButton(uiLocalBody.transform, "Host", tr("button.host"), font, 30, 210, 319, startHostFromUi, 58);
+        makeButton(uiLocalBody.transform, "Join", tr("button.join"), font, 370, 210, 319, joinFromUi, 58);
+        makeButton(uiLocalBody.transform, "LocalBack", tr("button.back"), font, 200, 505, 320, () => openPanelMode("config"), 56);
+        uiLocalBody.SetActive(false);
+
+        uiPublicRoomsBody = makeSolidRect(shell.panel.transform, "PublicRoomsBody",
+            new UnityEngine.Color(0.34, 0.34, 0.34, 0.58), 20, 92, 720, 620);
+        makeText(uiPublicRoomsBody.transform, "PublicHint", tr("publicRoom.choose"), font, 30, 35, 660, 50, 27);
+        for (let index = 0; index < 3; index++) {
+            const roomId = "public-" + (index + 1);
+            uiPublicRoomButtons[roomId] = makeButton(uiPublicRoomsBody.transform, "PublicRoom" + (index + 1),
+                tr("publicRoom." + roomId), font, 55, 105 + index * 82, 610,
+                () => enterPublicRoomFromUi(roomId), 62);
+        }
+        makeButton(uiPublicRoomsBody.transform, "RefreshRooms", tr("button.refresh"), font, 55, 375, 290, requestPublicRoomListFromUi, 54);
+        makeButton(uiPublicRoomsBody.transform, "PublicBack", tr("button.back"), font, 375, 375, 290, () => openPanelMode("config"), 54);
+        uiPublicRoomsBody.SetActive(false);
+        refreshPublicRoomButtons();
 
         makeButton(shell.panel.transform, "Cancel", tr("button.cancel"), font, 130, 740, 500, closePanel, 64);
         shell.panel.SetActive(false);
@@ -3352,6 +3492,17 @@ function writeOnlineSaveSnapshot(manager: GameManager): string {
             log("Online-save snapshot root type is invalid type=" + typeof parsed + " array=" + Array.isArray(parsed));
             return "-7";
         }
+        // 某些游戏版本在晚加载后会暂时让 GetSave 返回空 Cloth；若运行中角色已有服装，
+        // 不能用空数组覆盖上一次正确的线上装备状态。
+        const runtimeCloth = readCurrentClothIds();
+        const savedCloth = preparedOnlineSaveMetadata && Array.isArray(preparedOnlineSaveMetadata.cloth)
+            ? preparedOnlineSaveMetadata.cloth.map(id => String(id)).slice(0, 128) : [];
+        if (!Array.isArray(parsed.Cloth) || parsed.Cloth.length === 0) {
+            if (runtimeCloth.length > 0) parsed.Cloth = runtimeCloth;
+            else if (savedCloth.length > 0) parsed.Cloth = savedCloth;
+        }
+        if (Array.isArray(parsed.Cloth) && parsed.Cloth.length > 0 && preparedOnlineSaveMetadata)
+            preparedOnlineSaveMetadata.cloth = parsed.Cloth.map((id: any) => String(id)).slice(0, 128);
         const json = JSON.stringify(parsed);
         if (BRIDGE_CHANNEL !== "default") log("Diagnostics: canonical online-save JSON length=" + json.length);
         const chunkSize = 6000;

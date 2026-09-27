@@ -29,6 +29,6 @@ const PRESENCE_INTERVAL = 5;
 // 游戏切换场景时会重新执行 Mod 脚本。代次编号可让旧回调自动失效，避免重复轮询和重复按钮事件。
 const SCRIPT_GENERATION = Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) + 1;
 UnityEngine.PlayerPrefs.SetInt(GENERATION_KEY, SCRIPT_GENERATION);
-// 立即落盘也让独立桥接程序与游戏使用同一组 Windows PlayerPrefs 注册表值。
+// 立即保存脚本世代号，防止场景切换后旧脚本继续处理 UI 或网络事件。
 UnityEngine.PlayerPrefs.Save();
 

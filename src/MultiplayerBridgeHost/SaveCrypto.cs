@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
-using Microsoft.Win32;
 
 namespace FallenFlower.MultiplayerBridgeHost;
 
@@ -142,10 +141,13 @@ internal static partial class Program
         using var document = JsonDocument.Parse(DecryptGameSave(originalGameCiphertext));
         var root = document.RootElement;
         var scene = root.TryGetProperty("Scene", out var sceneElement) ? sceneElement.GetString() ?? string.Empty : string.Empty;
+        var cloth = root.TryGetProperty("Cloth", out var clothElement) && clothElement.ValueKind == JsonValueKind.Array
+            ? clothElement.GetRawText()
+            : "[]";
         var position = root.TryGetProperty("PlayerPosition", out var positionElement) ? positionElement.GetRawText() : "null";
         var rotation = root.TryGetProperty("PlayerRotation", out var rotationElement) ? rotationElement.GetRawText() : "null";
         return "{\"save\":\"" + Escape(onlineName) + "\",\"scene\":\"" + Escape(scene) +
-            "\",\"position\":" + position + ",\"rotation\":" + rotation + "}";
+            "\",\"cloth\":" + cloth + ",\"position\":" + position + ",\"rotation\":" + rotation + "}";
     }
 
     private static byte[] DecryptOuterLayer(byte[] container)
@@ -187,6 +189,7 @@ internal static partial class Program
             var onlineAutoSave = Encoding.UTF8.GetBytes("Encrypted-online-progress");
             File.WriteAllBytes(autoSavePath, singlePlayer);
             BeginOnlineSaveSession("MPOnline_selftest", testDirectory);
+            _onlineSaveWritesEnabled = true;
             File.WriteAllBytes(autoSavePath, onlineAutoSave);
             RedirectOnlineAutoSave();
             var activePath = Path.Combine(testDirectory, "MPActive_selftest.save");
@@ -207,6 +210,8 @@ internal static partial class Program
             if (!File.Exists(activePath) ||
                 !File.ReadAllBytes(activePath).AsSpan().SequenceEqual(onlineAutoSave))
                 throw new InvalidOperationException("The working copy was not recovered from the formal online save after game exit");
+            if (ReleasePreparedOnlineSave() != 0 || File.Exists(activePath))
+                throw new InvalidOperationException("The temporary working copy was not released after the game loaded it");
             const string uuidV7Name = "MPOnline_01890f3e-7b00-7abc-8def-0123456789ab";
             var renameResult = RenameOnlineSave(new Dictionary<string, string>
             {
@@ -218,6 +223,46 @@ internal static partial class Program
                 throw new InvalidOperationException("The legacy online save was not migrated to a UUIDv7 filename");
             if (!DecryptOuterLayer(File.ReadAllBytes(uuidV7Path)).AsSpan().SequenceEqual(onlineAutoSave))
                 throw new InvalidOperationException("UUIDv7 migration changed the online-save content");
+
+            // 正常保存直接原子替换正式 MPOnline，不应产生第二个 MPActive 文件。
+            const string directName = "MPOnline_01890f3e-7b02-7abc-8def-0123456789ab";
+            const string directJson = "{\"Scene\":\"RoomScene\",\"Cloth\":[\"Sailor\"]}";
+            BeginOnlineSaveSession(directName, testDirectory);
+            _onlineSaveWritesEnabled = true;
+            RawSaveBuffer.Clear();
+            RawSaveBuffer.Append(directJson);
+            _rawSaveExpectedChunks = 1;
+            _rawSaveReceivedChunks = 1;
+            if (CommitRawOnlineSave() != 0)
+                throw new InvalidOperationException("Direct formal online-save commit failed");
+            var directOnlinePath = Path.Combine(testDirectory, directName + ".save");
+            var directActivePath = Path.Combine(testDirectory, ToActiveSaveName(directName) + ".save");
+            if (!File.Exists(directOnlinePath) || File.Exists(directActivePath) ||
+                DecryptGameSave(DecryptOuterLayer(File.ReadAllBytes(directOnlinePath))) != directJson)
+                throw new InvalidOperationException("Direct online-save commit did not leave exactly one formal save");
+            var metadata = BuildSaveMetadata(directName, DecryptOuterLayer(File.ReadAllBytes(directOnlinePath)));
+            if (!metadata.Contains("\"cloth\":[\"Sailor\"]", StringComparison.Ordinal))
+                throw new InvalidOperationException("Equipped clothing was omitted from online-save metadata");
+
+            // prepareSave 到 enableSaveWrites 之间是强制只读事务。无论原版 AutoSave 变化，
+            // 还是游戏脚本错误提交快照，都不能改变正式 MPOnline 的任何字段。
+            var formalBeforeReadOnlyLoad = File.ReadAllBytes(directOnlinePath);
+            if (PrepareOnlineSave(new Dictionary<string, string> { ["name"] = directName }, testDirectory) != 0)
+                throw new InvalidOperationException("Read-only online-save preparation failed");
+            File.WriteAllBytes(autoSavePath, Encoding.UTF8.GetBytes("Encrypted-incomplete-runtime-state"));
+            RedirectOnlineAutoSave();
+            RawSaveBuffer.Clear();
+            RawSaveBuffer.Append("{\"Scene\":\"Incomplete\",\"Cloth\":[]}");
+            _rawSaveExpectedChunks = 1;
+            _rawSaveReceivedChunks = 1;
+            if (CommitRawOnlineSave() != -8 ||
+                !File.ReadAllBytes(directOnlinePath).AsSpan().SequenceEqual(formalBeforeReadOnlyLoad))
+                throw new InvalidOperationException("The formal online save changed during its read-only loading phase");
+            RawSaveBuffer.Clear();
+            _rawSaveExpectedChunks = 0;
+            _rawSaveReceivedChunks = 0;
+            if (ReleasePreparedOnlineSave() != 0)
+                throw new InvalidOperationException("The read-only working copy was not released");
 
             // 即使正式档缺失或 PlayerPrefs 忘记上次选择，也必须优先恢复已有工作副本，
             // 不能把一次临时读取失败误判为首次游戏并创建空白角色。
@@ -239,7 +284,7 @@ internal static partial class Program
         {
             if (Directory.Exists(testDirectory)) Directory.Delete(testDirectory, true);
         }
-        Console.WriteLine("PASS UUIDv7 rename, online-save crypto, active-save recovery, latest-save discovery, tamper rejection, autosave redirect and single-player restore");
+        Console.WriteLine("PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection, autosave redirect and single-player restore");
     }
 
     private static void WriteAtomic(string path, byte[] bytes)

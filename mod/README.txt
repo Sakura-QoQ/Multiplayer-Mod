@@ -1,4 +1,4 @@
-Fallen Flower Multiplayer — Public Server Edition v0.11.0 — Windows x64
+Fallen Flower Multiplayer — Public Server Edition v0.12.0 — Windows x64
 
 INSTALLATION
 1. Import this package with the game's dedicated Mod launcher.
@@ -11,7 +11,8 @@ The bridge runs with normal user rights and does not request administrator eleva
 Public-server mode needs outbound TCP access only; players do not open inbound ports.
 
 PUBLIC SERVERS
-- Enter a player name and select Public Server 1, 2 or 3. No address, room ID or password is required.
+- Local multiplayer keeps Host/Join with address and port controls.
+- Public servers opens a room list showing live population/capacity; choose a room without entering a public address or password.
 - The room server joins the existing public room or creates it automatically when empty.
 - Ubuntu owns membership, the logical authority identity, shared time, scene arbitration and sleep consensus. Every player is an ordinary participant.
 - A player leaving removes only that member. The public room remains until an administrator closes it or the service restarts.

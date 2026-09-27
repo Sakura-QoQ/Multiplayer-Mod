@@ -1,7 +1,7 @@
 // 消息队列与校验。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function send(peerId: number, message: any): void {
-    // PlayerPrefs 是单槽 IPC，连续写入会覆盖尚未被桥接程序读取的命令，因此先进入游戏侧队列。
+    // 命令最终写入 Player.log；先进入游戏侧队列以控制每帧发送量和消息优先级。
     const data = JSON.stringify(message);
     const type = String(message && message.type || "");
     const priority = type === "playerState" || type === "worldTime" ? 1 :

@@ -28,6 +28,22 @@ function processEvent(rawEvent: string): void {
         }
         return;
     }
+    if (event.type === "roomList") {
+        try {
+            const payload = JSON.parse(event.message || "{}");
+            publicRoomEntries = Array.isArray(payload.rooms) ? payload.rooms.map((room: any) => ({
+                roomId: String(room.roomId || ""),
+                players: Math.max(0, Math.trunc(Number(room.players) || 0)),
+                capacity: Math.max(0, Math.trunc(Number(room.capacity) || 0))
+            })).filter((room: PublicRoomEntry) => room.roomId.length > 0) : [];
+            refreshPublicRoomButtons();
+            updateStatusText(tr("status.publicRoomsReady"));
+        } catch (error) {
+            log("Failed to parse the public room list: " + error);
+            toast(tr("toast.publicRoomListFailed"));
+        }
+        return;
+    }
     if (event.type === "connected") {
         log("Connection established peer=" + event.peerId);
         // 公开服务器模式没有玩家房主；正数 peer 只表示其他普通成员发生变化。

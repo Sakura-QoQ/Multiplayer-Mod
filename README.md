@@ -4,13 +4,13 @@ Public-server multiplayer for **Fallen Flower**. Every player connects to a Dock
 
 `PlayerHostedMultiplayer` remains the package and folder identifier for upgrade compatibility; it no longer describes the production network architecture.
 
-> **v0.11.0 deployment requirement:** update both the player Mod and the Ubuntu room server. Earlier servers do not understand one-click public-room entry.
+> **v0.12.0 deployment requirement:** update both the player Mod and Ubuntu service. Earlier servers do not provide the fixed public-room population list.
 
 [简体中文说明](README.zh-CN.md) · [Documentation index](docs/README.md) · [Verification report](VERIFICATION.md) · [License](LICENSE)
 
 ## Features
 
-- A native-style Multiplayer entry on the main menu with three one-click public-server choices; players do not enter an address, room ID or password.
+- The main Multiplayer page keeps local Host/Join controls and a separate Public servers entry. The public page lists each room's live population/capacity before the player chooses one; public addresses and passwords are never entered.
 - During an online session, the pause-menu entry opens a read-only room page showing role/public-room name, synchronized time, player count and player list. The world, physics, animation and online clock continue running behind it.
 - Up to eight players per room by default; the server limit is configurable from 2 to 32.
 - Every player connects as an ordinary participant. The Ubuntu service owns room membership, the logical authority identity, the shared clock, scene arbitration and sleep consensus; no player exposes a public port or receives host privileges.
@@ -24,7 +24,7 @@ Public-server multiplayer for **Fallen Flower**. Every player connects to a Dock
 
 ## Installation
 
-1. Import `PlayerHostedMultiplayer-v0.11.0-win-x64.zip` with the game's dedicated Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.12.0-win-x64.zip` with the game's dedicated Mod launcher.
 2. Start the game through that Mod launcher.
 3. Select **Multiplayer** above **New Game** on the main menu.
 
@@ -35,7 +35,7 @@ Dedicated-server players need outbound TCP access only. Windows inbound firewall
 ## Quick start
 
 1. Enter a player name.
-2. Select **Public Server 1**, **Public Server 2** or **Public Server 3**.
+2. Select **Public servers**, review each room's live player count, then choose a room.
 3. The server atomically joins the existing public room or creates it when empty. No password is used.
 4. The Mod resumes the player's own UUIDv7 online save, or creates it from a clean game only when none exists.
 

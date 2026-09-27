@@ -1,6 +1,6 @@
 # Fallen Flower 独立房间服务器
 
-这是 PlayerHostedMultiplayer v0.11.0 必需的 Docker 公开房间权威服务。服务器不运行游戏、不读取存档，也不模拟 Unity 游戏逻辑；它校验数据包信封与成员身份，协调统一时间/场景/睡眠，并在不解释存档资料字段的情况下转发玩家数据。
+这是 PlayerHostedMultiplayer v0.12.0 必需的 Docker 公开房间权威服务。服务器不运行游戏、不读取存档，也不模拟 Unity 游戏逻辑；它校验数据包信封与成员身份，协调统一时间/场景/睡眠，并在不解释存档资料字段的情况下转发玩家数据。
 
 服务器固定为逻辑权威 Peer `0`，负责成员、5 Hz 房间时钟、场景裁决、全员睡眠批准与管理操作。所有玩家都只是正数 ID 的普通成员；任何玩家退出都不会把权限转交给别人，也不会关闭公开房间。
 
@@ -72,20 +72,20 @@ Test-NetConnection 3.10.232.221 -Port 27777
 Fallen Flower room server listening on 0.0.0.0:27777
 ```
 
-## 升级 v0.11.0
+## 升级 v0.12.0
 
 服务器更新包不包含 `server/.env`，因此不会覆盖现有配置。把更新包上传到 `/tmp` 后执行：
 
 ```bash
-sudo unzip -o /tmp/FallenFlowerRoomServer-v0.11.0-source.zip -d /opt
+sudo unzip -o /tmp/FallenFlowerRoomServer-v0.12.0-source.zip -d /opt
 cd /opt/Multiplayer-Mod/server
 sudo docker compose up -d --build --force-recreate
 sudo docker compose ps
 sudo docker compose logs --tail=100 room-server
 ```
 
-v0.11.0 服务器启动后，玩家只需填写名称并点击“公开服务器 1、2 或 3”。端点与固定房间 ID
-已内置在 Mod 中，公开房间不使用密码。
+v0.12.0 服务器启动后，“公开服务器”会显示固定房间及实时人数/容量。玩家从列表选择房间；
+端点与房间 ID 已内置，公开房间不使用密码。
 
 ## 容器安全设置
 
@@ -123,6 +123,6 @@ ID/名称、拒绝玩家时间权威，并处理场景/时间/睡眠控制包；
 | --- | --- | --- |
 | 容器显示 `Restarting (1)` | 配置值无效 | 查看 `docker compose logs`，确认 `FF_ROOM_MAX_PLAYERS` 为 2–32 |
 | TCP 测试失败 | 云防火墙或端口映射错误 | 开放 TCP 27777，并确认 Compose 显示 `0.0.0.0:27777->27777/tcp` |
-| Mod 提示 `unknown command` | 服务器版本低于 v0.11.0 | 上传本版服务器源码并重新构建容器 |
+| Mod 提示 `unknown command` | 服务器版本低于 v0.12.0 | 上传本版服务器源码并重新构建容器 |
 | 公开房间已满 | 达到了每房间人数上限 | 选择另一个公开服务器，或调高 `FF_ROOM_MAX_PLAYERS` 后重启 |
 | 所有玩家同时断开 | 网络或服务器中断 | 检查容器；普通玩家退出不会关闭公开房间 |

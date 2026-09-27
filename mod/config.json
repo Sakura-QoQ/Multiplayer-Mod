@@ -1,6 +1,6 @@
 {
   "mode": "off",
-  "address": "",
+  "address": "127.0.0.1",
   "port": 27777,
   "maxPlayers": 8,
   "playerName": "Player",

@@ -4,7 +4,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
-using Microsoft.Win32;
 
 namespace FallenFlower.MultiplayerBridgeHost;
 

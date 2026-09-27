@@ -42,7 +42,7 @@ flowchart LR
 
 ## Room lifecycle
 
-1. Every public button maps to a fixed room ID (`public-1`, `public-2` or `public-3`).
+1. The public browser requests `room.list`; the server always returns the three fixed rooms with live population/capacity. Local direct Host/Join remains a separate UI path.
 2. Every player sends `room.enter`; the server atomically joins an existing room or creates it when empty.
 3. The server remains logical authority peer `0`; every player receives a positive ordinary-member ID.
 4. The server overwrites player-owned packet IDs with the authenticated connection ID, preventing member impersonation.
