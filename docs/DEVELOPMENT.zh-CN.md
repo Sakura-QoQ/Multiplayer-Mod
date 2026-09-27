@@ -11,7 +11,7 @@
 | 构建房间服务器 | Docker Engine 与 Compose，或 .NET 8 SDK |
 | 使用玩家包 | 不需要开发软件，只需游戏和 Mod 启动器 |
 
-项目不使用 Node.js 或 `tsc`。UcModLauncher 通过 Jint 执行 TypeScript 风格源码，`build.ps1` 只按顺序合并文本。
+项目不使用 Node.js 或 `tsc`。UcModLauncher 通过 Jint 执行 TypeScript 风格源码，`tools/Build-Mod.ps1` 只按顺序合并文本。
 
 游戏脚本和桥接程序都不使用 Windows 注册表，也不调用 Unity 会落入注册表的偏好接口。命令通过 Unity `Player.log` 的专用标记行传递；响应、事件与当前会话身份使用安装目录 `Bridge` 下的轮换 JSON 状态文件。运行时不提权、不安装服务、不调用包管理器，也不下载依赖。
 
@@ -20,7 +20,7 @@
 ## 构建玩家 Mod
 
 ```powershell
-./build.ps1 -Install
+./tools/Build-Mod.ps1 -Install
 ```
 
 脚本从 `mod/info.json` 读取版本，生成 `mod/main.ts`，复制六种运行语言包，发布自包含 NativeAOT 桥，创建 `artifacts/PlayerHostedMultiplayer-v<版本>-win-x64.zip`，并可把同一负载安装到 `Mods/PlayerHostedMultiplayer`。
@@ -28,7 +28,7 @@
 依赖至少成功还原一次后，可离线构建：
 
 ```powershell
-./build.ps1 -Install -NoRestore
+./tools/Build-Mod.ps1 -Install -NoRestore
 ```
 
 只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。构建会拒绝遗漏/重复模块、页面直接创建底层 Unity 控件、语言包键不一致，以及运行时代码中的注册表 API、提权请求和安装器命令。
@@ -38,11 +38,9 @@
 构建并运行当前运行日志自检：
 
 ```powershell
-./build.ps1 -SkipPackage -NoRestore
+./tools/Build-Mod.ps1 -SkipPackage -NoRestore
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
 ```
-
-存档加密自检仅用于验证旧 `MPOnline` 文件的恢复兼容性，不属于当前运行时存档链路。
 
 测试独立房间适配时，先在测试端口运行房间服务器，再执行：
 
@@ -53,7 +51,7 @@
 
 测试先验证服务器绝不发送详细 `worldTime`，以及单人“睡到明天”，再创建第二个普通客户端，验证服务器协调 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](VERIFICATION.zh-CN.md)。
 
-修改存档代码时必须确认：进入房间通过 Unity 消息调用原版 `LoadSaveWindow.Load("AutoSave")`，Mod 不调用 `StartGame`/`GameManager.LoadGame`，床边保存沿用 `GameManager.SaveName`，并且没有重新引入桥接存档命令或磁盘重定向。
+修改存档代码时必须确认：进入房间通过 Unity 消息直接调用原版 `LoadSaveWindow.Load("AutoSave")`，不点击 `LoadGame` 按钮，不调用 `StartGame`/`GameManager.LoadGame`；床边保存沿用 `GameManager.SaveName`，且不能重新引入桥接存档命令或磁盘重定向。构建脚本会拒绝这些危险调用。
 
 ## 构建服务器
 

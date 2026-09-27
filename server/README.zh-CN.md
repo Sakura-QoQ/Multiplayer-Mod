@@ -1,6 +1,6 @@
 # Fallen Flower 房间服务器
 
-这是 PlayerHostedMultiplayer 的公开房间权威与中继。它负责成员、逻辑 Peer `0`、5 Hz 相对房间时段、场景裁决和全员睡眠批准；绝不接受玩家的绝对剧情日期作为房间时钟输入，也不运行游戏、不读取玩家存档或模拟 Unity 游戏逻辑。
+这是 PlayerHostedMultiplayer 的公开房间权威与中继。它负责成员、逻辑 Peer `0`、场景裁决和全员睡眠批准；不持有详细游戏时间，也不运行游戏、不读取玩家存档或模拟 Unity 游戏逻辑。
 
 > 协议是明文 TCP 上的分帧 JSON，不是 TLS。请限制管理接口、使用独立随机管理员令牌；需要传输保密时，应在服务前增加安全传输代理。
 
@@ -150,7 +150,7 @@ sudo docker compose logs --tail=100 room-server
 
 ## 容器边界
 
-运行镜像使用 Ubuntu Chiseled .NET 8、非 root 用户、移除全部 Linux capabilities、只读根文件系统和 `no-new-privileges`。房间状态只在内存中；替换或重启容器会重置房间时段和名单。
+运行镜像使用 Ubuntu Chiseled .NET 8、非 root 用户、移除全部 Linux capabilities、只读根文件系统和 `no-new-privileges`。房间状态只在内存中；替换或重启容器会重置房间和名单。
 
 ## 故障排查
 

@@ -18,8 +18,8 @@ flowchart LR
 
 - `src/GameMod/` owns Unity UI, hooks, save lifecycle, online time presentation and player/profile synchronization.
 - `src/MultiplayerBridge/` contains direct TCP and the dedicated-room client adapter with bounded queues.
-- `src/MultiplayerBridgeHost/` owns process lifecycle, log-command IPC, rotating state snapshots, endpoint decoding and save cryptography.
-- `src/MultiplayerRoomServer/` owns public membership, clock/scene/sleep control and packet relay.
+- `src/MultiplayerBridgeHost/` owns process lifecycle, log-command IPC, rotating state snapshots and endpoint decoding; it never touches save files.
+- `src/MultiplayerRoomServer/` owns public membership, scene/sleep control and packet relay.
 - `mod/main.ts` and `mod/i18n/` are generated runtime copies; edit `src/GameMod/` instead.
 
 The bridge launches as the current user without registry IPC or elevation. Game-to-bridge commands are marked single-line records in Unity `Player.log`. Bridge-to-game state uses three rotating JSON snapshots so the Jint reader does not race the writer.
@@ -30,16 +30,16 @@ The bridge launches as the current user without registry IPC or elevation. Game-
 | --- | --- | --- |
 | Membership and authenticated peer ID | Ubuntu server | Connection lifecycle |
 | Position, rotation, action, weapon, Animator layers | Owning player | 20 Hz snapshot; render-frame interpolation |
-| Clothing, customization, complete profile snapshot | Owning player | Revisioned 2 s profile update; chunked when required |
+| Clothing, customization, aggregate profile statistics | Owning player | Revisioned 2 s profile update; chunked when required |
 | Health, stamina, money, day/time display and scene | Owning player | 0.5 s live-data update |
 | Detailed day/time/offset | Each game client | Native game flow; the public server never writes a clock value |
 | Room scene | Ubuntu server peer `0` | Compare-and-swap request/broadcast |
 | Sleep advancement | Ubuntu server peer `0` + every client | Server approves unanimous matching requests; every client applies the same transition |
 | Player save | Local player computer | Native default `AutoSave`; never sent to the room server as a file |
 
-The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names and handles scene/sleep control packets. It intentionally drops legacy `worldTime`, `serverTimeSeed`, and `serverTimeCommit` packets and never broadcasts a detailed clock. The Mod also ignores detailed clock packets in direct mode and never writes `timeScale`, `gameTime`, `timeOffset`, or the story day. Each client therefore keeps the game's native time flow and story-driven `SetTime/AddTime/AddDay` results. A unanimous sleep request—including a single member in a one-player room—is approved by the server, then every current client executes the corresponding original bed transition. The server does not simulate Unity physics, combat, quests or inventory.
+The server validates the room envelope and authenticated member identity, replacing client-claimed IDs and names. Ordinary players may send only whitelisted self-owned state/profile/chunk packets plus sleep and scene requests; they cannot forge `welcome`, roster, leave, server-scene or sleep-approval packets. Legacy clock packets are dropped and the server never broadcasts a detailed clock. The Mod never writes `timeScale`, `gameTime`, `timeOffset`, or the story day, preserving native `SetTime/AddTime/AddDay` transactions. A unanimous sleep request—including the sole real member of a one-player room—is approved, then every current client executes the original bed transition.
 
-Profile transfer is for remote appearance and player-information views. Receiving another player's complete profile does not apply that progress to the local save.
+Profile transfer contains only remote appearance, live state and aggregate progress counts. Full story/contact/save data is not broadcast and remote progress is never applied to the local save.
 
 ## Room lifecycle
 
@@ -56,10 +56,10 @@ Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB f
 
 ## Save behavior
 
-After entering a room, the Mod synchronously initializes the original `LoadSaveWindow` and invokes its private `Load("AutoSave")` through Unity messaging in the same call stack. The save picker is therefore never rendered. `LoadSaveWindow` owns the complete transaction; the Mod does not call `StartGame` or `GameManager.LoadGame` itself and does not enable synchronization or saving until native callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the resulting `GameManager.SaveName`. The bridge is network-only.
+After entering a room, the Mod invokes the original `LoadSaveWindow.Load("AutoSave")` through Unity messaging without clicking the Load Game button, so the save picker is never added to the UI stack. `LoadSaveWindow` owns the complete transaction; the Mod does not call `StartGame` or `GameManager.LoadGame` and does not enable synchronization or saving until native callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the resulting `GameManager.SaveName`. The bridge is network-only.
 
 Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the current release does not list, read or write them. Multiplayer and single-player changes to the native default slot are visible to each other by design.
 
 ## Source assembly
 
-UcModLauncher loads one Jint script and does not resolve TypeScript modules. `build.ps1` verifies that `src/GameMod/source-order.json` lists every `.ts` file exactly once, concatenates the files into `mod/main.ts`, checks page/component boundaries, and verifies identical translation keys across six languages.
+UcModLauncher loads one Jint script and does not resolve TypeScript modules. `tools/Build-Mod.ps1` verifies that `src/GameMod/source-order.json` lists every `.ts` file exactly once, concatenates the files into `mod/main.ts`, checks page/component boundaries, and verifies identical translation keys across six languages.

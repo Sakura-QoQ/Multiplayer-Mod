@@ -1,74 +1,35 @@
-# Fallen Flower Multiplayer — dedicated server edition
+# Fallen Flower Multiplayer 1.0.0
 
-Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained local direct play, synchronized avatars and the game's original save-slot workflow.
+Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local direct play, synchronized avatars and the game's native save workflow.
 
-`PlayerHostedMultiplayer` remains the package identifier for upgrade compatibility. Public rooms use the separately deployed Ubuntu service; local Host/Join remains available from the main Multiplayer page.
+[简体中文](docs/PROJECT.zh-CN.md) · [Documentation](docs/README.md) · [Protocol / 错误码](docs/PROTOCOL.zh-CN.md) · [Security](docs/SECURITY.md) · [Verification](docs/VERIFICATION.md) · [License](docs/LICENSE)
 
-> **Compatibility:** all players need matching game and Mod versions. Room-server changes are deployed automatically from `main`.
->
-> **Transport security:** the room protocol is length-prefixed JSON over plain TCP, not TLS. Endpoint obfuscation and save-file encryption do not encrypt network traffic. Do not reuse sensitive passwords as an administrator token.
+## Install
 
-[简体中文说明](docs/PROJECT.zh-CN.md) · [Documentation](docs/README.md) · [API / 错误码](docs/PROTOCOL.zh-CN.md) · [Verification](docs/VERIFICATION.md) · [License](docs/LICENSE)
+1. Import `artifacts/PlayerHostedMultiplayer-v1.0.0-win-x64.zip` with the game's Mod launcher.
+2. Start the game through the launcher and select **Multiplayer**.
+3. Enter a display name, open **Public servers**, and enter a listed room.
 
-## Release artifacts
+The package includes a self-contained Windows x64 bridge. It does not require Node.js, the .NET runtime, Visual Studio, an installer, elevation, or registry changes. Diagnostics are written to `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log` with bounded rotation.
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.9-win-x64.zip`
+## 1.0 behavior
 
-Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
+- `public-1` is permanent. Additional rooms are created only when all joinable rooms are full; redundant empty rooms are reclaimed.
+- The server is logical peer `0`. Players receive positive IDs and cannot impersonate server control packets or other players.
+- The server coordinates membership, scenes and unanimous sleep only. It never owns or writes detailed game time; every client keeps the game's default time speed and native story transactions.
+- A one-player room needs only that real player to approve sleep. The server itself is never counted as a player.
+- Joining loads native `AutoSave` directly through the original `LoadSaveWindow.Load` path without clicking or displaying the save picker. Autosave, bed save, pause-menu save and quit continue to use the original game slot.
+- The bridge never creates, reads, redirects, encrypts or promotes `MPOnline`/`MPActive`. Legacy files are left untouched for manual recovery.
+- Only remote-display data is sent: appearance, live state and aggregate progress counts. Full save/story/contact data is never broadcast or stored by the room server.
+- The phone is bounded to 80% of the screen height and includes Home, Messages and online Contacts pages.
 
-## Install and play
+Public transport is length-prefixed JSON over plain TCP, not TLS. The embedded endpoint is obfuscated only to prevent casual editing and is not a security boundary.
 
-1. Import `PlayerHostedMultiplayer-v0.14.9-win-x64.zip` with the game's Mod launcher.
-2. Start the game through that launcher.
-3. Select **Multiplayer** above **New Game**.
-4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
-
-The ZIP contains a self-contained Windows x64 NativeAOT bridge. Players do not install Node.js, TypeScript, .NET, Visual Studio or a separate launcher script. The Mod never writes the Windows registry, installs a service, requests elevation or runs an installer. Runtime preferences stay in game memory; session identity is carried by the Mod's rotating JSON state files and online-save filenames. Public play needs outbound TCP only; players do not open an inbound port.
-
-The Mod keeps its own diagnostic log at `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log`. It is capped at 4 MiB and retains one `PlayerHostedMultiplayer.previous.log`; bridge crashes also create `PlayerHostedMultiplayer.crash.log` in that directory.
-
-For local direct play, use **Host** or **Join** with an address and port. A direct host may need a Windows firewall rule and router port forwarding when players connect from outside its LAN.
-
-## Current behavior
-
-- `public-1` is the permanent server room and remains listed when every player leaves. When every joinable room is full the server creates another room automatically; only redundant non-permanent empty rooms are reclaimed. `FF_ROOM_MAX_PLAYERS` is the sole public-room capacity setting.
-- `localMaxPlayers` in the player Mod configuration applies only when this PC hosts a local direct room. Public clients cannot choose or reduce server room capacity.
-- The Ubuntu service is logical authority peer `0`. Every public player receives the room's smallest available positive ordinary-member ID; released IDs are reused immediately, and the first player has no special authority.
-- The server owns membership, scene arbitration and unanimous sleep approval. It does not own a room clock, alter `timeScale`, or write a player's day/time fields. Each client keeps the game's native time flow and story transactions. It relays player-owned state but does not run Unity gameplay or store player saves.
-- No separate heartbeat traffic is generated. Existing TCP game/control frames refresh connection activity; after five minutes without a complete frame, the server closes the stale connection and releases the member through the same leave path used by a normal exit.
-- A connected player whose world position does not move by at least 0.05 units and does not change scene for five minutes is also treated as AFK and removed through that same cleanup path.
-- Player transform/action snapshots are sent at 20 Hz. Remote transforms, animation layers and clothing bones update every render frame.
-- Clothing, skin tan, customization, the complete `GameManager.GetSave()` profile snapshot and smaller live-status packets are transferred for remote representation and player information. Remote progress is never merged into another player's local save.
-- The online pause menu preserves the game's native pause and time-speed behavior. Its Multiplayer page is read-only and shows room identity, population and players. The phone Contacts tab shows the current online roster.
-- The main menu shows the Mod version immediately to the left of the game's version text; it reads the same `mod/info.json` version used for the player ZIP name.
-- Server-authoritative room time continues while menus are open. A new player adopts the existing room phase without replacing it or inheriting another player's story day. Sleep advances after every connected player requests the same mode; each current player advances their own story day only when the shared room phase crosses midnight.
-
-The embedded public endpoint is AES-GCM-obfuscated inside the native bridge and is absent from editable configuration and UI text. This prevents casual editing; it is not secret management because the client contains the decryption material.
-
-## Saves
-
-After entering a room, Multiplayer initializes and invokes the game's original `LoadSaveWindow.Load("AutoSave")` in the same call stack, so the save picker is never rendered. The Mod never combines New Game initialization with a delayed load. Automatic saving and bed saving stay on the game's default slot, while the bridge does not create, load, redirect, encrypt or promote `MPOnline`/`MPActive` files.
-
-Existing `MPOnline` files from older releases are left untouched on disk for recovery purposes, but v0.14.9 does not read or write them. The room server never receives or stores save data.
-
-## Build and deploy
-
-Developers need the .NET 8 SDK and Visual Studio x64 C++ tools:
+## Build
 
 ```powershell
-./build.ps1 -Install
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
+./tools/Build-Mod.ps1 -Install
+./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
 ```
 
-Server administrators should follow [server/README.md](server/README.md). Contributors should start with the [development guide](docs/DEVELOPMENT.md) and [architecture](docs/ARCHITECTURE.md).
-
-## Supported environment
-
-- Windows x64 player computers
-- Fallen Flower with the dedicated Mod launcher
-- Ubuntu/Linux server with Docker Engine and Compose
-- TCP/IPv4 or IPv6 connectivity to the configured room-server port
-
-## License
-
-This is proprietary, non-public-source software. Personal use of an authorized binary copy is permitted; source disclosure, redistribution, modification and commercial use require prior written permission. See [LICENSE](docs/LICENSE).
+Server deployment is documented in [server/README.md](server/README.md); no server ZIP is produced. Development details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

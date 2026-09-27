@@ -11,7 +11,7 @@ This repository produces a self-contained Windows player Mod and a separately de
 | Build the room server | Docker Engine with the Compose plugin, or .NET 8 SDK |
 | Use the player package | No developer software; only the game and Mod launcher |
 
-Node.js and `tsc` are not used. UcModLauncher executes TypeScript-style Jint source, and `build.ps1` concatenates it as text.
+Node.js and `tsc` are not used. UcModLauncher executes TypeScript-style Jint source, and `tools/Build-Mod.ps1` concatenates it as text.
 
 Neither the game script nor the bridge uses the Windows registry or Unity's registry-backed preference API. Commands travel through marked Unity `Player.log` lines; responses, events and current session identity use rotating JSON state files under the installed Mod's `Bridge` directory. The runtime does not elevate, install a service, run a package manager or download dependencies.
 
@@ -20,7 +20,7 @@ The bridge filters ordinary `[PlayerHostedMultiplayer]` entries into `Logs/Playe
 ## Build the player Mod
 
 ```powershell
-./build.ps1 -Install
+./tools/Build-Mod.ps1 -Install
 ```
 
 The script reads the version from `mod/info.json`, generates `mod/main.ts`, copies the six runtime language packs, publishes a self-contained NativeAOT bridge, creates `artifacts/PlayerHostedMultiplayer-v<version>-win-x64.zip`, and optionally installs the same payload into `Mods/PlayerHostedMultiplayer`.
@@ -28,7 +28,7 @@ The script reads the version from `mod/info.json`, generates `mod/main.ts`, copi
 After dependencies have been restored once, an offline build can use:
 
 ```powershell
-./build.ps1 -Install -NoRestore
+./tools/Build-Mod.ps1 -Install -NoRestore
 ```
 
 Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The build rejects missing/duplicate modules, direct low-level Unity control construction in page modules, translation-key differences, registry APIs, elevation requests and installer commands in runtime source.
@@ -38,11 +38,9 @@ Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new mo
 Build and run the runtime-log self-test:
 
 ```powershell
-./build.ps1 -SkipPackage -NoRestore
+./tools/Build-Mod.ps1 -SkipPackage -NoRestore
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
 ```
-
-The save-crypto self-test is retained only to verify recovery compatibility with legacy `MPOnline` files. It is not part of the current runtime save path.
 
 To test the dedicated-room adapter, run a room server on a test port and then execute:
 
@@ -53,7 +51,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
 
 This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
-When changing save code, verify that room entry invokes original `LoadSaveWindow.Load("AutoSave")` through Unity messaging, no Mod path calls `StartGame`/`GameManager.LoadGame`, bed saving preserves `GameManager.SaveName`, and no bridge save command or disk redirection is reintroduced.
+When changing save code, verify that room entry invokes native `LoadSaveWindow.Load("AutoSave")` directly through Unity messaging without clicking the `LoadGame` button. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return. The build gate rejects these dangerous calls.
 
 ## Build the server
 

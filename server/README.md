@@ -1,6 +1,6 @@
 # Fallen Flower room server
 
-Public-room authority and relay for PlayerHostedMultiplayer. It owns membership, logical peer `0`, the 5 Hz relative room phase, scene arbitration and unanimous sleep approval. It never accepts a player's absolute story day as room-clock input. It does not run the game, read player saves or simulate Unity gameplay.
+Public-room authority and relay for PlayerHostedMultiplayer. It owns membership, logical peer `0`, scene arbitration and unanimous sleep approval. It never owns detailed game time, runs the game, reads player saves or simulates Unity gameplay.
 
 > The protocol is framed JSON over plain TCP, not TLS. Restrict administration, use a unique random admin token, and place a secure transport proxy in front of the service if confidentiality is required.
 
@@ -111,7 +111,7 @@ Explicit `room.create`/`room.join` rooms retain creator authority for protocol c
 
 ## Container boundary
 
-The runtime image uses Ubuntu Chiseled .NET 8, a non-root user, no Linux capabilities, a read-only root filesystem and `no-new-privileges`. Room state is memory-only; replacing or restarting the container resets instantiated room phase and roster state.
+The runtime image uses Ubuntu Chiseled .NET 8, a non-root user, no Linux capabilities, a read-only root filesystem, `no-new-privileges` and a PID limit. Room state is memory-only; replacing or restarting the container resets instantiated rooms and roster state.
 
 ## Troubleshoot
 
