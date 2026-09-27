@@ -62,7 +62,6 @@ The first run clones the repository and then stops safely if `server/.env` is ab
 | `FF_ROOM_MAX_PLAYERS` | `8` | Players per room, 2–32 |
 | `FF_ROOM_CLIENT_TIMEOUT_SECONDS` | `300` | Disconnect after this many seconds without a complete incoming TCP frame, 3–3,600 |
 | `FF_ROOM_AFK_TIMEOUT_SECONDS` | `300` | Disconnect after this many seconds without effective position movement or a scene change, 3–3,600 |
-| `FF_ROOM_DAY_LENGTH_SECONDS` | `3600` | Real seconds per complete room-phase cycle, 60–86,400 |
 | `FF_ROOM_ADMIN_TOKEN` | empty | Enables all `admin.*` commands; minimum 16 characters |
 
 Generate a token with `openssl rand -hex 32`. An empty token disables remote administration. Do not commit `.env`; it is ignored by Git and excluded from update archives.
@@ -106,7 +105,7 @@ No standalone heartbeat is sent. Every existing game/control frame refreshes con
 
 AFK is tracked separately from TCP activity. Repeated packets at the same location do not keep a slot indefinitely: five minutes without at least 0.05 units of accumulated world-position movement or a scene change closes the connection through the same cleanup path.
 
-For public rooms, the server parses control packet types, replaces player-owned IDs/names with authenticated connection values, rejects player clock authority, and coordinates phase/scene/sleep. The native four time periods are distributed evenly across `FF_ROOM_DAY_LENGTH_SECONDS`. New or newly emptied rooms start in the morning at relative `roomCycle=0`; legacy player clock seeds are ignored. New members baseline the current cycle without inheriting previous room days. A one-player room can approve sleep immediately; crossing midnight advances the relative cycle and each current client advances only its own saved story day. Profile contents remain client-managed. The permanent `public-1` room remains listed after every player leaves; only redundant non-permanent empty shards are reclaimed.
+For public rooms, the server parses control packet types, replaces player-owned IDs/names with authenticated connection values, and coordinates scene/sleep only. It drops legacy detailed-clock packets and never calculates or broadcasts `day`, `timeOfDay`, or `timeOffset`; each game keeps the native time flow so story transitions remain valid. A one-player room can approve sleep immediately, and every current client applies the same approved transition. Profile contents remain client-managed. The permanent `public-1` room remains listed after every player leaves; only redundant non-permanent empty shards are reclaimed.
 
 Explicit `room.create`/`room.join` rooms retain creator authority for protocol compatibility and close when that authority leaves.
 

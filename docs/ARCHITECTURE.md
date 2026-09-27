@@ -32,12 +32,12 @@ The bridge launches as the current user without registry IPC or elevation. Game-
 | Position, rotation, action, weapon, Animator layers | Owning player | 20 Hz snapshot; render-frame interpolation |
 | Clothing, customization, complete profile snapshot | Owning player | Revisioned 2 s profile update; chunked when required |
 | Health, stamina, money, day/time display and scene | Owning player | 0.5 s live-data update |
-| Room phase | Ubuntu server peer `0` | 5 Hz anchor; fresh/empty rooms start in the morning; 3,600 real seconds per cycle |
+| Detailed day/time/offset | Each game client | Native game flow; the public server never writes a clock value |
 | Room scene | Ubuntu server peer `0` | Compare-and-swap request/broadcast |
-| Sleep advancement | Ubuntu server peer `0` | Server advances after unanimous matching requests, then approves |
+| Sleep advancement | Ubuntu server peer `0` + every client | Server approves unanimous matching requests; every client applies the same transition |
 | Online save | Local player computer | UUIDv7 file; never sent to the room server as a file |
 
-The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names, rejects player clock authority, and handles time/scene/sleep control packets. Public rooms use a server-owned relative `roomCycle` and phase; a player's absolute story day is never accepted as clock input or applied to another player. New members baseline the current cycle without replaying earlier days. The four native periods advance evenly over the configured cycle length. A unanimous sleep request—including a single member in a one-player room—updates the room phase before approval is broadcast. The server does not simulate Unity physics, combat, quests or inventory.
+The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names and handles scene/sleep control packets. It intentionally drops legacy `worldTime`, `serverTimeSeed`, and `serverTimeCommit` packets and never broadcasts a detailed clock. Each client therefore keeps the game's native time flow and story-driven `AddTime/AddDay` results. A unanimous sleep request—including a single member in a one-player room—is approved by the server, then every current client applies the same transition. The server does not simulate Unity physics, combat, quests or inventory.
 
 Profile transfer is for remote appearance and player-information views. Receiving another player's complete profile does not apply that progress to the local save.
 

@@ -1,4 +1,8 @@
-# Verification — v0.14.2
+# Verification — v0.14.3
+
+- Confirmed that lingering classroom models and the online clock fixed at 09:00 share one cause: native `ClassroomDirector.<NormalClass>d__5.MoveNext` calls `PlayerStatus.AddTime` before moving the player to the exit and clearing `_inClass`; the old server overwrote that story result with a morning phase every 200 ms.
+- Public servers no longer create, advance, or broadcast `worldTime`, and `FF_ROOM_DAY_LENGTH_SECONDS` was removed. Detailed time uses each client's native game flow at the same game speed.
+- The server only decides unanimous sleep among real players. It is not counted as a player and does not calculate a clock; each client applies the same approved transition. Clients also ignore `worldTime` from an older server during a rolling deployment.
 
 - Root cause confirmed: `GameManager` has no `@hookable` marker in the generated type list, so the former `AutoSaving/SaveGame` hooks never formed a reliable isolation boundary.
 - The bridge now preserves the byte-exact offline `AutoSave`, captures the game's hard-coded online write through `MPActive`, promotes it after complete validation, and atomically restores the offline file.
@@ -7,7 +11,7 @@
 - The build rejects any future attempt to register a `GameManager` hook.
 
 - Fixed all scene interaction points disappearing after reopening an online save by allowing the native load transaction to call `PlayerStatus.SetTime` and refresh scene conditions/interactions.
-- Fixed the player remaining locked after a school class by allowing story transactions to complete their native `AddTime/AddDay` calls; authoritative `worldTime` now reconciles the phase afterward.
+- Fixed the player remaining locked after a school class by allowing story transactions to complete their native `AddTime/AddDay` calls; public-server `worldTime` can no longer undo those results.
 - Window polling now requires a live `WindowManager.Singleton`, preventing the shutdown-time `IsOpened` null reference seen in `Player.log`.
 - The build now rejects any future attempt to register interception hooks for these three native time methods.
 
@@ -35,10 +39,10 @@ The dedicated runtime-log self-test also passes:
 PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
 
-Public time is now a server-owned relative room phase. A legacy `serverTimeSeed` containing a player's
-nighttime save is ignored; the first clock remains morning at `roomCycle=0`. A joining player baselines
-the current cycle, so prior room days are not copied into their story date. When the final member leaves,
-the permanent room resets its phase, scene and cycle to a fresh morning session.
+The public server no longer owns a relative room phase or detailed clock. Legacy `serverTimeSeed`,
+`serverTimeCommit`, and `worldTime` packets are dropped, and the server emits no `worldTime`. Players keep
+the native game time flow, so story-owned `AddTime/AddDay` calls remain effective. When the final member
+leaves, only room scene and sleep-consensus state are reset.
 
 The bed-window regression was traced to two concrete native/runtime faults and corrected: the game's
 `SleepToTomorrow` callback only calls `SetTime(3)`, which turns 20:00 into roughly 23:00 without advancing
@@ -46,7 +50,7 @@ the day, while UcModLauncher cannot construct a new `ButtonClickedEvent`. The Mo
 event, binds through `AddListener` with the launcher extension as a fallback, and applies an explicit
 `day + 1, timeOfDay = 0` result after server approval. Native sleep buttons are re-enabled after the game
 sets their evening state, and the cloned manual-save button receives its own save-session availability
-instead of inheriting the disabled short-sleep state. Server-side short sleep now advances the day on a
+instead of inheriting the disabled short-sleep state. Client-side short sleep advances the day on a
 period `3 -> 0` rollover as well.
 
 The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
@@ -71,10 +75,10 @@ The current room adapter self-test also passes when the test server is started w
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, rejects a first player's nighttime clock seed, lets a single player sleep into room cycle 1, advances the phase at 240 native units per configured 3,600-second cycle, creates a new room when two ordinary clients fill the first, retains peer `0` authority, relays bidirectionally, approves unanimous sleep, reuses the smallest released ID, and removes inactive/AFK connections. After all test players disconnect, the final list contains exactly the empty permanent `public-1`; re-entering it produces `roomCycle=0` at morning rather than the prior session's time. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
+With the test server capacity set to two, `FF_ROOM_CLIENT_TIMEOUT_SECONDS=3` and `FF_ROOM_AFK_TIMEOUT_SECONDS=10`, it verifies that a fresh server exposes exactly one real room, rejects legacy time seeds and never emits `worldTime`, approves solo and unanimous multiplayer sleep, creates a new room when two ordinary clients fill the first, retains peer `0` authority, relays bidirectionally, reuses the smallest released ID, and removes inactive/AFK connections. After all test players disconnect, the final list contains exactly the empty permanent `public-1`; re-entering it still receives no server-owned detailed clock. Production defaults both timeout thresholds to 300 seconds and sends no standalone heartbeat.
 
 ```text
-PASS server-owned room phase, player-seed rejection, empty-room morning reset, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
+PASS client-owned detailed time, no server worldTime, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
 ```
 
 ## Full-game evidence

@@ -1,4 +1,8 @@
-# v0.14.2 验证报告
+# v0.14.3 验证报告
+
+- 已确认课程模型残留与线上时间固定 9 点是同一根因：原版 `ClassroomDirector.<NormalClass>d__5.MoveNext` 在结束阶段调用 `PlayerStatus.AddTime` 后才把玩家移到出口并清除 `_inClass`；旧服务器每 200ms 回写早晨时段，撤销了这个剧情结果。
+- 公开服务器不再创建、推进或广播 `worldTime`，并移除 `FF_ROOM_DAY_LENGTH_SECONDS`；详细时间由每个客户端按游戏原生相同流速推进。
+- 服务器睡眠只判断真实玩家是否全员同意，不把服务器算作玩家，也不计算钟点；批准后每个客户端执行同一个明确跳转。客户端还会忽略滚动部署期间旧服务器发来的 `worldTime`。
 
 - 已确认根因：当前生成类型清单中的 `GameManager` 没有 `@hookable`，旧 `AutoSaving/SaveGame` Hook 从未构成可靠隔离边界。
 - 桥接程序现在保护线下 `AutoSave` 的逐字节基线，捕获原版写死的线上 AutoSave，经 `MPActive` 完整校验并晋升 `MPOnline` 后原子恢复线下文件。
@@ -7,7 +11,7 @@
 - 构建新增回归门，禁止再为不可 Hook 的 `GameManager` 注册任何 Hook。
 
 - 修复重进线上存档后全场景交互点消失：不再拦截原版 `PlayerStatus.SetTime`，让读档期间依赖它的场景条件与交互注册完整刷新。
-- 修复学校课程结束后玩家永久失去控制：不再拦截剧情事务内部的 `AddTime/AddDay`；服务器权威时间改为在原版事务完成后通过 `worldTime` 校准。
+- 修复学校课程结束后玩家永久失去控制：不再拦截剧情事务内部的 `AddTime/AddDay`；公开服务器也不再通过 `worldTime` 撤销原版事务结果。
 - 退出阶段仅在 `WindowManager.Singleton` 存活时查询窗口，避免 Unity 销毁单例后继续调用 `IsOpened` 的空引用。
 - 构建增加回归门：源码一旦重新注册这三个危险时间 Hook，打包会直接失败。
 
@@ -38,17 +42,17 @@ PASS UUIDv7 rename, read-only load transaction, disk-level AutoSave isolation/cr
 PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 ```
 
-公开时间现已改为服务器持有的相对房间时段。旧客户端即使发送包含夜间存档的
-`serverTimeSeed` 也会被忽略，首个时钟仍为早晨的 `roomCycle=0`。新玩家加入时只建立当前
-周期基线，不会把房间以前经历的天数复制到自己的剧情日期。最后一名玩家离开后，常驻房间
-会把时段、场景和周期重置为新的早晨会话。
+公开服务器不再持有相对房间时段或详细钟点。旧客户端发送的 `serverTimeSeed`、
+`serverTimeCommit`、`worldTime` 都会被忽略，服务器也不会回发 `worldTime`。玩家继续使用原版
+时间流速，剧情自己的 `AddTime/AddDay` 可以完整生效；最后一名玩家离开时只清理房间场景和
+睡眠共识状态。
 
 床窗口回归已定位并修复两个明确故障：游戏原生 `SleepToTomorrow` 回调只调用
 `SetTime(3)`，所以 20:00 只会变成约 23:00 而不会换日；UcModLauncher 同时不允许直接构造
 新的 `ButtonClickedEvent`，导致联机接管抛错。Mod 现在复用按钮已有事件，通过 `AddListener`
-绑定并以启动器扩展作为回退；服务器批准后明确执行“日期 +1、`timeOfDay = 0`”。游戏把睡眠
+绑定并以启动器扩展作为回退；服务器批准后所有客户端明确执行“日期 +1、`timeOfDay = 0`”。游戏把睡眠
 按钮按晚间规则置灰后，Mod 会重新启用联机入口；克隆的手动保存按钮也改用独立的线上存档
-会话状态，不再继承“休息一下”的灰色状态。服务器端短睡从时段 3 回到 0 时也会同步换日。
+会话状态，不再继承“休息一下”的灰色状态。客户端短睡从时段 3 回到 0 时会同步换日。
 
 正式构建在生成包之前还会强制执行运行时安全扫描：拒绝会落入注册表的游戏偏好接口、Windows 注册表 API、提权请求以及常见安装器/包管理器命令。当前源码、生成的 `mod/main.ts` 和已安装负载均不包含这些 API；发布桥接程序与安装目录桥接程序的 SHA-256 完全一致。
 
@@ -71,10 +75,10 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
   --self-test-room-relay --address 127.0.0.1 --port 28783
 ```
 
-测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、拒绝首位玩家的夜间时钟种子、单人睡眠推进到房间周期 1、时段按配置的 3,600 秒周期以 240 个原生单位推进、坐满后建立下一间、权威仍为 Peer `0`、双向转发和全员睡眠正常、最小 ID 可复用，并清理静默/挂机连接。全部测试玩家断开后，最终列表只包含空的常驻 `public-1`；重新进入必须得到早晨的 `roomCycle=0`，不能继承上一会话时间。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
+测试服务器容量设为 2、`FF_ROOM_CLIENT_TIMEOUT_SECONDS=3`、`FF_ROOM_AFK_TIMEOUT_SECONDS=10` 时，该测试验证新服务器只显示一个真实房间、拒绝旧时间种子且绝不发出 `worldTime`、单人及多人全员睡眠正常、坐满后建立下一间、权威仍为 Peer `0`、双向转发、最小 ID 可复用，并清理静默/挂机连接。全部测试玩家断开后，最终列表只包含空的常驻 `public-1`；重新进入同样不能收到服务器详细时钟。正式环境两个超时阈值都默认 300 秒且不单独发送心跳。
 
 ```text
-PASS server-owned room phase, player-seed rejection, empty-room morning reset, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
+PASS client-owned detailed time, no server worldTime, permanent room, solo/unanimous sleep, timeouts, reusable peer IDs and relay
 ```
 
 ## 真实游戏证据
