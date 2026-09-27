@@ -25,7 +25,7 @@ This test verifies that:
 - UUIDv7 migration, latest-save discovery and active-only legacy recovery work.
 - Clothing is included in load metadata so the runtime avatar can reapply the saved equipped list without editing the stored JSON.
 
-The room adapter self-test is available as:
+The current room adapter self-test also passes when the test server is started with capacity two:
 
 ```powershell
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
@@ -33,6 +33,10 @@ The room adapter self-test is available as:
 ```
 
 With the test server capacity set to two, it verifies that a fresh server exposes exactly one real room, two ordinary clients fill it, the server creates the next room, authority remains peer `0`, member IDs stay positive, bidirectional relay works, and clock/sleep approval remains server-owned.
+
+```text
+PASS public room auto-entry, server authority and bidirectional relay
+```
 
 ## Full-game evidence
 

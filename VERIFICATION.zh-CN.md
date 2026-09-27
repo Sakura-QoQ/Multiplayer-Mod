@@ -25,7 +25,7 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
 - UUIDv7 迁移、最新存档发现和仅剩 Active 的旧版恢复通过。
 - 加载元数据包含衣服列表，运行时角色可以重新应用已装备衣服，而不修改存档 JSON。
 
-房间适配自检命令：
+当前房间适配自检在测试服务器容量设为 2 时也已通过：
 
 ```powershell
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
@@ -33,6 +33,10 @@ PASS UUIDv7 rename, read-only load transaction, single-file online save, clothin
 ```
 
 测试服务器容量设为 2 时，该测试验证新服务器只显示一个真实房间、两个普通客户端将其坐满后服务器建立下一间、权威仍为 Peer `0`、成员 ID 为正数、双向转发正常，并由服务器负责时钟和全员睡眠批准。
+
+```text
+PASS public room auto-entry, server authority and bidirectional relay
+```
 
 ## 真实游戏证据
 
