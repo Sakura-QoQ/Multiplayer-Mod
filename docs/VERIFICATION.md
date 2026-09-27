@@ -1,4 +1,4 @@
-# Verification — v0.13.6
+# Verification — v0.13.7
 
 Status updated 27 September 2026. This document separates current automated checks from earlier full-game evidence so old results are not presented as proof of newly changed save behavior.
 
@@ -13,6 +13,15 @@ The current NativeAOT bridge passes:
 ```text
 PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
+
+The bed-window regression was traced to two concrete native/runtime faults and corrected: the game's
+`SleepToTomorrow` callback only calls `SetTime(3)`, which turns 20:00 into roughly 23:00 without advancing
+the day, while UcModLauncher cannot construct a new `ButtonClickedEvent`. The Mod now reuses each existing
+event, binds through `AddListener` with the launcher extension as a fallback, and applies an explicit
+`day + 1, timeOfDay = 0` result after server approval. Native sleep buttons are re-enabled after the game
+sets their evening state, and the cloned manual-save button receives its own save-session availability
+instead of inheriting the disabled short-sleep state. Server-side short sleep now advances the day on a
+period `3 -> 0` rollover as well.
 
 The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
 

@@ -1,4 +1,4 @@
-# v0.13.6 验证报告
+# v0.13.7 验证报告
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
 - 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。
@@ -17,6 +17,13 @@
 ```text
 PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
+
+床窗口回归已定位并修复两个明确故障：游戏原生 `SleepToTomorrow` 回调只调用
+`SetTime(3)`，所以 20:00 只会变成约 23:00 而不会换日；UcModLauncher 同时不允许直接构造
+新的 `ButtonClickedEvent`，导致联机接管抛错。Mod 现在复用按钮已有事件，通过 `AddListener`
+绑定并以启动器扩展作为回退；服务器批准后明确执行“日期 +1、`timeOfDay = 0`”。游戏把睡眠
+按钮按晚间规则置灰后，Mod 会重新启用联机入口；克隆的手动保存按钮也改用独立的线上存档
+会话状态，不再继承“休息一下”的灰色状态。服务器端短睡从时段 3 回到 0 时也会同步换日。
 
 正式构建在生成包之前还会强制执行运行时安全扫描：拒绝会落入注册表的游戏偏好接口、Windows 注册表 API、提权请求以及常见安装器/包管理器命令。当前源码、生成的 `mod/main.ts` 和已安装负载均不包含这些 API；发布桥接程序与安装目录桥接程序的 SHA-256 完全一致。
 
