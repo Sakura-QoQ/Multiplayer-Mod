@@ -42,7 +42,7 @@ Build and run the current save/isolation self-test:
 ./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-save-crypto
 ```
 
-The expected result includes `read-only load transaction`, `validated AutoSave two-phase commit`, `single-file online save`, `temporary load copy`, tamper rejection and `AutoSave isolation`.
+The expected result includes `read-only load transaction`, `disk-level AutoSave isolation/crash recovery`, `validated two-phase commit`, `single-file online save`, `temporary load copy` and tamper rejection.
 
 To test the dedicated-room adapter, run a room server on a test port and then execute:
 
@@ -57,7 +57,7 @@ When changing save code, verify all three boundaries:
 
 1. `prepareSave` disables bridge writes and creates only a temporary native-format load file.
 2. `releaseSave` deletes that file before `enableSaveWrites` succeeds.
-3. The `SaveGame("AutoSave")` Hook invokes the native method with `MPActive`, then requests validated atomic promotion to `MPOnline` without touching single-player `AutoSave.save`.
+3. Do not register fake save hooks for the unhookable `GameManager`; the bridge must preserve the offline `AutoSave`, validate/promote a hard-coded native write through `MPActive`, and restore the exact offline bytes.
 
 ## Build the server
 

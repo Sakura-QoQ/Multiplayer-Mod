@@ -1,4 +1,10 @@
-# Verification — v0.14.1
+# Verification — v0.14.2
+
+- Root cause confirmed: `GameManager` has no `@hookable` marker in the generated type list, so the former `AutoSaving/SaveGame` hooks never formed a reliable isolation boundary.
+- The bridge now preserves the byte-exact offline `AutoSave`, captures the game's hard-coded online write through `MPActive`, promotes it after complete validation, and atomically restores the offline file.
+- Recovery state lives under the Mod's own `Bridge/Recovery`; startup completes promotion/restoration after a simultaneous game/bridge interruption.
+- Disconnecting while still in-game keeps save isolation active; the baseline is released only after the main menu is confirmed or the game process ends.
+- The build rejects any future attempt to register a `GameManager` hook.
 
 - Fixed all scene interaction points disappearing after reopening an online save by allowing the native load transaction to call `PlayerStatus.SetTime` and refresh scene conditions/interactions.
 - Fixed the player remaining locked after a school class by allowing story transactions to complete their native `AddTime/AddDay` calls; authoritative `worldTime` now reconciles the phase afterward.
@@ -16,7 +22,7 @@ The current NativeAOT bridge passes:
 ```
 
 ```text
-PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+PASS UUIDv7 rename, read-only load transaction, disk-level AutoSave isolation/crash recovery, validated two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery and tamper rejection
 ```
 
 The dedicated runtime-log self-test also passes:
@@ -52,11 +58,10 @@ This test verifies that:
 - A complete AutoSave `MPActive` is validated and atomically promoted; malformed input leaves the prior formal save byte-for-byte unchanged.
 - `prepareSave` disables writes; an attempted incomplete snapshot returns `-8` and leaves the complete formal file byte-for-byte unchanged.
 - Saving commits directly and atomically to the double-encrypted `MPOnline` container.
-- The bridge does not monitor, redirect, back up, restore or otherwise modify `AutoSave.save`.
+- During an online session the bridge monitors `AutoSave.save`; a native online write is promoted to `MPOnline` and the offline baseline is restored byte-for-byte.
 - The Mod outer AES-GCM layer round-trips correctly and rejects tampering.
 - UUIDv7 migration, latest-save discovery and active-only legacy recovery work.
 - Clothing is included in load metadata so the runtime avatar can reapply the saved equipped list without editing the stored JSON.
-- Native `GameManager.AutoSaving()` is intercepted directly because its IL2CPP implementation tail-jumps to the native `SaveGame` address and bypasses a `SaveGame` entry hook. The complete native save is redirected through `MPActive` without filtering any JSON fields.
 - Remote clothing is instantiated only on the inactive visual clone; the local player's outfit is never temporarily replaced, and old proxies are hidden before deferred destruction.
 
 The current room adapter self-test also passes when the test server is started with capacity two, a test-only three-second TCP inactivity timeout and a ten-second AFK timeout:
@@ -88,7 +93,7 @@ Additional observed results from the two-game runs:
 
 - Player scheduling was configured for 20 Hz; two full game processes sharing one machine observed 17.43 Hz end-to-end while render interpolation continued each frame.
 - Material restoration covered 14 renderers and 21 private material instances per side with zero invalid/error shaders in that run.
-- The historical two-game test did not change original `AutoSave*.save` hashes. Current source redirects native online autosaves to isolated `MPActive`, then explicitly validates and atomically promotes them without handling offline AutoSave.
+- The historical two-game test did not change original `AutoSave*.save` hashes. The v0.14.2 self-test additionally covers a native AutoSave write that bypasses hooks and recovery after a simultaneous bridge/game interruption.
 - The public endpoint accepted the framed protocol and returned `pong`; TCP reachability was confirmed externally.
 
 ## Remaining verification

@@ -69,9 +69,9 @@ sequenceDiagram
     G->>B: releaseSave
     B->>D: delete MPActive
     G->>B: enableSaveWrites
-    G->>G: redirect SaveGame("AutoSave") to MPActive
-    G->>D: native writer completes MPActive
-    G->>B: commitActiveSave
+    B->>D: preserve byte-exact offline AutoSave baseline
+    G->>D: unhookable native writer writes hard-coded AutoSave
+    B->>D: capture complete AutoSave into MPActive
     B->>D: validate HMAC / decrypt / parse JSON
     B->>D: atomically replace MPOnline
     B->>D: delete MPActive after success
@@ -81,7 +81,7 @@ sequenceDiagram
 
 Only `MPOnline_<UUIDv7>.save` persists normally. `MPActive` exists solely because the game cannot read the Mod's authenticated outer container. During preparation and loading, both the game script and bridge reject writes. If loading fails, the formal online file remains byte-for-byte unchanged.
 
-Online autosave invokes the original method with the isolated `MPActive` name so native exit and transition behavior remains intact. After that write completes, the bridge validates the game HMAC, fully decrypts and parses the JSON, validates the new outer container from disk, atomically replaces `MPOnline`, and only then deletes `MPActive`. The explicit bed save remains an alternative direct snapshot commit. The online pipeline never reads or writes single-player `AutoSave.save`.
+`GameManager` is absent from the launcher's `@hookable` type list, so `AutoSaving/SaveGame` hooks are not a valid boundary. The bridge durably protects the offline `AutoSave` baseline, captures a new hard-coded native `AutoSave` through `MPActive`, validates HMAC/decryption/JSON and the outer container, atomically replaces `MPOnline`, deletes `MPActive`, and restores the offline bytes. Startup completes the same recovery after an interrupted process.
 
 Pause-menu Exit keeps the game's original behavior. If native exit invokes AutoSave, it uses the same
 validated two-phase commit. Bridge shutdown retries a valid writable-stage `MPActive`; a partially initialized

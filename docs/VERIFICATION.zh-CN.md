@@ -1,4 +1,10 @@
-# v0.14.1 验证报告
+# v0.14.2 验证报告
+
+- 已确认根因：当前生成类型清单中的 `GameManager` 没有 `@hookable`，旧 `AutoSaving/SaveGame` Hook 从未构成可靠隔离边界。
+- 桥接程序现在保护线下 `AutoSave` 的逐字节基线，捕获原版写死的线上 AutoSave，经 `MPActive` 完整校验并晋升 `MPOnline` 后原子恢复线下文件。
+- 恢复状态和基线备份位于 Mod 自己的 `Bridge/Recovery`；游戏与桥接同时中断后，下次启动会先晋升有效线上候选并恢复线下文件。
+- 游戏内只停止网络连接时仍保持存档隔离；只有确认回到主菜单或游戏进程结束后才恢复并释放线下基线。
+- 构建新增回归门，禁止再为不可 Hook 的 `GameManager` 注册任何 Hook。
 
 - 修复重进线上存档后全场景交互点消失：不再拦截原版 `PlayerStatus.SetTime`，让读档期间依赖它的场景条件与交互注册完整刷新。
 - 修复学校课程结束后玩家永久失去控制：不再拦截剧情事务内部的 `AddTime/AddDay`；服务器权威时间改为在原版事务完成后通过 `worldTime` 校准。
@@ -6,7 +12,6 @@
 - 构建增加回归门：源码一旦重新注册这三个危险时间 Hook，打包会直接失败。
 
 - 已解密并验证本机真实原版 `AutoSave.save`：HMAC 有效，包含 21 个顶层字段；同一时段旧线上档只有 18 个字段，缺少三个 `PlayFlag*`，且任务、条件、帖子与照片仍是旧值。
-- 已直接拦截 IL2CPP `GameManager.AutoSaving()`；它原先以 tail-jump 绕过 `SaveGame` 入口 Hook。现在完整原版存档固定经过 `MPActive → HMAC/解密/JSON 校验 → 原子替换 MPOnline`，不做字段筛选。
 - 远端衣服仅在未激活的视觉克隆体上实例化，不再临时更换本地玩家服装；重建前立即隐藏旧代理，避免延迟销毁造成衣服叠加穿模。
 
 状态更新于 2026 年 9 月 27 日。本文把当前自动化检查与较早的真实游戏证据分开，避免用旧结果证明刚修改的存档流程。
@@ -20,7 +25,7 @@
 ```
 
 ```text
-PASS UUIDv7 rename, read-only load transaction, validated AutoSave two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
+PASS UUIDv7 rename, read-only load transaction, disk-level AutoSave isolation/crash recovery, validated two-phase commit, single-file online save, clothing metadata, online-save crypto, malformed working-copy rejection, temporary load copy, latest-save discovery and tamper rejection
 ```
 
 独立运行日志自检也已通过：
@@ -54,7 +59,7 @@ PASS dedicated Mod log path, bridge/game entries and IPC exclusion
 - 完整的自动保存 `MPActive` 会经过校验并原子晋升；畸形输入不会改变旧正式档的任何字节。
 - `prepareSave` 会关闭写入；提交不完整快照返回 `-8`，正式完整文件逐字节不变。
 - 保存直接原子提交到双层加密 `MPOnline` 容器。
-- 桥接程序不再监视、转存、备份、恢复或修改 `AutoSave.save`。
+- 桥接程序只在联机会话中监测 `AutoSave.save`；任何原版线上写入都会晋升到 `MPOnline`，随后线下基线逐字节恢复。
 - Mod 外层 AES-GCM 能正确往返并拒绝篡改文件。
 - UUIDv7 迁移、最新存档发现和仅剩 Active 的旧版恢复通过。
 - 加载元数据包含衣服列表，运行时角色可以重新应用已装备衣服，而不修改存档 JSON。
@@ -88,7 +93,7 @@ PASS server-owned room phase, player-seed rejection, empty-room morning reset, p
 
 - 玩家排程设置为 20 Hz；同机运行两份完整游戏时端到端实测 17.43 Hz，渲染插值仍逐帧执行。
 - 当次材质恢复每端覆盖 14 个渲染器、21 个独立材质，无效/错误 Shader 为零。
-- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；当前源码把线上原版自动保存重定向到隔离的 `MPActive`，随后显式校验并原子晋升，全程不处理线下 AutoSave。
+- 历史双游戏测试前后原版 `AutoSave*.save` 哈希不变；v0.14.2 自检进一步覆盖原版绕过 Hook 写入 AutoSave，以及桥接同时崩溃后的基线恢复。
 - 公网端点接受分帧协议并返回 `pong`，外部 TCP 可达性也已确认。
 
 ## 待验证项目

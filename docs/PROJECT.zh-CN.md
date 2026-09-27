@@ -12,18 +12,18 @@
 
 ## 发行文件
 
-- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.14.1-win-x64.zip`
+- 玩家 Mod 包：`artifacts/PlayerHostedMultiplayer-v0.14.2-win-x64.zip`
 
 发布工作流会把玩家 ZIP 和校验文件上传到对应的公开 GitHub Release，也可以在 Actions 页面手动重新运行。服务器源码直接走自动部署流程，不生成服务器 ZIP。
 
 ## 安装与进入游戏
 
-1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.14.1-win-x64.zip`。
+1. 使用游戏 Mod 启动器导入 `PlayerHostedMultiplayer-v0.14.2-win-x64.zip`。
 2. 通过该启动器启动游戏。
 3. 点击主菜单“新建游戏”上方的“联机”。
 4. 输入玩家名，打开“公开服务器”，查看服务器管理的真实房间及实时人数/容量后选择房间。
 
-主菜单右下角会在原版游戏版本号左侧显示 `Multiplayer v0.14.1`。该文本直接读取 `mod/info.json`，与玩家 ZIP 文件名使用同一个版本来源。
+主菜单右下角会在原版游戏版本号左侧显示 `Multiplayer v0.14.2`。该文本直接读取 `mod/info.json`，与玩家 ZIP 文件名使用同一个版本来源。
 
 ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安装 Node.js、TypeScript、.NET、Visual Studio，也不需要额外启动脚本。Mod 不写 Windows 注册表、不安装服务、不请求提权，也不调用软件安装器；运行偏好只放在游戏内存，会话身份通过 Mod 自己的轮换 JSON 状态文件和线上存档文件名保持。公开服务器只需要出站 TCP；玩家电脑不开放入站端口。
 
@@ -53,11 +53,11 @@ ZIP 已包含自包含 Windows x64 NativeAOT 桥接程序。玩家不需要安�
 1. 进入时，桥接程序校验并解密 `MPOnline`，临时生成 `MPActive_<UUIDv7>.save`，因为游戏只能读取原生 `Encrypted` 格式。
 2. 加载期间是强制只读事务；游戏端与桥接端写入锁都会拒绝自动保存。
 3. `LoadGame` 完成后立即删除临时 `MPActive`。
-4. 线上自动保存把原版 `SaveGame("AutoSave")` 重定向到临时 `MPActive`；原版写入返回后，桥接完整验证 HMAC、解密和 JSON，再原子替换 `MPOnline` 并删除临时档。
+4. `GameManager` 在当前游戏版本中不可 Hook；桥接程序先逐字节保护线下 `AutoSave`，再把原版写死的线上 `AutoSave` 捕获到临时 `MPActive`，完整验证并原子晋升 `MPOnline`，最后恢复线下基线。
 5. 与床互动时会增加一个原版样式的“保存游戏”选项，玩家可主动提交并验证 `MPOnline`。
 6. 暂停菜单的退出按钮保持游戏原版行为；若原版退出流程调用 AutoSave，则走相同的两阶段提交且不阻塞退出。
 
-因此只有 `MPOnline` 是权威持久档；`MPActive` 只存在到完整校验和原子晋升成功为止，失败时旧 `MPOnline` 保持不变。线上流程既不读取也不写入单机 `AutoSave.save`，线上文件也不会显示在原版读取/保存页面。
+因此只有 `MPOnline` 是权威线上持久档；`MPActive` 只存在到完整校验和原子晋升成功为止，失败时旧 `MPOnline` 保持不变。桥接只为隔离而读取并逐字节恢复单机 `AutoSave.save`；线上文件不会显示在原版读取/保存页面。
 
 内层是游戏原版 PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` 格式；Mod 外层使用 PBKDF2-SHA256 与 AES-256-GCM 认证加密。这保护磁盘文件，不代表网络流量已加密。
 

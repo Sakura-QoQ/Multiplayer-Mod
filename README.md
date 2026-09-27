@@ -12,13 +12,13 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 
 ## Release artifacts
 
-- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.1-win-x64.zip`
+- Player package: `artifacts/PlayerHostedMultiplayer-v0.14.2-win-x64.zip`
 
 Both files are uploaded to the matching public GitHub Release by the publishing workflow. The workflow can also be rerun manually from the Actions page.
 
 ## Install and play
 
-1. Import `PlayerHostedMultiplayer-v0.14.1-win-x64.zip` with the game's Mod launcher.
+1. Import `PlayerHostedMultiplayer-v0.14.2-win-x64.zip` with the game's Mod launcher.
 2. Start the game through that launcher.
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
@@ -52,11 +52,11 @@ Each player owns one persistent `MPOnline_<UUIDv7>.save`. The server never recei
 1. On entry, the bridge authenticates and decrypts `MPOnline` into a temporary `MPActive_<UUIDv7>.save` because the game can only load its native `Encrypted` format.
 2. Loading is a read-only transaction. Game-side and bridge-side write gates reject autosaves until loading finishes.
 3. After `LoadGame` completes, the temporary `MPActive` file is deleted.
-4. Online autosave redirects native `SaveGame("AutoSave")` to temporary `MPActive`; after the native write returns, the bridge validates HMAC/decryption/JSON, atomically replaces `MPOnline`, then deletes `MPActive`.
+4. Because `GameManager` is not hookable in this game build, the bridge keeps an exact offline `AutoSave` baseline. A hard-coded native `AutoSave` write is captured into temporary `MPActive`, validated, promoted to `MPOnline`, and then the offline baseline is atomically restored.
 5. Interacting with a bed adds a native-style **Save game** option that commits and verifies `MPOnline` on demand.
 6. The pause-menu Exit button keeps the game's original behavior; if that flow invokes native AutoSave, it uses the same validated two-phase commit without blocking exit.
 
-The persistent authoritative file therefore remains `MPOnline` only. `MPActive` exists only until a fully validated atomic promotion completes; failures leave the previous `MPOnline` unchanged. Single-player `AutoSave.save` is neither read nor written by the online-save pipeline, and online files are hidden from the original load/save UI.
+The persistent authoritative online file therefore remains `MPOnline` only. `MPActive` exists only until a fully validated atomic promotion completes; failures leave the previous `MPOnline` unchanged. The bridge reads and restores the single-player `AutoSave.save` only to protect it byte-for-byte from the game's hard-coded writer. Online files are hidden from the original load/save UI.
 
 The inner layer matches the game's PBKDF2-SHA256/AES-256-CBC/HMAC-SHA256 `Encrypted` format. The outer Mod layer uses PBKDF2-SHA256 and AES-256-GCM authenticated encryption. This protects files at rest, not network traffic.
 
