@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using FallenFlower.MultiplayerBridge;
@@ -31,7 +30,6 @@ internal static partial class Program
                 "releaseSave" => ReleasePreparedOnlineSave(),
                 "enableSaveWrites" => EnableOnlineSaveWrites(),
                 "renameSave" => RenameOnlineSave(values),
-                "flushSave" => FlushOnlineSave(),
                 "beginRawSave" => BeginRawOnlineSave(values),
                 "appendRawSave" => AppendRawOnlineSave(values),
                 "commitRawSave" => CommitRawOnlineSave(),
@@ -196,6 +194,8 @@ internal static partial class Program
     {
         RoomRelay.Stop();
         Node.Stop();
+        _sessionPlayerName = NormalizeSessionPlayerName(values.GetValueOrDefault("player", "Player"));
+        _sessionRoomId = string.Empty;
         return Node.StartHost(ReadInt(values, "port", 27777), ReadInt(values, "max", 4));
     }
 
@@ -203,6 +203,8 @@ internal static partial class Program
     {
         RoomRelay.Stop();
         Node.Stop();
+        _sessionPlayerName = NormalizeSessionPlayerName(values.GetValueOrDefault("player", "Player"));
+        _sessionRoomId = string.Empty;
         return Node.Join(values.GetValueOrDefault("address", "127.0.0.1"), ReadInt(values, "port", 27777));
     }
 
@@ -218,14 +220,16 @@ internal static partial class Program
     {
         Node.Stop();
         RoomRelay.Stop();
+        _sessionPlayerName = NormalizeSessionPlayerName(values.GetValueOrDefault("player", "Player"));
+        _sessionRoomId = NormalizeSessionRoomId(values.GetValueOrDefault("room", string.Empty));
         return RoomRelay.Start(
             values.GetValueOrDefault("address", "127.0.0.1"),
             ReadInt(values, "port", 27777),
             createRoom,
-            values.GetValueOrDefault("room", string.Empty),
+            _sessionRoomId,
             values.GetValueOrDefault("key", string.Empty),
             values.GetValueOrDefault("roomName", string.Empty),
-            values.GetValueOrDefault("player", "Player"),
+            _sessionPlayerName,
             ReadInt(values, "max", 4));
     }
 
@@ -234,17 +238,21 @@ internal static partial class Program
         Node.Stop();
         RoomRelay.Stop();
         var endpoint = PublicServerEndpoint.Decrypt();
+        _sessionPlayerName = NormalizeSessionPlayerName(values.GetValueOrDefault("player", "Player"));
+        _sessionRoomId = NormalizeSessionRoomId(values.GetValueOrDefault("room", string.Empty));
         return RoomRelay.EnterPublicRoom(
             endpoint.Host,
             endpoint.Port,
-            values.GetValueOrDefault("room", string.Empty),
-            values.GetValueOrDefault("player", "Player"));
+            _sessionRoomId,
+            _sessionPlayerName);
     }
 
     private static int ListPublicRooms()
     {
         Node.Stop();
         RoomRelay.Stop();
+        _sessionPlayerName = string.Empty;
+        _sessionRoomId = string.Empty;
         var endpoint = PublicServerEndpoint.Decrypt();
         return RoomRelay.ListPublicRooms(endpoint.Host, endpoint.Port);
     }
@@ -253,42 +261,22 @@ internal static partial class Program
     {
         Node.Stop();
         RoomRelay.Stop();
+        _sessionPlayerName = string.Empty;
+        _sessionRoomId = string.Empty;
         return 0;
     }
 
-    // 游戏脚本先提交完整 GetSave JSON；这里验证工作副本和正式双层密文已经一致。
-    private static int FlushOnlineSave()
+    private static string NormalizeSessionPlayerName(string value)
     {
-        if (!_onlineSaveWritesEnabled) return -8;
-        // 退出前不能“尽力而为”后仍返回成功。只有当前 MPActive_ 已经被完整封装为
-        // MPOnline_，并且正式档确实存在且非空，游戏端才可以继续执行原版退出回调。
-        // MPActive_ 始终保留，作为断电或外层加密失败时的恢复副本。
-        if (_activeOnlineSaveName.Length == 0 || _activeSaveDirectory.Length == 0) return -2;
-        var activePath = Path.Combine(_activeSaveDirectory, ToActiveSaveName(_activeOnlineSaveName) + ".save");
-        var onlinePath = Path.Combine(_activeSaveDirectory, _activeOnlineSaveName + ".save");
-        ProtectedHashes.Remove(activePath);
-
-        // 文件可能正处于原子替换的极短窗口。桥接线程不能睡眠等待；-6 让游戏脚本在后续帧重试。
-        try
-        {
-            if (!File.Exists(activePath) || new FileInfo(activePath).Length == 0) return -6;
-            var active = File.ReadAllBytes(activePath);
-            if (!active.AsSpan().StartsWith("Encrypted"u8)) return -5;
-            ProtectActiveSaves(deleteActive: true);
-            if (File.Exists(onlinePath) && new FileInfo(onlinePath).Length > 0)
-            {
-                var unpacked = DecryptOuterLayer(File.ReadAllBytes(onlinePath));
-                if (unpacked.AsSpan().SequenceEqual(active)) return 0;
-            }
-        }
-        catch (IOException) { return -6; }
-        catch (UnauthorizedAccessException) { return -6; }
-        catch (CryptographicException) { }
-
-        AddEvent(new BridgeEvent("error", 0, "The formal online save could not be verified before exit; exit was blocked to protect progress"));
-        return -5;
+        var normalized = (value ?? string.Empty).Trim();
+        if (normalized.Length == 0) return "Player";
+        return normalized.Length <= 64 ? normalized : normalized[..64];
     }
 
-    // 原版退出流程或其他 Mod 即使删除了当前槽位，也从刚验证过的正式线上档恢复
-    // MPActive_ 工作副本。这样退出后磁盘上始终同时保留正式档和可恢复副本。
+    private static string NormalizeSessionRoomId(string value)
+    {
+        var normalized = (value ?? string.Empty).Trim();
+        return normalized.Length <= 48 ? normalized : normalized[..48];
+    }
+
 }

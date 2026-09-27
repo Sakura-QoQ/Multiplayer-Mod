@@ -12,9 +12,10 @@ function runSmokeTestDiagnostics(player: Player): void {
                 player.transform.position = new UnityEngine.Vector3(current.x + 3.25, current.y, current.z);
             }
             const savedPosition = player.transform.position;
-            beginOnlineExitSave(player, () => log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
+            const result = GameManager.Singleton ? writeOnlineSaveSnapshot(GameManager.Singleton) : "-2";
+            log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
                 " save=" + selectedSaveName + " position=" + savedPosition.x.toFixed(4) + "," +
-                savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4)));
+                savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4) + " result=" + result);
         } catch (error) { log("Diagnostics: online-save lifecycle failed: " + error); }
         return;
     }

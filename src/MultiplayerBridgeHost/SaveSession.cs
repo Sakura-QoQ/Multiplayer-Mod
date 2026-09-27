@@ -66,7 +66,7 @@ internal static partial class Program
         var strictName = values.GetValueOrDefault("strict", string.Empty) == "1";
         var saveDirectory = saveDirectoryOverride ?? GetSaveDirectory();
         Directory.CreateDirectory(saveDirectory);
-        // PlayerPrefs 可能被清除，状态快照也可能尚未刷新。没有指定名称时由桥接程序直接
+        // 游戏侧记忆可能为空，状态快照也可能尚未刷新。没有指定名称时由桥接程序直接
         // 扫描磁盘，并在正式档和工作副本中选择最近使用的 UUID，绝不能因此新建角色。
         if (!strictName && (onlineName.Length == 0 ||
             (!File.Exists(Path.Combine(saveDirectory, onlineName + ".save")) &&

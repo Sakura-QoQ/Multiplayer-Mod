@@ -10,6 +10,8 @@ type BridgeStateFile = {
     transport?: string;
     localPeerId?: number;
     authorityPeerId?: number;
+    playerName?: string;
+    roomId?: string;
     responseSequence?: number;
     response?: string;
     saves?: { name: string; lastWriteUtcTicks: number; size: number }[];
@@ -38,6 +40,8 @@ function readBridgeState(): BridgeStateFile | null {
             transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
             localPeerId: Number(parsed.localPeerId) || 0,
             authorityPeerId: Number(parsed.authorityPeerId) || 0,
+            playerName: typeof parsed.playerName === "string" ? parsed.playerName : "",
+            roomId: typeof parsed.roomId === "string" ? parsed.roomId : "",
             responseSequence: Number(parsed.responseSequence) || 0,
             response: typeof parsed.response === "string" ? parsed.response : "",
             saves: Array.isArray(parsed.saves) ? parsed.saves
@@ -148,8 +152,6 @@ function launchBundledBridge(): void {
             log("Direct bridge launch with standard user privileges failed; using the compatibility launcher: " + error);
         }
         if (!startedDirectly) UnityEngine.Application.OpenURL(bridgePath);
-        UnityEngine.PlayerPrefs.SetInt(BRIDGE_STATE_READY_KEY, 1);
-        UnityEngine.PlayerPrefs.Save();
         log("Started the bridge with standard user privileges: " + bridgePath);
     } catch (error) {
         log("Failed to start the bridge automatically: " + error);
@@ -160,8 +162,7 @@ function submitBridgeCommandTracked(command: string): number {
     if (!bridgeAvailable) return -1;
     try {
         const sequence = ++ipcCommandSequence;
-        // Unity PlayerPrefs 在部分运行环境中不会写入桥接程序可见的注册表位置。
-        // Debug.Log 一定进入 Player.log；桥接程序只增量读取带专用标记的新行。
+        // Debug.Log 是游戏引擎自己的日志通道；桥接程序只增量读取带专用标记的新行。
         print(IPC_LOG_MARKER + " " + sequence + " " + command);
         return sequence;
     } catch (error) {
@@ -174,8 +175,8 @@ function submitBridgeCommand(command: string): string {
     return submitBridgeCommandTracked(command) > 0 ? "0" : "-1";
 }
 
-// 退出保存必须得到桥接程序对同一命令序号的真实响应，不能把“命令已写进日志”
-// 误当成加密封装成功。退出阶段允许短暂同步等待；外部桥接进程仍可独立处理命令。
+// 手动保存必须得到桥接程序对同一命令序号的真实响应，不能把“命令已写进日志”
+// 误当成加密封装成功；外部桥接进程仍可在等待期间独立处理命令。
 function submitBridgeCommandAndWait(command: string, timeoutMilliseconds = 5000): string {
     const sequence = submitBridgeCommandTracked(command);
     if (sequence < 0) return "-1";
@@ -225,7 +226,8 @@ function bridgeCall(command: string): string {
     if (command === "protocol") return state ? String(state.protocol) : "";
     if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers,
         transport: state.transport || "direct", localPeerId: state.localPeerId || 0,
-        authorityPeerId: state.authorityPeerId || 0 }) : "";
+        authorityPeerId: state.authorityPeerId || 0, playerName: state.playerName || "",
+        roomId: state.roomId || "" }) : "";
     if (command === "poll") {
         collectBridgeEvents(state);
         return pendingBridgeEvents.length > 0 ? pendingBridgeEvents.shift() || "" : "";
@@ -233,4 +235,4 @@ function bridgeCall(command: string): string {
     return submitBridgeCommand(command);
 }
 
-// config.json 只提供默认值；玩家在界面输入的内容会优先从 PlayerPrefs 恢复。
+// config.json 只提供默认值；活动会话信息由桥接状态 JSON 恢复，不写入注册表。

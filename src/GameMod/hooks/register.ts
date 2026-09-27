@@ -49,7 +49,11 @@ RegisterHook("System.Void PlayerStatus::SetTime(System.Int32)", (_self: PlayerSt
 // 两种睡觉按钮都必须经过房主的全员确认；只有所有在线玩家在 20 秒内选择同一种
 // 睡眠方式时，才在所有电脑上同时放行原版回调，单个玩家不能独自跳过夜晚。
 RegisterHook("System.Void BedWindow::Start()", (self: BedWindow) => {
-    if (isCurrentGeneration()) bedWindowInstance = self;
+    if (!isCurrentGeneration()) return;
+    bedWindowInstance = self;
+    JintCoroutine.WaitForNextFrame(self, () => {
+        if (isCurrentGeneration()) buildBedSaveButton(self);
+    });
 });
 RegisterHook("System.Void BedWindow::<Start>b__2_0()", (_self: BedWindow, ctx: IHookContext) => {
     if (isCurrentGeneration()) requestConsensusSleep("short", ctx);
@@ -72,13 +76,6 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             syncGameLanguage();
         } catch (error) { log("Pause-menu UI initialization failed: " + error); }
     });
-});
-// PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
-RegisterHook("System.Void PauseWindow::<Start>b__9_3()", (_self: any, ctx: IHookContext) => {
-    if (!isCurrentGeneration() || role === "off") return;
-    ctx.Intercept();
-    const manager = GameManager.Singleton;
-    if (manager) beginOnlineExitSave(manager);
 });
 // MainMenu.Awake 用于尽早创建联机面板；面板会跨场景保留。
 RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {

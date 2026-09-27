@@ -7,6 +7,7 @@ Fallen Flower 联机 Mod——公开服务器版 v0.13.0——Windows x64
 
 本包包含自包含 MultiplayerBridgeHost.exe。玩家不需要安装 .NET、Node.js、TypeScript、
 Visual Studio 或其他开发软件。桥接程序以当前普通用户运行，不申请管理员权限，也不使用注册表 IPC。
+它不安装服务、不运行安装器、不使用注册表偏好存储，也不下载软件。
 
 进入联机
 - “公开服务器”显示服务器实际管理的房间与实时人数/容量。服务器启动时建立一间，全部满员后
@@ -25,7 +26,8 @@ Visual Studio 或其他开发软件。桥接程序以当前普通用户运行，
 正常情况下只持久存在 MPOnline_<UUIDv7>.save。MPActive_<UUIDv7>.save 只为游戏读取原生加密
 格式临时生成，加载后删除。加载完成前强制只读。线上自动保存会取消原版
 SaveGame("AutoSave") 磁盘写入，把内存 GetSave() 直接提交到 MPOnline；线上流程不读取或写入
-单机 AutoSave.save。退出前必须保存并验证 MPOnline。
+单机 AutoSave.save。与床互动时可使用原版样式的“保存游戏”选项主动保存线上档；退出保持
+游戏原版行为，不保存，也不会阻止退出。
 
 安全
 存档文件在磁盘上使用双层加密。网络是明文 TCP 分帧 JSON，不是 TLS；内置端点只是混淆，

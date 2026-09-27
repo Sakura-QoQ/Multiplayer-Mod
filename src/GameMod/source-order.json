@@ -8,7 +8,10 @@
   "network/config.ts",
   "player/info/view-model.ts",
   "network/control/session.ts",
+  "save/names.ts",
+  "save/wait.ts",
   "save/lifecycle.ts",
+  "save/manual.ts",
   "network/transport.ts",
   "network/world-time.ts",
   "player/avatar/bones.ts",
@@ -36,9 +39,9 @@
   "ui/pages/pause-menu.ts",
   "ui/pages/player-list.ts",
   "ui/pages/room-info.ts",
+  "ui/pages/bed-save.ts",
   "ui/pages/multiplayer.ts",
   "ui/pages/runtime.ts",
   "network/control/update-loop.ts",
-  "save/exit.ts",
   "hooks/register.ts"
 ]

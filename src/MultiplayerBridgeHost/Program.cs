@@ -39,6 +39,9 @@ internal static partial class Program
     private static string _logCommandMarker = DefaultLogCommandMarker;
     private static string? _gameLogPathOverride;
     private static string _saveProtectionName = string.Empty;
+    // 会话标识只保存在桥接状态文件中，供游戏换场景后恢复；禁止写入系统配置存储。
+    private static string _sessionPlayerName = string.Empty;
+    private static string _sessionRoomId = string.Empty;
     private static bool _networkOnly;
     private static DateTime _lastClientTouchUtc;
     private static bool _clientTouchSeen;
@@ -162,16 +165,8 @@ internal static partial class Program
         {
             if (!_networkOnly)
             {
-                if (_onlineSaveWritesEnabled)
-                {
-                    // 退出时封装可能由旧版自动保存留下的工作档；正式 MPOnline 是唯一持久存档。
-                    ProtectActiveSaves(deleteActive: true);
-                }
-                else
-                {
-                    // 载入未完成就退出时只删除解密工作副本，绝不改写正式线上档。
-                    _ = ReleasePreparedOnlineSave();
-                }
+                // 退出只清理解密工作副本，绝不生成或改写正式线上档；保存只能由游戏内明确流程提交。
+                _ = ReleasePreparedOnlineSave();
             }
             Node.Dispose();
             RoomRelay.Dispose();

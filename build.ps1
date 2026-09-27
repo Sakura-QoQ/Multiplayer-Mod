@@ -20,6 +20,32 @@ $modVersion = ([string](Get-Content -LiteralPath $modInfoPath -Raw -Encoding UTF
 if ($modVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid Mod version in info.json: $modVersion" }
 $packageZip = Join-Path $artifactsRoot "PlayerHostedMultiplayer-v$modVersion-win-x64.zip"
 
+function Assert-RuntimeSafety {
+    # 运行时代码禁止调用注册表后端、提权或软件安装工具。桥接程序只能以当前用户权限
+    # 作为 Mod 自带的便携组件启动；这项检查用于防止后续修改意外破坏该约束。
+    $runtimeFiles = @(
+        Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src\GameMod') -Filter '*.ts' -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src\MultiplayerBridge') -Filter '*.cs' -File -Recurse
+        Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src\MultiplayerBridgeHost') -Filter '*.cs' -File -Recurse
+    )
+    $forbiddenPatterns = @(
+        'UnityEngine\.PlayerPrefs',
+        'Microsoft\.Win32\.Registry',
+        '\bRegistryKey\b',
+        '\breg\.exe\b',
+        '\bmsiexec(?:\.exe)?\b',
+        '\bwinget(?:\.exe)?\b',
+        '\bchoco(?:\.exe)?\b',
+        'Verb\s*=\s*["'']runas["'']'
+    )
+    foreach ($pattern in $forbiddenPatterns) {
+        $match = $runtimeFiles | Select-String -Pattern $pattern -CaseSensitive:$false | Select-Object -First 1
+        if ($match) {
+            throw "Forbidden registry, elevation, or installer API in runtime code: $($match.Path):$($match.LineNumber)"
+        }
+    }
+}
+
 function Build-GameModSource {
     # UcModLauncher 当前只加载单个 main.ts，不负责解析 TypeScript import。
     # 开发源码按职责拆分，构建时依照显式清单合并，玩家端不需要 Node.js 或 TypeScript。
@@ -167,6 +193,7 @@ function Copy-ModPayload([string] $destination) {
     }
 }
 
+Assert-RuntimeSafety
 Build-GameModSource
 Import-VisualCppEnvironment
 

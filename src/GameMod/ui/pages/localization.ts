@@ -10,6 +10,10 @@ function refreshLocalizedUi(): void {
             const pauseText = findTextInChildren(uiPauseButton.transform);
             if (pauseText) pauseText.text = tr("menu.multiplayer");
         }
+        if (bedSaveButton) {
+            const bedSaveText = findTextInChildren(bedSaveButton.transform);
+            if (bedSaveText) bedSaveText.text = tr("button.saveGame");
+        }
         if (!uiPanel) return;
         const root = uiPanel.transform;
         const labels: Record<string, string> = {

@@ -17,7 +17,7 @@ Multiplayer Mod for **Fallen Flower** with one-click public rooms, retained loca
 3. Select **Multiplayer** above **New Game**.
 4. Enter a player name, open **Public servers**, review the real server-managed room list and choose a room.
 
-The ZIP contains a self-contained Windows x64 NativeAOT bridge. Players do not install Node.js, TypeScript, .NET, Visual Studio or a separate launcher script. Public play needs outbound TCP only; players do not open an inbound port.
+The ZIP contains a self-contained Windows x64 NativeAOT bridge. Players do not install Node.js, TypeScript, .NET, Visual Studio or a separate launcher script. The Mod never writes the Windows registry, installs a service, requests elevation or runs an installer. Runtime preferences stay in game memory; session identity is carried by the Mod's rotating JSON state files and online-save filenames. Public play needs outbound TCP only; players do not open an inbound port.
 
 For local direct play, use **Host** or **Join** with an address and port. A direct host may need a Windows firewall rule and router port forwarding when players connect from outside its LAN.
 
@@ -42,7 +42,8 @@ Each player owns one persistent `MPOnline_<UUIDv7>.save`. The server never recei
 2. Loading is a read-only transaction. Game-side and bridge-side write gates reject autosaves until loading finishes.
 3. After `LoadGame` completes, the temporary `MPActive` file is deleted.
 4. Online autosave intercepts the game's `SaveGame("AutoSave")`, cancels the original disk write, reads `GameManager.GetSave()` from memory, and atomically replaces only `MPOnline`.
-5. Online exit saves and verifies `MPOnline` before quitting.
+5. Interacting with a bed adds a native-style **Save game** option that commits and verifies `MPOnline` on demand.
+6. The pause-menu Exit button keeps the game's original behavior and never saves or blocks exit.
 
 The persistent file therefore remains `MPOnline` only. Single-player `AutoSave.save` is neither read nor written by the online-save pipeline, and online files are hidden from the original load/save UI.
 

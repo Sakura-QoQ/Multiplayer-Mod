@@ -13,7 +13,7 @@ This repository produces a self-contained Windows player Mod and a separately de
 
 Node.js and `tsc` are not used. UcModLauncher executes TypeScript-style Jint source, and `build.ps1` concatenates it as text.
 
-The bridge does not use the Windows registry. Commands travel through marked Unity `Player.log` lines; responses and events use rotating JSON state files under the installed Mod's `Bridge` directory.
+Neither the game script nor the bridge uses the Windows registry or Unity's registry-backed preference API. Commands travel through marked Unity `Player.log` lines; responses, events and current session identity use rotating JSON state files under the installed Mod's `Bridge` directory. The runtime does not elevate, install a service, run a package manager or download dependencies.
 
 ## Build the player Mod
 
@@ -29,7 +29,7 @@ After dependencies have been restored once, an offline build can use:
 ./build.ps1 -Install -NoRestore
 ```
 
-Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The build rejects missing/duplicate modules, direct low-level Unity control construction in page modules, and translation-key differences.
+Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The build rejects missing/duplicate modules, direct low-level Unity control construction in page modules, translation-key differences, registry APIs, elevation requests and installer commands in runtime source.
 
 ## Verify behavior
 

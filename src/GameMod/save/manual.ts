@@ -1,4 +1,4 @@
-// 退出保存流程。
+// 线上手动保存。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function writeOnlineSaveSnapshot(manager: GameManager): string {
     if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
@@ -35,33 +35,27 @@ function writeOnlineSaveSnapshot(manager: GameManager): string {
     }
 }
 
-// 线上退出必须拦截原回调：SaveGame 会跨多个 Unity 帧写盘，不能在按钮回调里同步等待。
-// 写盘完成并由桥接程序验证双层密文后再退出，实现一次点击自动保存并退出。
-function beginOnlineExitSave(owner: UnityEngine.MonoBehaviour, beforeQuit?: () => void): void {
-    if (exitSaveInProgress || !GameManager.InGame) return;
-    exitSaveInProgress = true;
+function saveOnlineAtBed(): void {
+    if (bedSaveInProgress || role === "off" || !GameManager.InGame) return;
+    bedSaveInProgress = true;
     try {
         const manager = GameManager.Singleton;
         if (!manager) throw new Error("GameManager is not initialized");
-        const saveName = activeSaveName(selectedSaveName);
-        if (!saveName) throw new Error("No valid online working-copy name is available");
-        GameManager.SaveName = saveName;
         const result = writeOnlineSaveSnapshot(manager);
-        if (result === "0") {
-            log("Autosaved and verified before exit: " + saveName);
-            try { if (beforeQuit) beforeQuit(); } catch (_error) { }
-            UnityEngine.Application.Quit();
-        } else {
-            exitSaveInProgress = false;
-            log("Autosave before exit failed; error code=" + result);
-            toast(tr("toast.exitSaveFailed"));
+        if (result !== "0") {
+            log("Manual online save at the bed failed; error code=" + result);
+            toast(tr("toast.manualSaveFailed"));
+            return;
         }
+        log("Manual online save completed at the bed: " + selectedSaveName);
+        toast(tr("toast.manualSaveComplete"));
+        try {
+            if (WindowManager.IsOpened("BedWindow")) WindowManager.CloseWindow("BedWindow");
+        } catch (_error) { }
     } catch (error) {
-        exitSaveInProgress = false;
-        log("Autosave before exit failed: " + error);
-        toast(tr("toast.exitSaveFailed"));
+        log("Manual online save at the bed failed: " + error);
+        toast(tr("toast.manualSaveFailed"));
+    } finally {
+        bedSaveInProgress = false;
     }
 }
-
-// 联机模式下原版默认 AutoSave 调用由 Hook 完全拦截；这里只提交内存快照到 MPOnline，
-// 不调用原版 SaveGame，也不读取、创建或恢复单机 AutoSave.save。

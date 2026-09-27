@@ -44,7 +44,7 @@ function readBridgeStatus(): BridgeStatus {
     try {
         const state = readBridgeState();
         if (!bridgeStateIsFresh(state)) return { state: "unavailable", port: 0, peers: 0,
-            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
+            transport: "direct", localPeerId: 0, authorityPeerId: 0, playerName: "", roomId: "" };
         const parsed = JSON.parse(bridgeCall("status"));
         return {
             state: typeof parsed.state === "string" ? parsed.state : "unknown",
@@ -52,11 +52,13 @@ function readBridgeStatus(): BridgeStatus {
             peers: Number(parsed.peers) || 0,
             transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
             localPeerId: Number(parsed.localPeerId) || 0,
-            authorityPeerId: Number(parsed.authorityPeerId) || 0
+            authorityPeerId: Number(parsed.authorityPeerId) || 0,
+            playerName: typeof parsed.playerName === "string" ? parsed.playerName : "",
+            roomId: typeof parsed.roomId === "string" ? parsed.roomId : ""
         };
     } catch (_error) {
         return { state: bridgeAvailable ? "stopped" : "unavailable", port: 0, peers: 0,
-            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
+            transport: "direct", localPeerId: 0, authorityPeerId: 0, playerName: "", roomId: "" };
     }
 }
 

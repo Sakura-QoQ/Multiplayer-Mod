@@ -14,6 +14,8 @@ The current NativeAOT bridge passes:
 PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
 
+The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
+
 This test verifies that:
 
 - `MPOnline_<UUIDv7>.save` is the only persistent normal save.
@@ -60,11 +62,12 @@ Additional observed results from the two-game runs:
 ## Remaining verification
 
 - Run two real game clients through the deployed Ubuntu public endpoint after both player and server builds are updated to the same commit.
-- Repeat the create/save/quit/reopen game lifecycle and verify the save directory contains only `MPOnline` after loading and after exit.
-- Hash `AutoSave.save` before and after an online autosave/exit regression to verify the game Hook on the target build.
+- Repeat the create/bed-save/quit/reopen game lifecycle and verify the save directory contains only `MPOnline` after loading and after exit.
+- Verify the bed window contains the native-style manual-save option, and that pause-menu Exit quits immediately without issuing a save command.
+- Hash `AutoSave.save` before and after an online autosave/bed-save regression to verify the game Hook on the target build.
 - Verify equipped clothing, inventory, quests, achievements/progression, position and phone behavior after reopening the same online UUID.
 - Network traffic is plain TCP and has not been penetration-tested or tested behind TLS termination.
 
 ## Package boundary
 
-The player ZIP contains runtime Mod files, six language packs, English/Chinese player instructions and licenses, profile maps, and one self-contained NativeAOT executable. It does not include source, tests, Node.js, the .NET SDK, Visual Studio or the Ubuntu server.
+The player ZIP contains runtime Mod files, six language packs, English/Chinese player instructions and licenses, profile maps, and one self-contained NativeAOT executable. It does not include source, tests, installers, services, startup scripts, Node.js, the .NET SDK, Visual Studio or the Ubuntu server. Persistent output is limited to the Mod's JSON snapshots, an exceptional crash log beside them, and online files in the game's save directory; the Mod does not use the Windows registry.

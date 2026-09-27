@@ -13,7 +13,9 @@ function processEvent(rawEvent: string): void {
         const creator = !serverAuthority && room.creator === true;
         role = creator ? "host" : "client";
         networkTransport = "server";
-        currentPublicRoom = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PublicRoom"), currentPublicRoom);
+        const bridgeStatus = readBridgeStatus();
+        currentPublicRoom = bridgeStatus.roomId || currentPublicRoom;
+        currentPlayerName = bridgeStatus.playerName || currentPlayerName;
         localNetworkId = creator ? 0 : Math.trunc(Number(room.localPeerId));
         serverTimeSeedSent = false;
         authoritativeServerScene = "";

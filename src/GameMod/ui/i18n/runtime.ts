@@ -20,21 +20,12 @@ function tr(key: string, values?: TranslationValues): string {
 }
 
 function syncGameLanguage(force = false): void {
-    let preferenceLanguage = -1;
     let runtimeLanguage = -1;
-    try {
-        runtimeLanguage = Number(Localization.Language);
-        preferenceLanguage = Number(UnityEngine.PlayerPrefs.GetInt("UserSelectedLanguage", runtimeLanguage));
-    } catch (_error) { }
+    try { runtimeLanguage = Number(Localization.Language); } catch (_error) { }
 
     const valid = (value: number) => Number.isInteger(value) && value >= 0 && value < LANGUAGE_CODES.length;
-    if (!valid(preferenceLanguage)) preferenceLanguage = -1;
     if (!valid(runtimeLanguage)) runtimeLanguage = -1;
     languagePollFrames += 1;
-
-    // 玩家在设置菜单确认语言后，PlayerPrefs 的变化具有最高优先级，可在下一帧立即刷新。
-    const preferenceChanged = preferenceLanguage >= 0 && lastPreferenceLanguage >= 0 && preferenceLanguage !== lastPreferenceLanguage;
-    if (preferenceLanguage >= 0) lastPreferenceLanguage = preferenceLanguage;
 
     // 游戏初始化主菜单时会快速遍历多种语言。只有运行时语言连续稳定 8 帧才采用它，
     // 这样既支持游戏内实时切换，也不会让联机界面在启动时跟着闪烁。
@@ -45,10 +36,9 @@ function syncGameLanguage(force = false): void {
     }
 
     let nextIndex = languageIndex;
-    if (force) nextIndex = preferenceLanguage >= 0 ? preferenceLanguage : (runtimeLanguage >= 0 ? runtimeLanguage : 0);
-    else if (preferenceChanged) nextIndex = preferenceLanguage;
+    if (force) nextIndex = runtimeLanguage >= 0 ? runtimeLanguage : 0;
     else if (runtimeLanguage >= 0 && runtimeLanguageStableFrames >= 8 && languagePollFrames >= 30) nextIndex = runtimeLanguage;
-    else if (nextIndex < 0) nextIndex = preferenceLanguage >= 0 ? preferenceLanguage : (runtimeLanguage >= 0 ? runtimeLanguage : 0);
+    else if (nextIndex < 0) nextIndex = runtimeLanguage >= 0 ? runtimeLanguage : 0;
 
     if (!force && nextIndex === languageIndex) return;
     languageIndex = nextIndex;

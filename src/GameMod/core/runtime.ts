@@ -1,7 +1,12 @@
 // 通用运行时工具。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function isCurrentGeneration(): boolean {
-    return Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) === SCRIPT_GENERATION;
+    try {
+        const current = UnityEngine.GameObject.Find(GENERATION_OBJECT_NAME);
+        return !!current && !!SCRIPT_GENERATION_OBJECT &&
+            Number(current.GetInstanceID()) === SCRIPT_GENERATION &&
+            Number(SCRIPT_GENERATION_OBJECT.GetInstanceID()) === SCRIPT_GENERATION;
+    } catch (_error) { return false; }
 }
 
 function log(message: string): void { print(MOD_TAG + " " + message); }

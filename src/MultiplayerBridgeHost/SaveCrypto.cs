@@ -262,7 +262,7 @@ internal static partial class Program
             if (ReleasePreparedOnlineSave() != 0)
                 throw new InvalidOperationException("The read-only working copy was not released");
 
-            // 即使正式档缺失或 PlayerPrefs 忘记上次选择，也必须优先恢复已有工作副本，
+            // 即使正式档缺失或游戏侧忘记上次选择，也必须优先恢复已有工作副本，
             // 不能把一次临时读取失败误判为首次游戏并创建空白角色。
             const string recoveryName = "MPOnline_01890f3e-7b01-7abc-8def-0123456789ab";
             var recoveryActivePath = Path.Combine(testDirectory, ToActiveSaveName(recoveryName) + ".save");
@@ -275,7 +275,7 @@ internal static partial class Program
             File.Delete(recoveryOnlinePath);
             recoveryResult = PrepareOnlineSave(new Dictionary<string, string> { ["name"] = string.Empty }, testDirectory);
             if (recoveryResult != 0 || !File.Exists(recoveryOnlinePath))
-                throw new InvalidOperationException("The latest online save was not discovered and recovered when PlayerPrefs was missing");
+                throw new InvalidOperationException("The latest online save was not discovered and recovered when the remembered selection was missing");
         }
         finally
         {

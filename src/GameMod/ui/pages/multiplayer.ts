@@ -10,7 +10,9 @@ function buildUi(font: any): void {
         uiConfigBody = shell.body;
         coroutineRunner = shell.runner;
         uiFont = font;
-        selectedSaveName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.SelectedSave"), "");
+        const bridgeState = readBridgeState();
+        selectedSaveName = bridgeState && bridgeState.saves && bridgeState.saves.length > 0
+            ? bridgeState.saves[0].name : "";
         buildPlayerListPage(shell.root.transform, font);
         buildRoomInfoPage(shell.panel.transform, font);
 
@@ -25,7 +27,8 @@ function buildUi(font: any): void {
         uiStatus = makeText(configBody.transform, "Status", statusLabel(), font, 30, 18, 660, 46, 27);
         (uiStatus as any).alignment = 4;
         makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 82, 135, 46, 24);
-        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 80, 520);
+        uiName = makeInput(configBody.transform, "PlayerName", currentPlayerName || config.playerName,
+            tr("placeholder.playerName"), font, 170, 80, 520);
         makeButton(configBody.transform, "LocalMultiplayer", tr("button.localMultiplayer"), font, 30, 160, 319, () => openPanelMode("local"), 58);
         makeButton(configBody.transform, "PublicServers", tr("button.publicServers"), font, 370, 160, 319, requestPublicRoomListFromUi, 58);
         makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 240, 205, stopFromUi, 52);
@@ -42,7 +45,7 @@ function buildUi(font: any): void {
         // 本地多人地址每次打开游戏默认留空，避免玩家误把回环地址当成另一台电脑。
         uiAddress = makeInput(uiLocalBody.transform, "Address", "", tr("placeholder.address"), font, 170, 55, 520);
         makeText(uiLocalBody.transform, "PortLabel", tr("field.port"), font, 30, 125, 135, 46, 24);
-        uiPort = makeInput(uiLocalBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 170, 125, 520);
+        uiPort = makeInput(uiLocalBody.transform, "Port", String(config.port), tr("placeholder.port"), font, 170, 125, 520);
         makeButton(uiLocalBody.transform, "Host", tr("button.host"), font, 30, 210, 319, startHostFromUi, 58);
         makeButton(uiLocalBody.transform, "Join", tr("button.join"), font, 370, 210, 319, joinFromUi, 58);
         uiLocalBody.SetActive(false);

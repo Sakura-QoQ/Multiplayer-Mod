@@ -14,6 +14,8 @@
 PASS UUIDv7 rename, read-only load transaction, single-file online save, clothing metadata, online-save crypto, temporary load copy, latest-save discovery, tamper rejection and AutoSave isolation
 ```
 
+正式构建在生成包之前还会强制执行运行时安全扫描：拒绝会落入注册表的游戏偏好接口、Windows 注册表 API、提权请求以及常见安装器/包管理器命令。当前源码、生成的 `mod/main.ts` 和已安装负载均不包含这些 API；发布桥接程序与安装目录桥接程序的 SHA-256 完全一致。
+
 该测试验证：
 
 - `MPOnline_<UUIDv7>.save` 是正常情况下唯一持久存档。
@@ -60,11 +62,12 @@ PASS public room auto-entry, server authority and bidirectional relay
 ## 待验证项目
 
 - 玩家端与 Ubuntu 服务更新到同一提交后，让两个真实游戏客户端通过已部署公网端点联机。
-- 重跑创建/保存/退出/重进流程，确认加载后和退出后存档目录都只保留 `MPOnline`。
-- 在线上自动保存与退出前后计算 `AutoSave.save` 哈希，验证目标游戏版本上的 Hook。
+- 重复创建、床边保存、退出、重进流程，并确认加载后和退出后存档目录只包含 `MPOnline`。
+- 确认床窗口出现原版样式的手动保存选项，并确认暂停菜单“退出”立即执行且不提交保存命令。
+- 在线上自动保存与床边保存前后计算 `AutoSave.save` 哈希，验证目标游戏版本上的 Hook。
 - 重进同一线上 UUID 后核对已装备衣服、背包、任务、成就/进度、位置和手机功能。
 - 网络使用明文 TCP，尚未经过渗透测试，也未验证 TLS 终止方案。
 
 ## 发布包边界
 
-玩家 ZIP 包含运行 Mod 文件、六种语言包、中英文玩家说明与许可、资料字段映射，以及一个自包含 NativeAOT 可执行程序；不包含源码、测试、Node.js、.NET SDK、Visual Studio 或 Ubuntu 服务。
+玩家 ZIP 包含运行 Mod 文件、六种语言包、中英文玩家说明与许可、资料字段映射，以及一个自包含 NativeAOT 可执行程序；不包含源码、测试、安装器、系统服务、启动脚本、Node.js、.NET SDK、Visual Studio 或 Ubuntu 服务。持久输出仅限 Mod 自己的 JSON 快照、同目录下的异常崩溃日志，以及游戏存档目录中的线上文件；Mod 不使用 Windows 注册表。

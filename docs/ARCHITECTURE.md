@@ -70,11 +70,16 @@ sequenceDiagram
     G->>G: intercept SaveGame("AutoSave")
     G->>B: commit GetSave JSON
     B->>D: atomically replace MPOnline
+    G->>G: bed Save Game reuses the same commit path
 ```
 
 Only `MPOnline_<UUIDv7>.save` persists normally. `MPActive` exists solely because the game cannot read the Mod's authenticated outer container. During preparation and loading, both the game script and bridge reject writes. If loading fails, the formal online file remains byte-for-byte unchanged.
 
 Online autosave never invokes the original disk writer. It cancels `SaveGame("AutoSave")`, captures the in-memory JSON and commits the double-encrypted online file. The online pipeline does not read, create, back up or restore single-player `AutoSave.save`.
+
+Pause-menu Exit keeps the game's original behavior and does not trigger an extra save. Bridge shutdown
+only removes a decrypted `MPActive` working copy, so a partially initialized exit state cannot replace
+the formal file. The native-style bed button performs an explicit save through the same atomic commit path.
 
 ## Source assembly
 

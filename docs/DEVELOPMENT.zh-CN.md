@@ -13,7 +13,7 @@
 
 项目不使用 Node.js 或 `tsc`。UcModLauncher 通过 Jint 执行 TypeScript 风格源码，`build.ps1` 只按顺序合并文本。
 
-桥接程序不使用 Windows 注册表。命令通过 Unity `Player.log` 的专用标记行传递；响应和事件使用安装目录 `Bridge` 下的轮换 JSON 状态文件。
+游戏脚本和桥接程序都不使用 Windows 注册表，也不调用 Unity 会落入注册表的偏好接口。命令通过 Unity `Player.log` 的专用标记行传递；响应、事件与当前会话身份使用安装目录 `Bridge` 下的轮换 JSON 状态文件。运行时不提权、不安装服务、不调用包管理器，也不下载依赖。
 
 ## 构建玩家 Mod
 
@@ -29,7 +29,7 @@
 ./build.ps1 -Install -NoRestore
 ```
 
-只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。构建会拒绝遗漏/重复模块、页面直接创建底层 Unity 控件，以及语言包键不一致。
+只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。构建会拒绝遗漏/重复模块、页面直接创建底层 Unity 控件、语言包键不一致，以及运行时代码中的注册表 API、提权请求和安装器命令。
 
 ## 验证功能
 

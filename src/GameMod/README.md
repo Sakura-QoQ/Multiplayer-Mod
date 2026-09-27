@@ -18,7 +18,10 @@ endpoint stays hidden from editable UI configuration. Public capacity is never s
 - `player/info/`: player-information presentation models.
 - `player/profile/`: profile reading, storage and chunked transmission.
 - `player/state/`: frequent transform/action snapshots and per-frame remote rendering.
-- `save/`: UUIDv7 entry, read-only load transaction, temporary load-copy release, direct `MPOnline` commits and verified exit.
+- `save/names.ts`: slot normalization, UUIDv7 identities, and online/temporary filename isolation.
+- `save/wait.ts`: bounded frame waits while scenes and game state settle.
+- `save/lifecycle.ts`: read-only loading, first-save creation, and session state.
+- `save/manual.ts`: snapshot chunking plus autosave and bed-save commits.
 - `ui/components/`: reusable Unity UI primitives. Pages construct controls through these helpers.
 - `ui/pages/`: local Host/Join, public-room browser, read-only pause room page and player lists.
 - `ui/i18n/<language>/strings.json`: UI translations, organized by language abbreviation.
@@ -31,3 +34,7 @@ uses. Runtime language files are copied to `mod/i18n` during the build.
 Online `SaveGame("AutoSave")` is intercepted only while `role !== "off"`: the original disk writer
 is cancelled and the in-memory snapshot is committed to `MPOnline`. Single-player mode returns from
 the Hook without interception. Do not reintroduce bridge-side `AutoSave.save` monitoring.
+
+Online manual saving is exposed as a third native-style option in `BedWindow`. Autosave and bed-save
+both use the same `GetSave()` → chunking → double encryption → atomic replacement path. Pause-menu
+Exit is not hooked; bridge shutdown only removes a decrypted temporary copy and never creates a save.

@@ -53,6 +53,8 @@ internal static partial class Program
                 .Append(",\"peers\":").Append(RoomRelay.IsRunning ? RoomRelay.PeerCount : Node.PeerCount)
                 .Append(",\"localPeerId\":").Append(RoomRelay.IsRunning ? RoomRelay.LocalPeerId : 0)
                 .Append(",\"authorityPeerId\":").Append(RoomRelay.IsRunning ? RoomRelay.AuthorityPeerId : 0)
+                .Append(",\"playerName\":\"").Append(Escape(_sessionPlayerName)).Append('"')
+                .Append(",\"roomId\":\"").Append(Escape(_sessionRoomId)).Append('"')
                 .Append(",\"responseSequence\":").Append(_responseSequence)
                 .Append(",\"response\":\"").Append(Escape(_response)).Append("\",\"saves\":[");
             for (var index = 0; index < saves.Count; index++)
@@ -88,7 +90,7 @@ internal static partial class Program
         var builder = new StringBuilder(1024);
         builder.Append("{\"protocol\":").Append(ProtocolVersion)
             .Append(",\"running\":false,\"heartbeatUtcTicks\":0,\"state\":\"stopped\",\"port\":0,\"peers\":0,")
-            .Append("\"responseSequence\":0,\"response\":\"\",\"saves\":[");
+            .Append("\"playerName\":\"\",\"roomId\":\"\",\"responseSequence\":0,\"response\":\"\",\"saves\":[");
         for (var index = 0; index < saves.Count; index++)
         {
             if (index > 0) builder.Append(',');

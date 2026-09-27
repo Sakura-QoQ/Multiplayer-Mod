@@ -44,12 +44,8 @@ function readBridgeChannel(): string {
 }
 
 const BRIDGE_CHANNEL = readBridgeChannel();
-function prefKey(baseName: string): string {
-    return BRIDGE_CHANNEL === "default" ? baseName : baseName + "." + BRIDGE_CHANNEL;
-}
-
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
-    localPeerId: number; authorityPeerId: number };
+    localPeerId: number; authorityPeerId: number; playerName: string; roomId: string };
 type PublicRoomEntry = { roomId: string; roomName: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
@@ -152,9 +148,7 @@ const ONLINE_SAVE_PREFIX = "MPOnline_";
 const ACTIVE_SAVE_PREFIX = "MPActive_";
 const BRIDGE_STATE_FILE = BRIDGE_CHANNEL === "default" ? "Bridge/state.json" : "Bridge/state." + BRIDGE_CHANNEL + ".json";
 const IPC_LOG_MARKER = BRIDGE_CHANNEL === "default" ? "[PlayerHostedMultiplayerIPC]" : "[PlayerHostedMultiplayerIPC:" + BRIDGE_CHANNEL + "]";
-const GENERATION_KEY = prefKey("MPB.ScriptGeneration");
-const ONLINE_SAVE_ID_KEY = prefKey("MPB.OnlineSaveUuidV7");
-const BRIDGE_STATE_READY_KEY = prefKey("MPB.BridgeStateReady");
+const GENERATION_OBJECT_NAME = "MPB_ScriptGeneration";
 const LANGUAGE_CODES = ["en", "ja", "zh-CN", "zh-TW", "ko", "es"];
 // 玩家位置、朝向和动作以 20 Hz 发送；画面仍在每个渲染帧插值，兼顾响应速度与流量。
 const PLAYER_STATE_INTERVAL = 0.05;
@@ -169,11 +163,13 @@ const REMOTE_PLAYER_TIMEOUT = 10;
 const WORLD_TIME_INTERVAL = 0.2;
 const SLEEP_READY_TIMEOUT = 20;
 const PRESENCE_INTERVAL = 5;
-// 游戏切换场景时会重新执行 Mod 脚本。代次编号可让旧回调自动失效，避免重复轮询和重复按钮事件。
-const SCRIPT_GENERATION = Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) + 1;
-UnityEngine.PlayerPrefs.SetInt(GENERATION_KEY, SCRIPT_GENERATION);
-// 立即保存脚本世代号，防止场景切换后旧脚本继续处理 UI 或网络事件。
-UnityEngine.PlayerPrefs.Save();
+// 游戏切换场景时会重新执行 Mod 脚本。用游戏引擎内的常驻对象标识当前脚本代次，
+// 避免把 Mod 状态写进 Windows 系统配置。
+const previousGenerationObject = UnityEngine.GameObject.Find(GENERATION_OBJECT_NAME);
+if (previousGenerationObject) UnityEngine.Object.DestroyImmediate(previousGenerationObject);
+const SCRIPT_GENERATION_OBJECT = new UnityEngine.GameObject(GENERATION_OBJECT_NAME);
+UnityEngine.Object.DontDestroyOnLoad(SCRIPT_GENERATION_OBJECT);
+const SCRIPT_GENERATION = Number(SCRIPT_GENERATION_OBJECT.GetInstanceID());
 
 // ===== 模块: core/state.ts =====
 // 共享运行状态。
@@ -247,7 +243,6 @@ let lastBridgeEventSequence = 0;
 let pendingBridgeEvents: string[] = [];
 let languageIndex = -1;
 let languageCode = "en";
-let lastPreferenceLanguage = -1;
 let runtimeLanguageCandidate = -1;
 let runtimeLanguageStableFrames = 0;
 let languagePollFrames = 0;
@@ -260,7 +255,7 @@ let selectedSaveName = "";
 let roundedPanelSprite: UnityEngine.Sprite | null = null;
 let mainMenuInstance: MainMenu | null = null;
 let mainMenuTranslationRefreshPending = false;
-let exitSaveInProgress = false;
+let bedSaveInProgress = false;
 let saveNameRedirectInProgress = false;
 let onlineLoadRedirectedDuringStart = false;
 let localNetworkId = -1;
@@ -286,6 +281,7 @@ let lastServerSceneRequest = "";
 let serverSceneTransitionPending = false;
 let lastBridgeTouchAt = -1;
 let bedWindowInstance: BedWindow | null = null;
+let bedSaveButton: UnityEngine.GameObject | null = null;
 let sleepConsensusExecuting = false;
 let applyingAuthoritativeTime = false;
 let sleepApprovalSequence = RUNTIME_SEQUENCE_BASE + 2;
@@ -335,21 +331,12 @@ function tr(key: string, values?: TranslationValues): string {
 }
 
 function syncGameLanguage(force = false): void {
-    let preferenceLanguage = -1;
     let runtimeLanguage = -1;
-    try {
-        runtimeLanguage = Number(Localization.Language);
-        preferenceLanguage = Number(UnityEngine.PlayerPrefs.GetInt("UserSelectedLanguage", runtimeLanguage));
-    } catch (_error) { }
+    try { runtimeLanguage = Number(Localization.Language); } catch (_error) { }
 
     const valid = (value: number) => Number.isInteger(value) && value >= 0 && value < LANGUAGE_CODES.length;
-    if (!valid(preferenceLanguage)) preferenceLanguage = -1;
     if (!valid(runtimeLanguage)) runtimeLanguage = -1;
     languagePollFrames += 1;
-
-    // 玩家在设置菜单确认语言后，PlayerPrefs 的变化具有最高优先级，可在下一帧立即刷新。
-    const preferenceChanged = preferenceLanguage >= 0 && lastPreferenceLanguage >= 0 && preferenceLanguage !== lastPreferenceLanguage;
-    if (preferenceLanguage >= 0) lastPreferenceLanguage = preferenceLanguage;
 
     // 游戏初始化主菜单时会快速遍历多种语言。只有运行时语言连续稳定 8 帧才采用它，
     // 这样既支持游戏内实时切换，也不会让联机界面在启动时跟着闪烁。
@@ -360,10 +347,9 @@ function syncGameLanguage(force = false): void {
     }
 
     let nextIndex = languageIndex;
-    if (force) nextIndex = preferenceLanguage >= 0 ? preferenceLanguage : (runtimeLanguage >= 0 ? runtimeLanguage : 0);
-    else if (preferenceChanged) nextIndex = preferenceLanguage;
+    if (force) nextIndex = runtimeLanguage >= 0 ? runtimeLanguage : 0;
     else if (runtimeLanguage >= 0 && runtimeLanguageStableFrames >= 8 && languagePollFrames >= 30) nextIndex = runtimeLanguage;
-    else if (nextIndex < 0) nextIndex = preferenceLanguage >= 0 ? preferenceLanguage : (runtimeLanguage >= 0 ? runtimeLanguage : 0);
+    else if (nextIndex < 0) nextIndex = runtimeLanguage >= 0 ? runtimeLanguage : 0;
 
     if (!force && nextIndex === languageIndex) return;
     languageIndex = nextIndex;
@@ -378,7 +364,12 @@ function syncGameLanguage(force = false): void {
 // 通用运行时工具。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
 function isCurrentGeneration(): boolean {
-    return Number(UnityEngine.PlayerPrefs.GetInt(GENERATION_KEY, 0)) === SCRIPT_GENERATION;
+    try {
+        const current = UnityEngine.GameObject.Find(GENERATION_OBJECT_NAME);
+        return !!current && !!SCRIPT_GENERATION_OBJECT &&
+            Number(current.GetInstanceID()) === SCRIPT_GENERATION &&
+            Number(SCRIPT_GENERATION_OBJECT.GetInstanceID()) === SCRIPT_GENERATION;
+    } catch (_error) { return false; }
 }
 
 function log(message: string): void { print(MOD_TAG + " " + message); }
@@ -410,6 +401,8 @@ type BridgeStateFile = {
     transport?: string;
     localPeerId?: number;
     authorityPeerId?: number;
+    playerName?: string;
+    roomId?: string;
     responseSequence?: number;
     response?: string;
     saves?: { name: string; lastWriteUtcTicks: number; size: number }[];
@@ -438,6 +431,8 @@ function readBridgeState(): BridgeStateFile | null {
             transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
             localPeerId: Number(parsed.localPeerId) || 0,
             authorityPeerId: Number(parsed.authorityPeerId) || 0,
+            playerName: typeof parsed.playerName === "string" ? parsed.playerName : "",
+            roomId: typeof parsed.roomId === "string" ? parsed.roomId : "",
             responseSequence: Number(parsed.responseSequence) || 0,
             response: typeof parsed.response === "string" ? parsed.response : "",
             saves: Array.isArray(parsed.saves) ? parsed.saves
@@ -548,8 +543,6 @@ function launchBundledBridge(): void {
             log("Direct bridge launch with standard user privileges failed; using the compatibility launcher: " + error);
         }
         if (!startedDirectly) UnityEngine.Application.OpenURL(bridgePath);
-        UnityEngine.PlayerPrefs.SetInt(BRIDGE_STATE_READY_KEY, 1);
-        UnityEngine.PlayerPrefs.Save();
         log("Started the bridge with standard user privileges: " + bridgePath);
     } catch (error) {
         log("Failed to start the bridge automatically: " + error);
@@ -560,8 +553,7 @@ function submitBridgeCommandTracked(command: string): number {
     if (!bridgeAvailable) return -1;
     try {
         const sequence = ++ipcCommandSequence;
-        // Unity PlayerPrefs 在部分运行环境中不会写入桥接程序可见的注册表位置。
-        // Debug.Log 一定进入 Player.log；桥接程序只增量读取带专用标记的新行。
+        // Debug.Log 是游戏引擎自己的日志通道；桥接程序只增量读取带专用标记的新行。
         print(IPC_LOG_MARKER + " " + sequence + " " + command);
         return sequence;
     } catch (error) {
@@ -574,8 +566,8 @@ function submitBridgeCommand(command: string): string {
     return submitBridgeCommandTracked(command) > 0 ? "0" : "-1";
 }
 
-// 退出保存必须得到桥接程序对同一命令序号的真实响应，不能把“命令已写进日志”
-// 误当成加密封装成功。退出阶段允许短暂同步等待；外部桥接进程仍可独立处理命令。
+// 手动保存必须得到桥接程序对同一命令序号的真实响应，不能把“命令已写进日志”
+// 误当成加密封装成功；外部桥接进程仍可在等待期间独立处理命令。
 function submitBridgeCommandAndWait(command: string, timeoutMilliseconds = 5000): string {
     const sequence = submitBridgeCommandTracked(command);
     if (sequence < 0) return "-1";
@@ -625,7 +617,8 @@ function bridgeCall(command: string): string {
     if (command === "protocol") return state ? String(state.protocol) : "";
     if (command === "status") return state ? JSON.stringify({ state: state.state, port: state.port, peers: state.peers,
         transport: state.transport || "direct", localPeerId: state.localPeerId || 0,
-        authorityPeerId: state.authorityPeerId || 0 }) : "";
+        authorityPeerId: state.authorityPeerId || 0, playerName: state.playerName || "",
+        roomId: state.roomId || "" }) : "";
     if (command === "poll") {
         collectBridgeEvents(state);
         return pendingBridgeEvents.length > 0 ? pendingBridgeEvents.shift() || "" : "";
@@ -633,7 +626,7 @@ function bridgeCall(command: string): string {
     return submitBridgeCommand(command);
 }
 
-// config.json 只提供默认值；玩家在界面输入的内容会优先从 PlayerPrefs 恢复。
+// config.json 只提供默认值；活动会话信息由桥接状态 JSON 恢复，不写入注册表。
 
 // ===== 模块: network/config.ts =====
 // 网络配置。
@@ -682,7 +675,7 @@ function readBridgeStatus(): BridgeStatus {
     try {
         const state = readBridgeState();
         if (!bridgeStateIsFresh(state)) return { state: "unavailable", port: 0, peers: 0,
-            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
+            transport: "direct", localPeerId: 0, authorityPeerId: 0, playerName: "", roomId: "" };
         const parsed = JSON.parse(bridgeCall("status"));
         return {
             state: typeof parsed.state === "string" ? parsed.state : "unknown",
@@ -690,11 +683,13 @@ function readBridgeStatus(): BridgeStatus {
             peers: Number(parsed.peers) || 0,
             transport: typeof parsed.transport === "string" ? parsed.transport : "direct",
             localPeerId: Number(parsed.localPeerId) || 0,
-            authorityPeerId: Number(parsed.authorityPeerId) || 0
+            authorityPeerId: Number(parsed.authorityPeerId) || 0,
+            playerName: typeof parsed.playerName === "string" ? parsed.playerName : "",
+            roomId: typeof parsed.roomId === "string" ? parsed.roomId : ""
         };
     } catch (_error) {
         return { state: bridgeAvailable ? "stopped" : "unavailable", port: 0, peers: 0,
-            transport: "direct", localPeerId: 0, authorityPeerId: 0 };
+            transport: "direct", localPeerId: 0, authorityPeerId: 0, playerName: "", roomId: "" };
     }
 }
 
@@ -777,30 +772,11 @@ function startBridge(): void {
     // ReadModFile 对不存在的文件会抛出启动器宿主异常，Jint 的 try/catch 无法可靠截获。
     // 因此首次进入时先启动单例桥接程序，等待它创建 state.json 后再读取。
     if (!bridgeLaunchAttempted) {
-        // 场景切换会重新执行脚本，但桥接进程不会随场景卸载。只有上一次已经成功创建过
-        // 状态文件时才尝试读取，避免首次安装读取不存在文件触发启动器宿主异常。
-        if (Number(UnityEngine.PlayerPrefs.GetInt(BRIDGE_STATE_READY_KEY, 0)) === 1) {
-            try {
-                const existingState = readBridgeState();
-                if (existingState && existingState.running === true &&
-                    existingState.protocol === PROTOCOL_VERSION && bridgeStateIsFresh(existingState)) {
-                    bridgeLaunchAttempted = true;
-                    bridgeAvailable = true;
-                    initialized = false;
-                    bridgeStartupGraceFrames = 0;
-                    log("Attached to the running multiplayer bridge without requesting another launch");
-                }
-            } catch (_error) { }
-        }
-        if (bridgeLaunchAttempted) {
-            // 继续向下读取当前 hosting/connected 状态，恢复房主或客户端角色。
-        } else {
         initialized = true;
         bridgeStartupGraceFrames = 60;
         launchBundledBridge();
         log("The multiplayer bridge is not running yet; waiting for the bundled bridge to start");
         return;
-        }
     }
     if (bridgeStartupGraceFrames > 0) {
         bridgeStartupGraceFrames -= 1;
@@ -822,9 +798,10 @@ function startBridge(): void {
     }
 
     const config = loadConfig();
-    currentPlayerName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName);
     // 原生网络层不会因为场景切换而卸载，因此新一代脚本应接管现有连接，而不是重新连接。
     const existing = readBridgeStatus();
+    currentPlayerName = existing.playerName || config.playerName;
+    currentPublicRoom = existing.roomId || currentPublicRoom;
     networkTransport = existing.transport === "server" ? "server" : "direct";
     if (existing.state === "hosting") {
         role = "host";
@@ -844,8 +821,10 @@ function startBridge(): void {
     role = config.mode;
     if (role === "off") { log("Loaded; use the Multiplayer button above New Game"); return; }
     const result = role === "host"
-        ? bridgeCall("host?port=" + config.port + "&max=" + config.localMaxPlayers)
-        : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port);
+        ? bridgeCall("host?port=" + config.port + "&max=" + config.localMaxPlayers +
+            "&player=" + encodeURIComponent(currentPlayerName))
+        : bridgeCall("join?address=" + encodeURIComponent(config.address) + "&port=" + config.port +
+            "&player=" + encodeURIComponent(currentPlayerName));
     if (result !== "0") { log("Failed to start the network bridge; error code=" + result); role = "off"; return; }
     localNetworkId = role === "host" ? 0 : -1;
     log(role === "host" ? "Listening on 0.0.0.0:" + config.port : "Connecting to " + config.address + ":" + config.port);
@@ -862,10 +841,6 @@ function enterPublicRoomFromUi(roomId: string): void {
     if (!bridgeAvailable) { toast(tr("toast.runtimeMissing")); return; }
     const config = loadConfig();
     currentPlayerName = valueOr(uiName, config.playerName);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Transport"), "server");
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PublicRoom"), roomId);
-    UnityEngine.PlayerPrefs.Save();
     role = "client";
     networkTransport = "server";
     currentPublicRoom = roomId;
@@ -892,12 +867,10 @@ function startHostFromUi(): void {
     const port = Number(valueOr(uiPort, String(config.port)));
     currentPlayerName = valueOr(uiName, config.playerName);
     if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
-    UnityEngine.PlayerPrefs.Save();
     networkTransport = "direct";
     updateStatusText(tr("status.startingHost", { port }));
-    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.localMaxPlayers);
+    const sequence = submitBridgeCommandTracked("host?port=" + port + "&max=" + config.localMaxPlayers +
+        "&player=" + encodeURIComponent(currentPlayerName));
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.hostFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
         if (result !== "0") { role = "off"; toast(tr("toast.hostFailed", { code: result })); return; }
@@ -916,14 +889,11 @@ function joinFromUi(): void {
     currentPlayerName = valueOr(uiName, config.playerName);
     if (!address) { toast(tr("toast.addressRequired")); return; }
     if (!Number.isInteger(port) || port < 1 || port > 65535) { toast(tr("toast.invalidPort")); return; }
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Address"), address);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.Port"), String(port));
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.PlayerName"), currentPlayerName);
-    UnityEngine.PlayerPrefs.Save();
     networkTransport = "direct";
     clientEntryStarted = false;
     updateStatusText(tr("status.connectingTo", { address, port }));
-    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port);
+    const sequence = submitBridgeCommandTracked("join?address=" + encodeURIComponent(address) + "&port=" + port +
+        "&player=" + encodeURIComponent(currentPlayerName));
     if (sequence < 0 || !mainMenuInstance) { role = "off"; toast(tr("toast.joinFailed", { code: -1 })); return; }
     waitForBridgeResponse(mainMenuInstance, sequence, result => {
         if (result !== "0") { role = "off"; toast(tr("toast.joinFailed", { code: result })); return; }
@@ -973,9 +943,8 @@ function refreshPublicRoomButtons(): void {
     if (uiPublicNextButton) uiPublicNextButton.SetActive(publicRoomPage < maximumPage);
 }
 
-// ===== 模块: save/lifecycle.ts =====
-// 线上存档进入流程。
-// 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
+// ===== 模块: save/names.ts =====
+// 线上存档名称、槽位隔离与稳定玩家标识。
 function activeSaveName(onlineName: string): string {
     return onlineName.startsWith(ONLINE_SAVE_PREFIX)
         ? ACTIVE_SAVE_PREFIX + onlineName.substring(ONLINE_SAVE_PREFIX.length)
@@ -987,17 +956,17 @@ function onlineActiveSaveName(): string {
     return activeSaveName(selectedSaveName);
 }
 
+function normalizedSaveSlot(value: string, fallback = ""): string {
+    const normalized = String(value || fallback).replace(/\\/g, "/");
+    return normalized.substring(normalized.lastIndexOf("/") + 1).replace(/\.save$/i, "");
+}
+
 function isDefaultAutoSaveName(value: string): boolean {
-    const normalized = String(value || "AutoSave").replace(/\\/g, "/");
-    const fileName = normalized.substring(normalized.lastIndexOf("/") + 1).replace(/\.save$/i, "");
-    return fileName.toLowerCase() === "autosave";
+    return normalizedSaveSlot(value, "AutoSave").toLowerCase() === "autosave";
 }
 
 function isOnlineSaveSlot(value: string): boolean {
-    // 原版不同页面传入的可能是槽位名、文件名或完整路径；统一提取文件名并忽略大小写。
-    const normalized = String(value || "").replace(/\\/g, "/");
-    const fileName = normalized.substring(normalized.lastIndexOf("/") + 1).replace(/\.save$/i, "");
-    const lowerName = fileName.toLowerCase();
+    const lowerName = normalizedSaveSlot(value).toLowerCase();
     return lowerName.startsWith(ONLINE_SAVE_PREFIX.toLowerCase()) ||
         lowerName.startsWith(ACTIVE_SAVE_PREFIX.toLowerCase());
 }
@@ -1007,8 +976,7 @@ function isUuidV7(value: string): boolean {
 }
 
 function createUuidV7(): string {
-    // UUIDv7：前 48 位是 Unix 毫秒时间，版本位固定为 7，variant 固定为 RFC 9562 的 10。
-    // 其余 74 位使用 Jint 的随机源；时间有序且每位玩家发生碰撞的概率可以忽略。
+    // UUIDv7: 48-bit Unix millisecond time, version 7, RFC 9562 variant, and random remainder.
     const bytes: number[] = [];
     for (let index = 0; index < 16; index++) bytes.push(Math.floor(Math.random() * 256));
     let timestamp = Date.now();
@@ -1024,12 +992,12 @@ function createUuidV7(): string {
 }
 
 function getOrCreateOnlineSaveId(): string {
-    const existing = UnityEngine.PlayerPrefs.GetString(ONLINE_SAVE_ID_KEY, "");
-    if (isUuidV7(existing)) return existing.toLowerCase();
-    const created = createUuidV7();
-    UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY, created);
-    UnityEngine.PlayerPrefs.Save();
-    return created;
+    if (hasUuidV7OnlineName(selectedSaveName))
+        return selectedSaveName.substring(ONLINE_SAVE_PREFIX.length).toLowerCase();
+    const state = readBridgeState();
+    const existing = state && state.saves
+        ? state.saves.find(save => hasUuidV7OnlineName(save.name)) : null;
+    return existing ? existing.name.substring(ONLINE_SAVE_PREFIX.length).toLowerCase() : createUuidV7();
 }
 
 function hasUuidV7OnlineName(value: string): boolean {
@@ -1037,16 +1005,16 @@ function hasUuidV7OnlineName(value: string): boolean {
 }
 
 function makeOnlineSaveName(): string {
-    // 每位玩家只生成一次 UUIDv7；之后建房、自动保存和重新进入都复用同一专属 ID。
     return ONLINE_SAVE_PREFIX + getOrCreateOnlineSaveId();
 }
 
+// ===== 模块: save/wait.ts =====
+// 场景切换期间，以有限帧数等待游戏状态稳定。
 type GameReadyPredicate = (manager: GameManager) => boolean;
 
 function waitForGameState(owner: UnityEngine.MonoBehaviour, callback: (manager: GameManager) => void,
     predicate: GameReadyPredicate, remaining: number, settleFrames = 0): void {
     if (!isCurrentGeneration()) return;
-    // 场景切换期间旧单例仍可能存活；调用者可要求先让出若干帧，再检查目标状态。
     if (settleFrames > 0) {
         JintCoroutine.WaitForNextFrame(owner,
             () => waitForGameState(owner, callback, predicate, remaining, settleFrames - 1));
@@ -1081,7 +1049,6 @@ function waitForSavableGame(owner: UnityEngine.MonoBehaviour, callback: (manager
 }
 
 function gameCoroutineOwner(menu: MainMenu): UnityEngine.MonoBehaviour {
-    // UI 根节点使用 DontDestroyOnLoad，优先让等待任务绑定到它的常驻 MonoBehaviour。
     if (coroutineRunner) return coroutineRunner;
     try { if (GameManager.Singleton) return GameManager.Singleton; } catch (_error) { }
     try {
@@ -1091,6 +1058,8 @@ function gameCoroutineOwner(menu: MainMenu): UnityEngine.MonoBehaviour {
     return menu;
 }
 
+// ===== 模块: save/lifecycle.ts =====
+// 线上存档进入、首次创建和离开联机会话。
 function enterOnlineSave(): void {
     const menu = mainMenuInstance;
     if (!menu) {
@@ -1106,32 +1075,21 @@ function enterOnlineSave(): void {
         hasUuidV7OnlineName(config.smokeTestOnlineSaveName) ? config.smokeTestOnlineSaveName : "";
     if (forcedTestSave) {
         selectedSaveName = forcedTestSave;
-        UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
-        UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY,
-            selectedSaveName.substring(ONLINE_SAVE_PREFIX.length).toLowerCase());
-        UnityEngine.PlayerPrefs.Save();
     }
     const state = readBridgeState();
     // 自动化只允许访问本次随机 UUID，绝不能因为开发机已有线上档而切换到用户文件。
     const saves = forcedTestSave ? [] : (state && state.saves ? state.saves : []);
-    // PlayerPrefs 中的上次线上档名是首选依据。state.json 正在刷新或桥接刚启动时，
-    // saves 可能暂时为空；不能因此直接创建新档，必须让桥接程序到磁盘上验证。
+    // 当前脚本内存中的选择是首选依据。state.json 正在刷新或桥接刚启动时，saves 可能
+    // 暂时为空；不能因此直接创建新档，必须让桥接程序到磁盘上验证。
     let rememberedSave = selectedSaveName.startsWith(ONLINE_SAVE_PREFIX) ? selectedSaveName : "";
     const rememberedIsListed = rememberedSave && saves.some(save => save.name === rememberedSave);
     // 索引非空时以磁盘结果为准：旧选择已丢失就续读最近的现存档，而不是另建一个。
     if (saves.length > 0 && !rememberedIsListed) {
         selectedSaveName = saves[0].name;
         rememberedSave = selectedSaveName;
-        UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
-        UnityEngine.PlayerPrefs.Save();
     }
 
-    if (hasUuidV7OnlineName(rememberedSave)) {
-        // 从其他电脑复制来的 UUIDv7 线上档也应成为当前玩家后续固定使用的专属 ID。
-        UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY,
-            rememberedSave.substring(ONLINE_SAVE_PREFIX.length).toLowerCase());
-        UnityEngine.PlayerPrefs.Save();
-    } else if (rememberedSave) {
+    if (!hasUuidV7OnlineName(rememberedSave) && rememberedSave) {
         // 旧版时间戳文件只迁移名称，桥接程序不会解密或改写其中的存档内容。
         const migratedName = makeOnlineSaveName();
         const migrateSequence = submitBridgeCommandTracked("renameSave?name=" + encodeURIComponent(rememberedSave) +
@@ -1140,8 +1098,6 @@ function enterOnlineSave(): void {
         waitForBridgeResponse(menu, migrateSequence, result => {
             if (result === "0" || result === "-4") {
                 selectedSaveName = migratedName;
-                UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
-                UnityEngine.PlayerPrefs.Save();
                 log("Migrated the legacy online save to the player's UUIDv7 slot: " + selectedSaveName);
                 enterOnlineSave();
                 return;
@@ -1157,7 +1113,7 @@ function enterOnlineSave(): void {
         return;
     }
 
-    // 即使 PlayerPrefs 和刚启动时的状态快照都为空，也必须让桥接程序权威扫描磁盘。
+    // 即使脚本内存和刚启动时的状态快照都为空，也必须让桥接程序权威扫描磁盘。
     // prepareSave 只有在正式档与工作副本都不存在时才返回 -3，此时才允许创建首个线上档。
     const requestedSaveName = rememberedSave || selectedSaveName;
     // 自动化随机 UUID 必须严格隔离，不能回退到开发机上的真实玩家存档。
@@ -1178,11 +1134,7 @@ function enterOnlineSave(): void {
                 selectedSaveName = preparedOnlineSaveMetadata.save;
                 const activeName = activeSaveName(selectedSaveName);
                 if (!activeName) throw new Error("Could not create the online working-copy name");
-                // 桥接实际选中的磁盘文件具有最高优先级，同时修复被清除或过期的 PlayerPrefs。
-                UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
-                UnityEngine.PlayerPrefs.SetString(ONLINE_SAVE_ID_KEY,
-                    selectedSaveName.substring(ONLINE_SAVE_PREFIX.length).toLowerCase());
-                UnityEngine.PlayerPrefs.Save();
+                // 桥接实际选中的磁盘文件具有最高优先级；文件名本身持久保存 UUIDv7。
                 // 在 StartGame 执行任何原版默认读取之前就切换到联机专属名称。
                 GameManager.SaveName = activeName;
                 onlineLoadRedirectedDuringStart = false;
@@ -1224,8 +1176,6 @@ function createInitialOnlineSave(menu: MainMenu): void {
     onlineSaveWriteEnabled = false;
     onlineSaveSessionReady = false;
     const activeName = activeSaveName(selectedSaveName);
-    UnityEngine.PlayerPrefs.SetString(prefKey("MPB.SelectedSave"), selectedSaveName);
-    UnityEngine.PlayerPrefs.Save();
     const sequence = submitBridgeCommandTracked("beginSave?name=" + encodeURIComponent(selectedSaveName));
     if (sequence < 0) { toast(tr("toast.onlineSaveFailed")); return; }
     waitForBridgeResponse(menu, sequence, result => {
@@ -1272,6 +1222,69 @@ function stopFromUi(): void {
     lastPauseLayoutOnline = null;
     updateStatusText(tr("status.offline"));
     toast(tr("toast.stopped"));
+}
+
+// ===== 模块: save/manual.ts =====
+// 线上手动保存。
+// 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
+function writeOnlineSaveSnapshot(manager: GameManager): string {
+    if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
+    if (!onlineSaveWriteEnabled) {
+        log("Blocked an online-save write while the saved state is still loading");
+        return "-8";
+    }
+    try {
+        const raw = manager.GetSave() || "";
+        if (!raw) { log("Online-save snapshot is empty"); return "-7"; }
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            log("Online-save snapshot root type is invalid type=" + typeof parsed + " array=" + Array.isArray(parsed));
+            return "-7";
+        }
+        const json = JSON.stringify(parsed);
+        if (BRIDGE_CHANNEL !== "default") log("Diagnostics: canonical online-save JSON length=" + json.length);
+        const chunkSize = 6000;
+        const chunks = Math.max(1, Math.ceil(json.length / chunkSize));
+        let result = submitBridgeCommandAndWait("beginRawSave?name=" + encodeURIComponent(selectedSaveName) +
+            "&chunks=" + chunks);
+        if (result !== "0") { log("beginRawSave failed code=" + result); return result; }
+        for (let index = 0; index < chunks; index++) {
+            const part = json.substring(index * chunkSize, Math.min(json.length, (index + 1) * chunkSize));
+            result = submitBridgeCommandAndWait("appendRawSave?index=" + index + "&data=" + encodeURIComponent(part));
+            if (result !== "0") { log("appendRawSave failed index=" + index + " code=" + result); return result; }
+        }
+        result = submitBridgeCommandAndWait("commitRawSave");
+        if (result !== "0") log("commitRawSave failed code=" + result);
+        return result;
+    } catch (error) {
+        log("Failed to capture and write the online save: " + error);
+        return "-1";
+    }
+}
+
+function saveOnlineAtBed(): void {
+    if (bedSaveInProgress || role === "off" || !GameManager.InGame) return;
+    bedSaveInProgress = true;
+    try {
+        const manager = GameManager.Singleton;
+        if (!manager) throw new Error("GameManager is not initialized");
+        const result = writeOnlineSaveSnapshot(manager);
+        if (result !== "0") {
+            log("Manual online save at the bed failed; error code=" + result);
+            toast(tr("toast.manualSaveFailed"));
+            return;
+        }
+        log("Manual online save completed at the bed: " + selectedSaveName);
+        toast(tr("toast.manualSaveComplete"));
+        try {
+            if (WindowManager.IsOpened("BedWindow")) WindowManager.CloseWindow("BedWindow");
+        } catch (_error) { }
+    } catch (error) {
+        log("Manual online save at the bed failed: " + error);
+        toast(tr("toast.manualSaveFailed"));
+    } finally {
+        bedSaveInProgress = false;
+    }
 }
 
 // ===== 模块: network/transport.ts =====
@@ -2337,9 +2350,10 @@ function runSmokeTestDiagnostics(player: Player): void {
                 player.transform.position = new UnityEngine.Vector3(current.x + 3.25, current.y, current.z);
             }
             const savedPosition = player.transform.position;
-            beginOnlineExitSave(player, () => log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
+            const result = GameManager.Singleton ? writeOnlineSaveSnapshot(GameManager.Singleton) : "-2";
+            log("[OnlineSaveLifecycle] phase=" + config.smokeTestLifecyclePhase +
                 " save=" + selectedSaveName + " position=" + savedPosition.x.toFixed(4) + "," +
-                savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4)));
+                savedPosition.y.toFixed(4) + "," + savedPosition.z.toFixed(4) + " result=" + result);
         } catch (error) { log("Diagnostics: online-save lifecycle failed: " + error); }
         return;
     }
@@ -2514,7 +2528,9 @@ function processEvent(rawEvent: string): void {
         const creator = !serverAuthority && room.creator === true;
         role = creator ? "host" : "client";
         networkTransport = "server";
-        currentPublicRoom = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PublicRoom"), currentPublicRoom);
+        const bridgeStatus = readBridgeStatus();
+        currentPublicRoom = bridgeStatus.roomId || currentPublicRoom;
+        currentPlayerName = bridgeStatus.playerName || currentPlayerName;
         localNetworkId = creator ? 0 : Math.trunc(Number(room.localPeerId));
         serverTimeSeedSent = false;
         authoritativeServerScene = "";
@@ -3076,6 +3092,10 @@ function refreshLocalizedUi(): void {
             const pauseText = findTextInChildren(uiPauseButton.transform);
             if (pauseText) pauseText.text = tr("menu.multiplayer");
         }
+        if (bedSaveButton) {
+            const bedSaveText = findTextInChildren(bedSaveButton.transform);
+            if (bedSaveText) bedSaveText.text = tr("button.saveGame");
+        }
         if (!uiPanel) return;
         const root = uiPanel.transform;
         const labels: Record<string, string> = {
@@ -3345,6 +3365,51 @@ function openRoomInfoPanel(): void {
     openPanelMode("room");
 }
 
+// ===== 模块: ui/pages/bed-save.ts =====
+// 床交互窗口的联机手动保存按钮。
+// 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
+const BED_SAVE_BUTTON_NAME = "MultiplayerSaveButton";
+
+function buildBedSaveButton(window: BedWindow): void {
+    if (role === "off" || !window.sleepForAWhileButton || !window.sleepToTomorrowButton) return;
+    try {
+        const first = window.sleepForAWhileButton.transform;
+        const second = window.sleepToTomorrowButton.transform;
+        const parent = first.parent;
+        const old = findNamedChild(parent, BED_SAVE_BUTTON_NAME);
+        if (old) {
+            bedSaveButton = old.gameObject;
+            bedSaveButton.SetActive(true);
+            return;
+        }
+
+        const firstPosition = first.localPosition;
+        const secondPosition = second.localPosition;
+        let step = new UnityEngine.Vector3(
+            secondPosition.x - firstPosition.x,
+            secondPosition.y - firstPosition.y,
+            secondPosition.z - firstPosition.z);
+        if (Math.abs(step.x) + Math.abs(step.y) + Math.abs(step.z) < 0.001)
+            step = new UnityEngine.Vector3(0, -70, 0);
+
+        const cloned = cloneNativeButton(window.sleepForAWhileButton, parent,
+            BED_SAVE_BUTTON_NAME, tr("button.saveGame"), saveOnlineAtBed);
+        cloned.root.transform.SetSiblingIndex(second.GetSiblingIndex() + 1);
+        // 三个按钮保持原间距，并以原来两个按钮的中心为中心向两侧扩展。
+        first.localPosition = new UnityEngine.Vector3(
+            firstPosition.x - step.x * 0.5, firstPosition.y - step.y * 0.5, firstPosition.z - step.z * 0.5);
+        second.localPosition = new UnityEngine.Vector3(
+            secondPosition.x - step.x * 0.5, secondPosition.y - step.y * 0.5, secondPosition.z - step.z * 0.5);
+        cloned.root.transform.localPosition = new UnityEngine.Vector3(
+            secondPosition.x + step.x * 0.5, secondPosition.y + step.y * 0.5, secondPosition.z + step.z * 0.5);
+        bedSaveButton = cloned.root;
+        log("Created the native-style manual save button in the bed window");
+    } catch (error) {
+        bedSaveButton = null;
+        log("Failed to create the bed-window save button: " + error);
+    }
+}
+
 // ===== 模块: ui/pages/multiplayer.ts =====
 // 联机配置页面。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
@@ -3358,7 +3423,9 @@ function buildUi(font: any): void {
         uiConfigBody = shell.body;
         coroutineRunner = shell.runner;
         uiFont = font;
-        selectedSaveName = UnityEngine.PlayerPrefs.GetString(prefKey("MPB.SelectedSave"), "");
+        const bridgeState = readBridgeState();
+        selectedSaveName = bridgeState && bridgeState.saves && bridgeState.saves.length > 0
+            ? bridgeState.saves[0].name : "";
         buildPlayerListPage(shell.root.transform, font);
         buildRoomInfoPage(shell.panel.transform, font);
 
@@ -3373,7 +3440,8 @@ function buildUi(font: any): void {
         uiStatus = makeText(configBody.transform, "Status", statusLabel(), font, 30, 18, 660, 46, 27);
         (uiStatus as any).alignment = 4;
         makeText(configBody.transform, "NameLabel", tr("field.playerName"), font, 30, 82, 135, 46, 24);
-        uiName = makeInput(configBody.transform, "PlayerName", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.PlayerName"), config.playerName), tr("placeholder.playerName"), font, 170, 80, 520);
+        uiName = makeInput(configBody.transform, "PlayerName", currentPlayerName || config.playerName,
+            tr("placeholder.playerName"), font, 170, 80, 520);
         makeButton(configBody.transform, "LocalMultiplayer", tr("button.localMultiplayer"), font, 30, 160, 319, () => openPanelMode("local"), 58);
         makeButton(configBody.transform, "PublicServers", tr("button.publicServers"), font, 370, 160, 319, requestPublicRoomListFromUi, 58);
         makeButton(configBody.transform, "Stop", tr("button.stop"), font, 257, 240, 205, stopFromUi, 52);
@@ -3390,7 +3458,7 @@ function buildUi(font: any): void {
         // 本地多人地址每次打开游戏默认留空，避免玩家误把回环地址当成另一台电脑。
         uiAddress = makeInput(uiLocalBody.transform, "Address", "", tr("placeholder.address"), font, 170, 55, 520);
         makeText(uiLocalBody.transform, "PortLabel", tr("field.port"), font, 30, 125, 135, 46, 24);
-        uiPort = makeInput(uiLocalBody.transform, "Port", UnityEngine.PlayerPrefs.GetString(prefKey("MPB.Port"), String(config.port)), tr("placeholder.port"), font, 170, 125, 520);
+        uiPort = makeInput(uiLocalBody.transform, "Port", String(config.port), tr("placeholder.port"), font, 170, 125, 520);
         makeButton(uiLocalBody.transform, "Host", tr("button.host"), font, 30, 210, 319, startHostFromUi, 58);
         makeButton(uiLocalBody.transform, "Join", tr("button.join"), font, 370, 210, 319, joinFromUi, 58);
         uiLocalBody.SetActive(false);
@@ -3552,75 +3620,6 @@ function updateBridge(player: Player | null): void {
     flushOutgoingMessage();
 }
 
-// ===== 模块: save/exit.ts =====
-// 退出保存流程。
-// 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
-function writeOnlineSaveSnapshot(manager: GameManager): string {
-    if (!bridgeAvailable || !selectedSaveName.startsWith(ONLINE_SAVE_PREFIX)) return "-2";
-    if (!onlineSaveWriteEnabled) {
-        log("Blocked an online-save write while the saved state is still loading");
-        return "-8";
-    }
-    try {
-        const raw = manager.GetSave() || "";
-        if (!raw) { log("Online-save snapshot is empty"); return "-7"; }
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            log("Online-save snapshot root type is invalid type=" + typeof parsed + " array=" + Array.isArray(parsed));
-            return "-7";
-        }
-        const json = JSON.stringify(parsed);
-        if (BRIDGE_CHANNEL !== "default") log("Diagnostics: canonical online-save JSON length=" + json.length);
-        const chunkSize = 6000;
-        const chunks = Math.max(1, Math.ceil(json.length / chunkSize));
-        let result = submitBridgeCommandAndWait("beginRawSave?name=" + encodeURIComponent(selectedSaveName) +
-            "&chunks=" + chunks);
-        if (result !== "0") { log("beginRawSave failed code=" + result); return result; }
-        for (let index = 0; index < chunks; index++) {
-            const part = json.substring(index * chunkSize, Math.min(json.length, (index + 1) * chunkSize));
-            result = submitBridgeCommandAndWait("appendRawSave?index=" + index + "&data=" + encodeURIComponent(part));
-            if (result !== "0") { log("appendRawSave failed index=" + index + " code=" + result); return result; }
-        }
-        result = submitBridgeCommandAndWait("commitRawSave");
-        if (result !== "0") log("commitRawSave failed code=" + result);
-        return result;
-    } catch (error) {
-        log("Failed to capture and write the online save: " + error);
-        return "-1";
-    }
-}
-
-// 线上退出必须拦截原回调：SaveGame 会跨多个 Unity 帧写盘，不能在按钮回调里同步等待。
-// 写盘完成并由桥接程序验证双层密文后再退出，实现一次点击自动保存并退出。
-function beginOnlineExitSave(owner: UnityEngine.MonoBehaviour, beforeQuit?: () => void): void {
-    if (exitSaveInProgress || !GameManager.InGame) return;
-    exitSaveInProgress = true;
-    try {
-        const manager = GameManager.Singleton;
-        if (!manager) throw new Error("GameManager is not initialized");
-        const saveName = activeSaveName(selectedSaveName);
-        if (!saveName) throw new Error("No valid online working-copy name is available");
-        GameManager.SaveName = saveName;
-        const result = writeOnlineSaveSnapshot(manager);
-        if (result === "0") {
-            log("Autosaved and verified before exit: " + saveName);
-            try { if (beforeQuit) beforeQuit(); } catch (_error) { }
-            UnityEngine.Application.Quit();
-        } else {
-            exitSaveInProgress = false;
-            log("Autosave before exit failed; error code=" + result);
-            toast(tr("toast.exitSaveFailed"));
-        }
-    } catch (error) {
-        exitSaveInProgress = false;
-        log("Autosave before exit failed: " + error);
-        toast(tr("toast.exitSaveFailed"));
-    }
-}
-
-// 联机模式下原版默认 AutoSave 调用由 Hook 完全拦截；这里只提交内存快照到 MPOnline，
-// 不调用原版 SaveGame，也不读取、创建或恢复单机 AutoSave.save。
-
 // ===== 模块: hooks/register.ts =====
 // 游戏 Hook 与入口。
 // 源码使用共享全局声明，构建时严格按 source-order.json 合并为 Mod 启动器入口。
@@ -3673,7 +3672,11 @@ RegisterHook("System.Void PlayerStatus::SetTime(System.Int32)", (_self: PlayerSt
 // 两种睡觉按钮都必须经过房主的全员确认；只有所有在线玩家在 20 秒内选择同一种
 // 睡眠方式时，才在所有电脑上同时放行原版回调，单个玩家不能独自跳过夜晚。
 RegisterHook("System.Void BedWindow::Start()", (self: BedWindow) => {
-    if (isCurrentGeneration()) bedWindowInstance = self;
+    if (!isCurrentGeneration()) return;
+    bedWindowInstance = self;
+    JintCoroutine.WaitForNextFrame(self, () => {
+        if (isCurrentGeneration()) buildBedSaveButton(self);
+    });
 });
 RegisterHook("System.Void BedWindow::<Start>b__2_0()", (_self: BedWindow, ctx: IHookContext) => {
     if (isCurrentGeneration()) requestConsensusSleep("short", ctx);
@@ -3696,13 +3699,6 @@ RegisterHook("System.Void PauseWindow::Start()", (self: PauseWindow) => {
             syncGameLanguage();
         } catch (error) { log("Pause-menu UI initialization failed: " + error); }
     });
-});
-// PauseWindow.Start 会把此闭包绑定到原版 Exit 按钮；钩子先运行，随后保留原版退出行为。
-RegisterHook("System.Void PauseWindow::<Start>b__9_3()", (_self: any, ctx: IHookContext) => {
-    if (!isCurrentGeneration() || role === "off") return;
-    ctx.Intercept();
-    const manager = GameManager.Singleton;
-    if (manager) beginOnlineExitSave(manager);
 });
 // MainMenu.Awake 用于尽早创建联机面板；面板会跨场景保留。
 RegisterHook("System.Void MainMenu::Awake()", (self: MainMenu) => {

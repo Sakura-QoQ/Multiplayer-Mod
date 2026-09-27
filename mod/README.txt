@@ -8,6 +8,7 @@ INSTALL
 The package includes a self-contained MultiplayerBridgeHost.exe. Players do not install .NET,
 Node.js, TypeScript, Visual Studio or other development software. The bridge runs as the current
 user without administrator elevation or registry IPC.
+It does not install services, run an installer, use registry-backed preferences or download software.
 
 PLAY
 - Public servers shows the real server-managed room list with live population/capacity. The server
@@ -33,7 +34,8 @@ Only MPOnline_<UUIDv7>.save persists normally. MPActive_<UUIDv7>.save is created
 game can load its native encrypted format, then deleted. Loading is read-only until it completes.
 Online autosave cancels the original SaveGame("AutoSave") disk write and commits the in-memory
 GetSave() state directly to MPOnline. The online pipeline does not read or write single-player
-AutoSave.save. Exit saves and verifies MPOnline before quitting.
+AutoSave.save. Use the native-style Save game option at a bed for an explicit online save. Exit keeps
+the game's original behavior and does not save or block quitting.
 
 SECURITY
 Save files are double-encrypted at rest. Network traffic is framed JSON over plain TCP, not TLS.

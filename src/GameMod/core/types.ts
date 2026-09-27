@@ -40,12 +40,8 @@ function readBridgeChannel(): string {
 }
 
 const BRIDGE_CHANNEL = readBridgeChannel();
-function prefKey(baseName: string): string {
-    return BRIDGE_CHANNEL === "default" ? baseName : baseName + "." + BRIDGE_CHANNEL;
-}
-
 type BridgeStatus = { state: string; port: number; peers: number; transport: string;
-    localPeerId: number; authorityPeerId: number };
+    localPeerId: number; authorityPeerId: number; playerName: string; roomId: string };
 type PublicRoomEntry = { roomId: string; roomName: string; players: number; capacity: number };
 type OnlineSaveMetadata = {
     save: string; scene: string;
