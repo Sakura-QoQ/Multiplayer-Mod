@@ -12,8 +12,8 @@ flowchart LR
     BridgeB -->|rotating state JSON| GameB
     BridgeA <-->|plain framed TCP| Server[Ubuntu room authority]
     BridgeB <-->|plain framed TCP| Server
-    GameA --> SaveA[Player-selected native save]
-    GameB --> SaveB[Player-selected native save]
+    GameA --> SaveA[Native default AutoSave]
+    GameB --> SaveB[Native default AutoSave]
 ```
 
 - `src/GameMod/` owns Unity UI, hooks, save lifecycle, online time presentation and player/profile synchronization.
@@ -35,7 +35,7 @@ The bridge launches as the current user without registry IPC or elevation. Game-
 | Detailed day/time/offset | Each game client | Native game flow; the public server never writes a clock value |
 | Room scene | Ubuntu server peer `0` | Compare-and-swap request/broadcast |
 | Sleep advancement | Ubuntu server peer `0` + every client | Server approves unanimous matching requests; every client applies the same transition |
-| Player save | Local player computer | Player-selected native slot; never sent to the room server as a file |
+| Player save | Local player computer | Native default `AutoSave`; never sent to the room server as a file |
 
 The server validates the room envelope and authenticated member identity. For public traffic it replaces player-owned IDs/names and handles scene/sleep control packets. It intentionally drops legacy `worldTime`, `serverTimeSeed`, and `serverTimeCommit` packets and never broadcasts a detailed clock. Each client therefore keeps the game's native time flow and story-driven `AddTime/AddDay` results. A unanimous sleep request—including a single member in a one-player room—is approved by the server, then every current client applies the same transition. The server does not simulate Unity physics, combat, quests or inventory.
 
@@ -56,9 +56,9 @@ Frames are a four-byte big-endian length followed by UTF-8 JSON, with a 64 KiB f
 
 ## Save behavior
 
-After entering a room, the Mod invokes the original main-menu Load Game button and lets `LoadSaveWindow` own the complete transaction. The player chooses a native slot; the Mod does not call `StartGame` or `LoadGame` itself and does not enable synchronization or saving until native loading and its callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the selected `GameManager.SaveName`. The bridge is network-only.
+After entering a room, the Mod initializes the original main-menu Load Game window, then automatically invokes its private `Load("AutoSave")` through Unity messaging. `LoadSaveWindow` owns the complete transaction; the Mod does not call `StartGame` or `GameManager.LoadGame` itself and does not enable synchronization or saving until native callbacks settle. Automatic saves, bed saves, pause-menu controls and exit preserve the resulting `GameManager.SaveName`. The bridge is network-only.
 
-Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the current release does not list, read or write them. Multiplayer and single-player changes to the same player-selected native slot are visible to each other by design.
+Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the current release does not list, read or write them. Multiplayer and single-player changes to the native default slot are visible to each other by design.
 
 ## Source assembly
 

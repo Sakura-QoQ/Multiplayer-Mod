@@ -1,7 +1,7 @@
-# Verification — v0.14.8
+# Verification — v0.14.9
 
 - The generated transparent PNG is now the complete phone-body material. Original direct XWindow chrome is disabled after its dynamic pages are moved into the replacement screen.
-- Room entry invokes the game's original Load Game button. The Mod no longer combines `StartGame` with delayed `LoadGame`; bed saving preserves the player-selected native slot.
+- Room entry automatically invokes the original `LoadSaveWindow.Load("AutoSave")` through Unity messaging. The Mod does not combine `StartGame` with delayed `GameManager.LoadGame`.
 - The bridge runtime no longer restores a baseline, watches AutoSave, promotes temporary saves, or processes an isolated save during shutdown. Legacy online files remain untouched on disk.
 
 - The complete 560×950 phone design now scales uniformly to 80% of the available window height, keeping native pages, labels, tabs, and hit areas in the same proportion.
@@ -18,7 +18,7 @@
 - The server only decides unanimous sleep among real players. It is not counted as a player and does not calculate a clock; each client applies the same approved transition. Clients also ignore `worldTime` from an older server during a rolling deployment.
 
 - Root cause confirmed: `GameManager` has no `@hookable` marker in the generated type list, so the former `AutoSaving/SaveGame` hooks never formed a reliable isolation boundary.
-- v0.14.8 removes the unsafe synthetic load sequence and blocks time, scene and profile synchronization until the original load transaction settles.
+- v0.14.9 uses the original default-save transaction without presenting an extra selection and blocks time, scene and profile synchronization until it settles.
 - The bridge no longer scans, protects, redirects, promotes or restores save files; legacy `MPOnline`/`MPActive` files stay untouched for manual recovery.
 - Disconnecting affects only networking and does not change the game's native save lifecycle.
 - The build rejects any future attempt to register a `GameManager` hook.
@@ -68,10 +68,10 @@ period `3 -> 0` rollover as well.
 
 The production build also runs a mandatory runtime-safety scan before generating the package. It rejects registry-backed game preferences, direct Windows registry APIs, elevation requests and common installer/package-manager commands. The current source, generated `mod/main.ts` and installed payload contain none of those APIs. The packaged and installed bridge executables have the same SHA-256 hash.
 
-The legacy save-crypto test verifies recovery compatibility only; it is not part of the v0.14.8 runtime path. Current runtime verification confirms that:
+The legacy save-crypto test verifies recovery compatibility only; it is not part of the v0.14.9 runtime path. Current runtime verification confirms that:
 
-- room entry opens the original native save picker without calling `StartGame` or `LoadGame` from Mod code;
-- bed saving calls the original `GameManager.SaveGame` with `GameManager.SaveName`;
+- room entry automatically calls original `LoadSaveWindow.Load("AutoSave")` without calling `StartGame` or `GameManager.LoadGame` from Mod code;
+- bed saving calls the original `GameManager.SaveGame` with the resulting `GameManager.SaveName`;
 - the original pause-menu load/save controls remain available;
 - the bridge advertises no save commands and emits an empty legacy save index;
 - no runtime path scans or rewrites `MPOnline`/`MPActive` files.
@@ -115,9 +115,9 @@ Additional observed results from the two-game runs:
 ## Remaining verification
 
 - Run two real game clients through the deployed Ubuntu public endpoint after both player and server builds are updated to the same commit.
-- Repeat the select/enter/bed-save/quit/reopen lifecycle and verify progress persists in the chosen native slot without creating a new `MPOnline`/`MPActive` file.
+- Repeat the enter/bed-save/quit/reopen lifecycle and verify progress persists in native `AutoSave` without creating a new `MPOnline`/`MPActive` file.
 - Verify the bed window's manual-save option and the original pause-menu load/save/exit controls.
-- Verify equipped clothing, inventory, quests, achievements/progression, position and phone behavior after reopening the same native slot.
+- Verify equipped clothing, inventory, quests, achievements/progression, position and phone behavior after reopening native `AutoSave`.
 - Network traffic is plain TCP and has not been penetration-tested or tested behind TLS termination.
 
 ## Package boundary
