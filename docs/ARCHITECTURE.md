@@ -22,7 +22,7 @@ flowchart LR
 - `src/MultiplayerRoomServer/` owns public membership, scene/sleep control and packet relay.
 - `mod/main.ts` and `mod/i18n/` are generated runtime copies; edit `src/GameMod/` instead.
 
-The bridge launches as the current user without registry IPC or elevation. Game-to-bridge commands are marked single-line records in Unity `Player.log`. Bridge-to-game state uses three rotating JSON snapshots so the Jint reader does not race the writer.
+The bridge launches as the current user without registry IPC or elevation. Each game process uses an isolated `game-<PID>` channel, mutex, IPC marker, and state snapshots, so multiple games on one machine cannot consume one another's room commands. Game-to-bridge commands are marked single-line records in Unity `Player.log`. Bridge-to-game state uses three rotating JSON snapshots so the Jint reader does not race the writer.
 
 ## Authority and synchronization
 
