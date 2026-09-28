@@ -23,7 +23,7 @@ The bridge filters ordinary `[PlayerHostedMultiplayer]` entries into `Logs/Playe
 ./tools/Build-Mod.ps1 -Install
 ```
 
-The script reads the version from `mod/info.json`, generates `mod/main.ts`, copies the six runtime language packs, publishes a self-contained NativeAOT bridge, creates `artifacts/PlayerHostedMultiplayer-v<version>-win-x64.zip`, and optionally installs the same payload into `Mods/PlayerHostedMultiplayer`.
+The script reads the version from `mod/info.json`, generates `mod/main.ts`, copies the six runtime language packs, publishes a self-contained NativeAOT bridge, creates `artifacts/Multiplayer-v<version>-win-x64.zip`, and optionally installs the same payload into `Mods/Multiplayer`.
 
 After dependencies have been restored once, an offline build can use:
 

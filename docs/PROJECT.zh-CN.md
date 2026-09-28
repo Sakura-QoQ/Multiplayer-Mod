@@ -1,10 +1,10 @@
-# Fallen Flower Multiplayer 1.1.1
+# Multiplayer 1.1.11
 
 这是《Fallen Flower》的独立房间服务器联机 Mod。公开房间由 Linux 服务管理，本地“建立/加入”直连模式仍然保留。
 
 ## 安装与使用
 
-1. 用游戏 Mod 启动器导入 `artifacts/PlayerHostedMultiplayer-v1.1.1-win-x64.zip`。
+1. 用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.1.11-win-x64.zip`。
 2. 从启动器运行游戏，主菜单选择“联机”。
 3. 输入显示名，打开公开服务器列表并进入房间。
 
@@ -21,7 +21,7 @@
 - 网络只传远端显示需要的衣服、捏脸、动作、实时状态和进度数量，不广播完整剧情、联系人或完整 `GameManager.GetSave()`。
 - 手机整体限制为屏幕高度的 80%，包含主页、消息、通讯录；通讯录显示当前线上玩家。
 
-Mod 日志位于 `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log`，最大 4 MiB，保留一份轮换日志；桥接崩溃日志也写入同一目录。
+Mod 日志位于 `Mods/Multiplayer/Logs/PlayerHostedMultiplayer.log`，最大 4 MiB，保留一份轮换日志；桥接崩溃日志也写入同一目录。
 
 ## 安全边界
 
@@ -37,3 +37,7 @@ Mod 日志位于 `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log`
 ```
 
 服务器直接走 Docker 自动部署，不生成服务器 ZIP。
+
+## 1.1.11 更新
+
+Mod 名称与 ZIP 顶层目录改为 Multiplayer。版本差异仅弹窗提示，不禁用房间按钮、不阻止入房。列表请求失败时，原因显示在房间页面。由旧 PlayerHostedMultiplayer 升级时，请移除或禁用旧入口后导入新包，避免加载两份。

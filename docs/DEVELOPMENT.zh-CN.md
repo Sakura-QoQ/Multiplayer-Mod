@@ -23,7 +23,7 @@
 ./tools/Build-Mod.ps1 -Install
 ```
 
-脚本从 `mod/info.json` 读取版本，生成 `mod/main.ts`，复制六种运行语言包，发布自包含 NativeAOT 桥，创建 `artifacts/PlayerHostedMultiplayer-v<版本>-win-x64.zip`，并可把同一负载安装到 `Mods/PlayerHostedMultiplayer`。
+脚本从 `mod/info.json` 读取版本，生成 `mod/main.ts`，复制六种运行语言包，发布自包含 NativeAOT 桥，创建 `artifacts/Multiplayer-v<版本>-win-x64.zip`，并可把同一负载安装到 `Mods/Multiplayer`。
 
 依赖至少成功还原一次后，可离线构建：
 

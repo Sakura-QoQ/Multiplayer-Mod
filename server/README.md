@@ -55,7 +55,7 @@ The first run clones the repository and then stops safely if `server/.env` is ab
 
 ## Configure
 
-Public compatibility versions live in `server/version.json`. `serverVersion` identifies the room-server build; `requiredModVersion` is the exact player Mod version accepted by public-room entry. This file is embedded into the server binary and is independent of `mod/info.json`; changing it triggers automatic server deployment.
+Public compatibility versions live in `server/version.json`. `serverVersion` identifies the room-server build; `requiredModVersion` is the recommended player Mod version (advisory only). This file is embedded into the server binary and is independent of `mod/info.json`; changing it triggers automatic server deployment.
 
 | Variable | Default | Valid range/purpose |
 | --- | --- | --- |

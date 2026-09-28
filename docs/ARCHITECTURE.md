@@ -45,7 +45,7 @@ Profile transfer contains only remote appearance, live state and aggregate progr
 
 1. The server permanently maintains `public-1`; `room.list` returns actual rooms with live population and server-defined capacity even after every player leaves.
 2. `room.enter` joins the selected listed room without a password; public capacity is never supplied by a client.
-3. The server embeds its independent `server/version.json`, which separately declares `serverVersion` and `requiredModVersion`; it never reads the player package's `mod/info.json`. `room.list` advertises both server and required Mod versions, and version-aware clients submit `modVersion` on entry. A mismatch returns business code `2012` with HTTP-style status `426`, which the Mod presents as an update prompt before loading a save.
+3. The server embeds its independent `server/version.json`, which separately declares `serverVersion` and `requiredModVersion`; it never reads the player package's `mod/info.json`. `room.list` advertises both server and required Mod versions, and version-aware clients submit `modVersion` on entry. The advertised version is advisory; clients show a notice and may still list and enter rooms.
 4. The server remains logical peer `0`; every player receives the smallest available positive member ID. A departed member's ID is immediately reusable, including ID `1`.
 5. When all public rooms are full the server creates the next numbered room. Redundant empty rooms are reclaimed while one joinable empty room is retained.
 6. `room.create`/`room.join` remain available for explicit rooms and compatibility clients; the in-game local Host/Join page instead uses direct `BridgeNode` TCP.
@@ -63,4 +63,4 @@ Legacy `MPOnline`/`MPActive` files are left on disk for manual recovery, but the
 
 ## Source assembly
 
-UcModLauncher loads one Jint script and does not resolve TypeScript modules. `tools/Build-Mod.ps1` verifies that `src/GameMod/source-order.json` lists every `.ts` file exactly once, concatenates the files into `mod/main.ts`, checks page/component boundaries, and verifies identical translation keys across six languages.
+UcModLauncher loads one Jint script and does not resolve TypeScript modules. `tools/Build-Mod.ps1` verifies that `src/GameMod/source-order.json` lists every `.ts` file exactly once, concatenates the files into `mod/main.ts`, and verifies identical translation keys across six languages.

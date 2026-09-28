@@ -94,7 +94,7 @@ sudo -u deploy nano /opt/Multiplayer-Mod/server/.env
 
 ## 配置
 
-公网兼容版本统一写在 `server/version.json`：`serverVersion` 标识房间服务器自身版本，`requiredModVersion` 是公开房间准入所要求的玩家 Mod 精确版本。该文件会嵌入服务器程序，与 `mod/info.json` 完全独立；修改它会触发服务器自动部署。
+公网兼容版本统一写在 `server/version.json`：`serverVersion` 标识房间服务器自身版本，`requiredModVersion` 是建议使用的玩家 Mod 版本（仅提示，不限制准入）。该文件会嵌入服务器程序，与 `mod/info.json` 完全独立；修改它会触发服务器自动部署。
 
 | 变量 | 默认值 | 范围/作用 |
 | --- | --- | --- |

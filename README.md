@@ -1,4 +1,4 @@
-# Fallen Flower Multiplayer 1.1.10
+# Multiplayer 1.1.11
 
 Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local direct play, synchronized avatars and the game's native save workflow.
 
@@ -6,11 +6,11 @@ Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local d
 
 ## Install
 
-1. Import `artifacts/PlayerHostedMultiplayer-v1.1.10-win-x64.zip` with the game's Mod launcher.
+1. Import `artifacts/Multiplayer-v1.1.11-win-x64.zip` with the game's Mod launcher.
 2. Start the game through the launcher and select **Multiplayer**.
 3. Enter a display name, open **Public servers**, and enter a listed room.
 
-The package includes a self-contained Windows x64 bridge. It does not require Node.js, the .NET runtime, Visual Studio, an installer, elevation, or registry changes. Diagnostics are written to `Mods/PlayerHostedMultiplayer/Logs/PlayerHostedMultiplayer.log` with bounded rotation.
+The package includes a self-contained Windows x64 bridge. It does not require Node.js, the .NET runtime, Visual Studio, an installer, elevation, or registry changes. Diagnostics are written to `Mods/Multiplayer/Logs/PlayerHostedMultiplayer.log` with bounded rotation.
 
 ## 1.0 behavior
 
@@ -33,3 +33,5 @@ Public transport is length-prefixed JSON over plain TCP, not TLS. The embedded e
 ```
 
 Server deployment is documented in [server/README.md](server/README.md); no server ZIP is produced. Development details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+Version differences only show an advisory; they do not disable rooms or block entry. If public rooms cannot load, the room page displays the connection error. When upgrading from PlayerHostedMultiplayer, remove/disable the old entry and import the Multiplayer package once.
