@@ -1,4 +1,4 @@
-# Verification — 1.0.1
+# Verification — 1.1.0
 
 ## Automated results
 
@@ -15,7 +15,7 @@ Verified on 2026-09-28:
 | Runtime log self-test | PASS |
 | `git diff --check` and source/translation/build gates | PASS |
 
-The room-relay test covers permanent rooms, peer-ID reuse, bidirectional relay, solo and unanimous sleep, client/AFK timeouts, request throttling, server-authority spoof rejection, public profile-chunk rejection, and the absence of server `worldTime` broadcasts.
+The room-relay test covers the shared server/Mod version handshake and `2012`/`426` mismatch response, permanent rooms, peer-ID reuse, bidirectional relay, solo and unanimous sleep, client/AFK timeouts, request throttling, server-authority spoof rejection, public profile-chunk rejection, and the absence of server `worldTime` broadcasts.
 
 ## Build-enforced regressions
 
