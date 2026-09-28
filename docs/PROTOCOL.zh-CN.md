@@ -28,11 +28,11 @@
 {
   "type": "api.request",
   "requestId": "1",
-  "data": { "type": "room.list", "modVersion": "v1.1.3" }
+  "data": { "type": "room.list", "modVersion": "v1.1.4" }
 }
 ```
 
-`room.list` 的成功数据带 `requiredModVersion`；新版客户端在 `room.enter` 中提交自己的 `modVersion`。服务器按同一提交中的 `mod/info.json` 构建并嵌入要求版本，版本不一致时返回 `2012` / `426 Upgrade Required`。为第一次上线握手保留滚动升级窗口：没有版本字段的 1.0.1 及更早客户端暂时允许进入；所有支持握手的版本必须精确匹配。
+`room.list` 的成功数据带独立服务器配置中的 `serverVersion` 和 `requiredModVersion`；新版客户端在 `room.enter` 中提交自己的 `modVersion`。服务器构建时嵌入 `server/version.json`，不读取 `mod/info.json`；版本不一致时返回 `2012` / `426 Upgrade Required`。为第一次上线握手保留滚动升级窗口：没有版本字段的 1.0.1 及更早客户端暂时允许进入；所有支持握手的版本必须精确匹配。
 
 ## 服务端错误码
 

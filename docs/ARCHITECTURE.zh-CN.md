@@ -44,7 +44,7 @@ flowchart LR
 
 1. 服务器永久维持 `public-1`；即使所有玩家离开，`room.list` 仍返回该真实房间、实时人数和服务器指定的容量。
 2. `room.enter` 无密码加入列表中的房间；客户端不能指定公开房间容量。
-3. 服务器构建时嵌入玩家包共用的 `mod/info.json`。`room.list` 公布 `requiredModVersion`，支持版本握手的客户端在进入时提交 `modVersion`；不一致返回业务码 `2012` 和 HTTP 语义状态 `426`，Mod 在读档前弹出更新提示。
+3. 服务器构建时只嵌入独立的 `server/version.json`，分别维护 `serverVersion` 和 `requiredModVersion`，不再读取玩家包的 `mod/info.json`。`room.list` 公布服务器版本和所需 Mod 版本，支持版本握手的客户端在进入时提交 `modVersion`；不一致返回业务码 `2012` 和 HTTP 语义状态 `426`，Mod 在读档前弹出更新提示。
 4. 服务器始终是逻辑 Peer `0`；玩家获得当前最小的空闲正数成员 ID，成员离开后包括 `1` 在内的编号立即可复用。
 5. 全部公开房间满员后，服务器建立下一个编号房间；多余空房间会被回收，同时保留一个可加入的空房间。
 6. `room.create`/`room.join` 仍供显式房间和兼容客户端使用；游戏内本地“建立/加入”使用直连 `BridgeNode` TCP。
