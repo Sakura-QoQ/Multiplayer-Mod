@@ -166,3 +166,5 @@ sudo docker compose logs --tail=100 room-server
 | 静止玩家被移除 | 已达到挂机超时 | 在 `FF_ROOM_AFK_TIMEOUT_SECONDS` 到期前移动至少 0.05 世界单位或切换场景 |
 | `dubious ownership` 或 `.env` 无权限 | 仓库所有权混乱 | 让一个部署用户统一拥有 `/opt/Multiplayer-Mod` |
 | 可以连接但行为不一致 | 版本不匹配 | 统一服务器、Mod 和游戏版本 |
+
+自动部署在 GitHub runner 构建镜像，经 SSH 传输并 docker load；服务器不再从 GitHub 拉源码或从镜像仓库拉取。保留既有 server/.env。已确认旧部署失败原因：服务器解析 github.com 失败（Temporary failure in name resolution），新流程移除此依赖。

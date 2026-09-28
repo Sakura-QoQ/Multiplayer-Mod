@@ -127,3 +127,5 @@ The runtime image uses Ubuntu Chiseled .NET 8, a non-root user, no Linux capabil
 | A stationary player is removed | AFK timeout elapsed | Move at least 0.05 world units or change scene before `FF_ROOM_AFK_TIMEOUT_SECONDS` expires |
 | `dubious ownership` or `.env` permission denied | Mixed repository ownership | Make one deployment user own `/opt/Multiplayer-Mod` |
 | Players connect but cannot agree on behavior | Version mismatch | Match server, Mod and game versions |
+
+Automated deployment builds the image on the GitHub runner and transfers it with docker save/load over SSH. The server no longer fetches GitHub source or pulls registry images. Existing server/.env is preserved.
