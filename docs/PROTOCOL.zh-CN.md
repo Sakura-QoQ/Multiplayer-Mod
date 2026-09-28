@@ -28,7 +28,7 @@
 {
   "type": "api.request",
   "requestId": "1",
-  "data": { "type": "room.list", "modVersion": "v1.1.0" }
+  "data": { "type": "room.list", "modVersion": "v1.1.1" }
 }
 ```
 

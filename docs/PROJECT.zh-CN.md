@@ -1,10 +1,10 @@
-# Fallen Flower Multiplayer 1.1.0
+# Fallen Flower Multiplayer 1.1.1
 
 这是《Fallen Flower》的独立房间服务器联机 Mod。公开房间由 Linux 服务管理，本地“建立/加入”直连模式仍然保留。
 
 ## 安装与使用
 
-1. 用游戏 Mod 启动器导入 `artifacts/PlayerHostedMultiplayer-v1.1.0-win-x64.zip`。
+1. 用游戏 Mod 启动器导入 `artifacts/PlayerHostedMultiplayer-v1.1.1-win-x64.zip`。
 2. 从启动器运行游戏，主菜单选择“联机”。
 3. 输入显示名，打开公开服务器列表并进入房间。
 

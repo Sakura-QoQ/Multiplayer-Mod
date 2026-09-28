@@ -1,4 +1,4 @@
-# Verification — 1.1.0
+# Verification — 1.1.1
 
 ## Automated results
 
@@ -16,6 +16,8 @@ Verified on 2026-09-28:
 | `git diff --check` and source/translation/build gates | PASS |
 
 The room-relay test covers the shared server/Mod version handshake and `2012`/`426` mismatch response, permanent rooms, peer-ID reuse, bidirectional relay, solo and unanimous sleep, client/AFK timeouts, request throttling, server-authority spoof rejection, public profile-chunk rejection, and the absence of server `worldTime` broadcasts.
+
+The bed integration now preserves both native `ButtonClickedEvent` instances. The original buttons keep their layout and interactable state while independent consensus events temporarily handle clicks; approval invokes the preserved native callback so the current game build owns day rollover, quest flags, interaction refresh and window cleanup. The build rejects direct sleep-time reconstruction or removal of native bed listeners. Relay draining is capped at 80 requests/second, below the server's 120 requests/second limit.
 
 ## Build-enforced regressions
 
