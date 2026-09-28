@@ -51,7 +51,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
 
 This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
-When changing save code, verify that room entry invokes native `LoadSaveWindow.Load("AutoSave")` directly through Unity messaging without clicking the `LoadGame` button. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return. The build gate rejects these dangerous calls.
+When changing save code, verify that room entry initializes the native loader, invokes `LoadSaveWindow.Load("AutoSave")`, and hides the picker in the same frame. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return. The build gate rejects incomplete or dangerous flows.
 
 ## Build the server
 

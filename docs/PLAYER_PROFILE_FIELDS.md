@@ -1,6 +1,6 @@
 # Player profile field map
 
-Version 1.0.0 deliberately does **not** synchronize the complete object returned by `GameManager.GetSave()`. Story, quest content, contacts, posts, photos, inventory, NPC state, flags and save-location data stay on the player's computer.
+Version 1.0.1 deliberately does **not** synchronize the complete object returned by `GameManager.GetSave()`. Story, quest content, contacts, posts, photos, inventory, NPC state, flags and save-location data stay on the player's computer.
 
 ## Network profile
 

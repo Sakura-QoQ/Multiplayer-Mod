@@ -1,4 +1,4 @@
-# Fallen Flower Multiplayer 1.0.0
+# Fallen Flower Multiplayer 1.0.1
 
 Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local direct play, synchronized avatars and the game's native save workflow.
 
@@ -6,7 +6,7 @@ Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local d
 
 ## Install
 
-1. Import `artifacts/PlayerHostedMultiplayer-v1.0.0-win-x64.zip` with the game's Mod launcher.
+1. Import `artifacts/PlayerHostedMultiplayer-v1.0.1-win-x64.zip` with the game's Mod launcher.
 2. Start the game through the launcher and select **Multiplayer**.
 3. Enter a display name, open **Public servers**, and enter a listed room.
 
@@ -18,7 +18,7 @@ The package includes a self-contained Windows x64 bridge. It does not require No
 - The server is logical peer `0`. Players receive positive IDs and cannot impersonate server control packets or other players.
 - The server coordinates membership, scenes and unanimous sleep only. It never owns or writes detailed game time; every client keeps the game's default time speed and native story transactions.
 - A one-player room needs only that real player to approve sleep. The server itself is never counted as a player.
-- Joining loads native `AutoSave` directly through the original `LoadSaveWindow.Load` path without clicking or displaying the save picker. Autosave, bed save, pause-menu save and quit continue to use the original game slot.
+- Joining initializes the original loader, immediately calls `LoadSaveWindow.Load("AutoSave")`, and hides the picker in the same frame before it can render. Autosave, bed save, pause-menu save and quit continue to use the original game slot.
 - The bridge never creates, reads, redirects, encrypts or promotes `MPOnline`/`MPActive`. Legacy files are left untouched for manual recovery.
 - Only remote-display data is sent: appearance, live state and aggregate progress counts. Full save/story/contact data is never broadcast or stored by the room server.
 - The phone is bounded to 80% of the screen height and includes Home, Messages and online Contacts pages.

@@ -1,4 +1,4 @@
-# 1.0.0 验证报告
+# 1.0.1 验证报告
 
 ## 自动化结果
 
@@ -25,13 +25,13 @@
 - 拦截原版 `PlayerStatus.SetTime/AddTime/AddDay` 剧情事务；
 - 写入 `timeScale`、游戏时间、时段偏移或剧情日期；
 - 人工拼接 `StartGame`/`GameManager.LoadGame`；
-- 点击会打开存档框的 `LoadGame.onClick`；
+- 没有在同一帧完成初始化、读档与隐藏选择框的原版默认读档流程；
 - 硬编码 `SaveGame("AutoSave")` 而忽略当前原版槽位；
 - Game Mod 模块遗漏/重复和六种语言键不一致。
 
 ## 存档路径核对
 
-运行时通过 Unity 消息直接调用原版 `LoadSaveWindow.Load("AutoSave")`，不点击“读取游戏”按钮、不创建新游戏状态、不枚举存档文件，也没有桥接存档命令。自动保存、床边保存和退出沿用游戏原版流程。旧 `MPOnline`/`MPActive` 不会被访问。
+运行时在同一帧初始化原版读取器、调用 `LoadSaveWindow.Load("AutoSave")` 并隐藏选择框，不创建新游戏状态、不枚举存档文件，也没有桥接存档命令。自动保存、床边保存和退出沿用游戏原版流程。旧 `MPOnline`/`MPActive` 不会被访问。
 
 ## 安全回归
 

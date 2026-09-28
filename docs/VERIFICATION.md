@@ -1,4 +1,4 @@
-# Verification — 1.0.0
+# Verification — 1.0.1
 
 ## Automated results
 
@@ -25,13 +25,13 @@ The release build rejects:
 - hooks on native `PlayerStatus.SetTime/AddTime/AddDay` transactions;
 - writes to `timeScale`, game time, offset or story day;
 - synthetic `StartGame`/`GameManager.LoadGame` save loading;
-- clicking `LoadGame.onClick`, which opens the save picker;
+- a native default-save flow that does not initialize, load and hide the picker in the same frame;
 - hard-coded `SaveGame("AutoSave")` writes that would ignore the active native slot;
 - missing/duplicated Game Mod modules and mismatched translation keys.
 
 ## Save behavior inspected
 
-The runtime invokes original `LoadSaveWindow.Load("AutoSave")` directly through Unity messaging. It does not click the Load Game button, create a new-game state, enumerate save files or expose bridge save commands. Automatic, bed and quit saving stay in the game's native workflow. Legacy `MPOnline`/`MPActive` files are not touched.
+The runtime initializes the original loader, invokes `LoadSaveWindow.Load("AutoSave")`, and hides the picker in the same frame. It does not create a new-game state, enumerate save files or expose bridge save commands. Automatic, bed and quit saving stay in the game's native workflow. Legacy `MPOnline`/`MPActive` files are not touched.
 
 ## Security regression
 

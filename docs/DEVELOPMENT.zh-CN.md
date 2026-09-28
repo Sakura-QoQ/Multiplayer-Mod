@@ -51,7 +51,7 @@
 
 测试先验证服务器绝不发送详细 `worldTime`，以及单人“睡到明天”，再创建第二个普通客户端，验证服务器协调 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](VERIFICATION.zh-CN.md)。
 
-修改存档代码时必须确认：进入房间通过 Unity 消息直接调用原版 `LoadSaveWindow.Load("AutoSave")`，不点击 `LoadGame` 按钮，不调用 `StartGame`/`GameManager.LoadGame`；床边保存沿用 `GameManager.SaveName`，且不能重新引入桥接存档命令或磁盘重定向。构建脚本会拒绝这些危险调用。
+修改存档代码时必须确认：进入房间在同一帧初始化原版读取器、调用 `LoadSaveWindow.Load("AutoSave")` 并隐藏选择框，不调用 `StartGame`/`GameManager.LoadGame`；床边保存沿用 `GameManager.SaveName`，且不能重新引入桥接存档命令或磁盘重定向。构建脚本会拒绝不完整或危险的流程。
 
 ## 构建服务器
 
