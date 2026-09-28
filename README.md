@@ -6,7 +6,7 @@ Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local d
 
 ## Install
 
-1. Import `artifacts/PlayerHostedMultiplayer-v1.1.7-win-x64.zip` with the game's Mod launcher.
+1. Import `artifacts/PlayerHostedMultiplayer-v1.1.8-win-x64.zip` with the game's Mod launcher.
 2. Start the game through the launcher and select **Multiplayer**.
 3. Enter a display name, open **Public servers**, and enter a listed room.
 
