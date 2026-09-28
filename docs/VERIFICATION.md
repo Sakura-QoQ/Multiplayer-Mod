@@ -40,3 +40,7 @@ The generated package is installed at `D:\FallenFlower\Mods\PlayerHostedMultipla
 Main-menu buttons are created on the next frame. Pause buttons are resolved within the current window. The UI loop uses the persistent canvas runner. `node tools/Test-MenuLifecycle.mjs` covers window recreation, reopen reuse, layout and loop ownership. Real-game visual acceptance is still required for first launch, ESC after loading, and returning to the menu then re-entering.
 
 Current change passed: offline build/install, menu lifecycle mock tests, generated-script syntax, and `git diff --check`.
+
+## Cold-start missing menu: confirmed cause
+
+Real-game logs showed session cleanup in `MainMenu.Awake` reading an absent `Bridge/state.<channel>.<slot>.json`. The host FileNotFoundException escaped JavaScript catch and aborted UI creation. Snapshot reads now use the game-provided `ModFileExists` and return not-ready for absent files. Real-game verification showed the entry and version label, and an open multiplayer panel. Cold-start missing-file regression passed. The public endpoint refused connections during verification; online room listing was not verified.
