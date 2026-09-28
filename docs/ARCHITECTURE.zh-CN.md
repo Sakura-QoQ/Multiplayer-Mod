@@ -56,7 +56,7 @@ flowchart LR
 
 ## 存档行为
 
-进入房间后，Mod 在同一帧调用原版读取初始化器、通过 Unity 消息调用 `LoadSaveWindow.Load("AutoSave")`，然后在 Canvas 渲染前立即隐藏选择框。原版读取器必须经过这一步初始化才会真正开始读档。完整事务仍由原版读取器独占，Mod 不自行调用 `StartGame` 或 `GameManager.LoadGame`；回调稳定前不开放同步或保存。自动保存、床边保存、暂停菜单和退出均沿用原版设置的 `GameManager.SaveName`。桥接程序只负责网络。
+进入房间后，Mod 在同一帧调用原版读取初始化器、通过 Unity 消息调用游戏真正执行读档的 `LoadSaveWindow.ExecuteLoad("AutoSave")`，然后在 Canvas 渲染前立即隐藏选择框。新版游戏的 `Load` 只会打开确认框；等待已经隐藏的确认框会导致读档永远不开始。完整事务仍由原版读取器独占，Mod 不自行调用 `StartGame` 或 `GameManager.LoadGame`；回调稳定前不开放同步或保存。自动保存、床边保存、暂停菜单和退出均沿用原版设置的 `GameManager.SaveName`。桥接程序只负责网络。
 
 旧版本创建的 `MPOnline`/`MPActive` 不会自动删除，便于人工恢复，但当前版本不会列出、读取或写入。联机与单机对原版默认槽位的修改会彼此可见，这是采用原版存档的预期行为。
 

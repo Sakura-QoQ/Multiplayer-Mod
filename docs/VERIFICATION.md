@@ -33,7 +33,7 @@ The release build rejects:
 
 ## Save behavior inspected
 
-The runtime initializes the original loader, invokes `LoadSaveWindow.Load("AutoSave")`, and hides the picker in the same frame. It does not create a new-game state, enumerate save files or expose bridge save commands. Automatic, bed and quit saving stay in the game's native workflow. Legacy `MPOnline`/`MPActive` files are not touched.
+The runtime initializes the original loader, invokes `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame without waiting for the hidden confirmation prompt. It does not create a new-game state, enumerate save files or expose bridge save commands. Automatic, bed and quit saving stay in the game's native workflow. Legacy `MPOnline`/`MPActive` files are not touched.
 
 ## Security regression
 
