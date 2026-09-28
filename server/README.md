@@ -128,4 +128,4 @@ The runtime image uses Ubuntu Chiseled .NET 8, a non-root user, no Linux capabil
 | `dubious ownership` or `.env` permission denied | Mixed repository ownership | Make one deployment user own `/opt/Multiplayer-Mod` |
 | Players connect but cannot agree on behavior | Version mismatch | Match server, Mod and game versions |
 
-Automated deployment builds the image on the GitHub runner and transfers it with docker save/load over SSH. The server no longer fetches GitHub source or pulls registry images. Existing server/.env is preserved.
+Automated deployment uses a depth-1, blob-filtered sparse Git checkout on the server. Only the room-server project, Docker/Compose files, version manifest and licenses are downloaded. The server builds the image, runs compose down, then compose up. Existing server/.env is preserved. Server DNS must resolve GitHub, NuGet and image registries when dependencies are uncached.
