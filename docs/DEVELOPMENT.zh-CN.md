@@ -31,7 +31,7 @@
 ./tools/Build-Mod.ps1 -Install -NoRestore
 ```
 
-只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。构建会拒绝遗漏/重复模块、页面直接创建底层 Unity 控件、语言包键不一致，以及运行时代码中的注册表 API、提权请求和安装器命令。
+只编辑 `src/GameMod/`，不要直接修改生成的 `mod/main.ts` 或 `mod/i18n`。新增模块必须按依赖顺序加入 `src/GameMod/source-order.json`。源码构建只检查模块完整性及语言包键一致性，已删除按源码正则限制写法的门禁。运行 `node tools/Test-MenuLifecycle.mjs` 验证菜单生命周期。
 
 ## 验证功能
 
@@ -51,7 +51,7 @@
 
 测试先验证服务器绝不发送详细 `worldTime`，以及单人“睡到明天”，再创建第二个普通客户端，验证服务器协调 Peer `0`、双向转发和全员睡眠批准。游戏级证据和限制见 [验证报告](VERIFICATION.zh-CN.md)。
 
-修改存档代码时必须确认：进入房间在同一帧初始化原版读取器、调用 `LoadSaveWindow.ExecuteLoad("AutoSave")` 并隐藏选择框；当前游戏的 `Load("AutoSave")` 只会打开确认框，禁止再用。不得调用 `StartGame`/`GameManager.LoadGame`；床边保存沿用 `GameManager.SaveName`，且不能重新引入桥接存档命令或磁盘重定向。构建脚本会拒绝不完整或危险的流程。
+修改存档代码时必须确认：进入房间在同一帧初始化原版读取器、调用 `LoadSaveWindow.ExecuteLoad("AutoSave")` 并隐藏选择框；当前游戏的 `Load("AutoSave")` 只会打开确认框，禁止再用。不得调用 `StartGame`/`GameManager.LoadGame`；床边保存沿用 `GameManager.SaveName`，且不能重新引入桥接存档命令或磁盘重定向。
 
 ## 构建服务器
 

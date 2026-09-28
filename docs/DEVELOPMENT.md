@@ -31,7 +31,7 @@ After dependencies have been restored once, an offline build can use:
 ./tools/Build-Mod.ps1 -Install -NoRestore
 ```
 
-Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The build rejects missing/duplicate modules, direct low-level Unity control construction in page modules, translation-key differences, registry APIs, elevation requests and installer commands in runtime source.
+Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The source builder checks module completeness and translation keys. Source-pattern policy gates have been removed. Run `node tools/Test-MenuLifecycle.mjs` for menu lifecycle regressions.
 
 ## Verify behavior
 
@@ -51,7 +51,7 @@ To test the dedicated-room adapter, run a room server on a test port and then ex
 
 This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
 
-When changing save code, verify that room entry initializes the native loader, invokes `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame. Do not call `Load("AutoSave")`: in the current game it only opens a confirmation prompt. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return. The build gate rejects incomplete or dangerous flows.
+When changing save code, verify that room entry initializes the native loader, invokes `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame. Do not call `Load("AutoSave")`: in the current game it only opens a confirmation prompt. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return.
 
 ## Build the server
 

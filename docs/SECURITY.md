@@ -13,7 +13,7 @@
 - Global connection slots, 15-second unauthenticated join deadline, 120 requests/second per connection, five-second send timeout, inactivity/AFK cleanup and bounded client queues.
 - Player profiles expose only appearance and four aggregate counts. Full story, contacts, posts, photos, flags and save JSON are excluded.
 - GitHub Actions are pinned to immutable checkout commit SHAs. The server container runs non-root with a read-only filesystem, no Linux capabilities, `no-new-privileges` and a PID limit.
-- Runtime code is blocked from registry access, elevation, installers, synthetic save loading, save-picker activation and game-clock writes by build gates.
+- Source-pattern build policy gates have been removed; the source builder checks module and translation completeness.
 
 ## 1.0 audit fixes
 

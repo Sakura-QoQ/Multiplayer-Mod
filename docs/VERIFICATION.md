@@ -1,8 +1,8 @@
-# Verification — 1.1.1
+# Verification — 1.1.10
 
-## Automated results
+## Earlier automated results
 
-Verified on 2026-09-28:
+The following records predate this menu refactor (2026-09-28); the server/network suite was not rerun for this UI-only change.
 
 | Check | Result |
 | --- | --- |
@@ -13,23 +13,15 @@ Verified on 2026-09-28:
 | Direct TCP `MultiplayerBridge.SmokeTest` | PASS |
 | Dedicated room relay end-to-end test | PASS |
 | Runtime log self-test | PASS |
-| `git diff --check` and source/translation/build gates | PASS |
+| `git diff --check` and source/translation completeness checks | PASS |
 
 The room-relay test covers the shared server/Mod version handshake and `2012`/`426` mismatch response, permanent rooms, peer-ID reuse, bidirectional relay, solo and unanimous sleep, client/AFK timeouts, request throttling, server-authority spoof rejection, public profile-chunk rejection, and the absence of server `worldTime` broadcasts.
 
-The bed integration now preserves both native `ButtonClickedEvent` instances. The original buttons keep their layout and interactable state while independent consensus events temporarily handle clicks; approval invokes the preserved native callback so the current game build owns day rollover, quest flags, interaction refresh and window cleanup. The build rejects direct sleep-time reconstruction or removal of native bed listeners. Relay draining is capped at 80 requests/second, below the server's 120 requests/second limit.
+The bed integration now preserves both native `ButtonClickedEvent` instances. The original buttons keep their layout and interactable state while independent consensus events temporarily handle clicks; approval invokes the preserved native callback so the current game build owns day rollover, quest flags, interaction refresh and window cleanup. Relay draining is capped at 80 requests/second, below the server's 120 requests/second limit.
 
-## Build-enforced regressions
+## Current build checks
 
-The release build rejects:
-
-- registry/elevation/installer APIs;
-- hooks on native `PlayerStatus.SetTime/AddTime/AddDay` transactions;
-- writes to `timeScale`, game time, offset or story day;
-- synthetic `StartGame`/`GameManager.LoadGame` save loading;
-- a native default-save flow that does not initialize, load and hide the picker in the same frame;
-- hard-coded `SaveGame("AutoSave")` writes that would ignore the active native slot;
-- missing/duplicated Game Mod modules and mismatched translation keys.
+Only source-manifest completeness and translation keys are checked; source-pattern policy gates were removed.
 
 ## Save behavior inspected
 
@@ -42,3 +34,9 @@ Malicious ordinary clients cannot target another public peer directly, forge ser
 ## Real-game acceptance checklist
 
 The generated package is installed at `D:\FallenFlower\Mods\PlayerHostedMultiplayer`. Before distributing broadly, test one current game build for: join without a visible save picker; clothing/tasks/interactions retained after load; bed and automatic saves; solo and two-player sleep; class completion without control lock; clean exit to menu/desktop; bounded phone layout and Contacts. These Unity/IL2CPP behaviors cannot be proven by the headless .NET suite alone.
+
+## Menu lifecycle fix
+
+Main-menu buttons are created on the next frame. Pause buttons are resolved within the current window. The UI loop uses the persistent canvas runner. `node tools/Test-MenuLifecycle.mjs` covers window recreation, reopen reuse, layout and loop ownership. Real-game visual acceptance is still required for first launch, ESC after loading, and returning to the menu then re-entering.
+
+Current change passed: offline build/install, menu lifecycle mock tests, generated-script syntax, and `git diff --check`.
