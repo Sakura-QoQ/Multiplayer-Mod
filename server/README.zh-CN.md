@@ -1,6 +1,22 @@
 # 服务器构建与部署
 
-服务端使用 TypeScript/Node.js，管理房间、场景、睡眠和日期/时段；不运行 Unity、不读取玩家存档。需要 Node.js >=22.18 与 npm。
+服务端使用 TypeScript/Node.js，管理房间、场景、睡眠和日期/时段；不运行 Unity、不读取玩家存档。本地开发需要 Node.js >=22.18 与 npm；生产发布为 Linux x64 单文件程序，运行服务器无需安装 Node.js、npm 或 .NET。
+
+## 源码职责
+
+```text
+src/
+├── api/          # 接口、路由、请求/响应格式和校验
+├── middleware/   # 错误处理、请求解析、限流、管理鉴权
+├── services/     # 房间业务与同步裁决
+├── server.ts     # TCP 服务生命周期
+├── connection.ts # TCP 帧收发与背压
+├── protocol.ts   # 帧编码与 JSON 深度限制
+├── room.ts       # 单房间状态
+└── security.ts   # 共享的常量时间密钥比较
+```
+
+[API 格式和扩展方式](../docs/PROTOCOL.md)
 
 ## 本地开发
 
@@ -20,9 +36,9 @@ npm run check:health
 
 main 的服务端或工作流变化触发 `.github/workflows/deploy-server.yml`，也可手动触发。流程为：
 
-1. GitHub Ubuntu runner 安装依赖、检查格式并运行测试。
-2. 执行 `npm run build:release`，生成完整的 dist 目录，包含编译 JS、version.json、运行 package.json、锁文件、许可证和生产 node_modules。源码与开发依赖不上传。
-3. 启动 dist 中的服务进行真实 TCP ping/pong 检查。
+1. GitHub Ubuntu 22.04 x64 runner 使用固定版本 Node.js 22.23.3，安装依赖、检查格式并运行测试。
+2. 执行 `npm run build:release`，用 esbuild 打包代码和运行依赖，再用 Node.js SEA 封装成 dist/FallenFlowerServer。版本信息嵌入程序，dist 仅保留程序和许可证。源码、JS 和 node_modules 不上传。
+3. 仅复制可执行文件到隔离目录，在 PATH 无 Node/npm 的条件下检查启动、TCP ping/pong 和 SIGTERM 退出；再检查部署回滚。
 4. 将 dist 改名为 FallenFlowerServer，再 SCP 上传到 `/opt/FallenFlowerServer/.incoming-提交号/` 暂存。
 5. 首次上传会先将文件放到主目录；若缺少 .env 或服务配置，日志提示手动配置并以失败状态结束，不会误报服务已运行。正常更新由 tools/deploy.sh 停服、更新主目录文件、重启并检查健康。
 6. 重启或健康检查失败则恢复上一 dist；成功后删除临时旧版和上传暂存，只保留当前版本。
@@ -34,19 +50,19 @@ main 的服务端或工作流变化触发 `.github/workflows/deploy-server.yml`�
 ```text
 /opt/FallenFlowerServer/
 ├── .env
-├── index.js
-├── health.js
-├── version.json
-├── package.json
-├── package-lock.json
-├── node_modules/
+├── FallenFlowerServer  # Linux x64 可执行文件
 ├── COMMIT
-└── 其他编译模块及许可证
+├── LICENSE
+├── LICENSE.zh-CN
+├── THIRD_PARTY_NOTICES.txt
+└── NODE_LICENSE.txt
 ```
 
 ## 首次配置服务器
 
-先安装 Node.js >=22.18、npm、systemd，确认 `/usr/bin/npm` 可用。手动创建 `/opt/FallenFlowerServer/` 并授予部署账号写权限，工作流不会创建根目录。触发部署后，首次上传的 index.js、package.json 和 node_modules 会放到该目录；首次缺少配置时 Actions 会提示尚未完成启动。
+目标机使用 Linux x64（glibc >=2.28，Ubuntu 20.04 及以上），需要 systemd，无需 Node.js 或 npm。手动创建 `/opt/FallenFlowerServer/` 并授予部署账号写权限，工作流不会创建根目录。首次缺少 .env 或 unit 时，程序仍上传到主目录，但 Actions 会提示尚未完成启动。
+
+已有 npm 启动的 unit 需手动改成 `ExecStart=/opt/FallenFlowerServer/FallenFlowerServer`，然后执行 `sudo systemctl daemon-reload`，再触发部署。部署脚本会在停止现有服务之前检查启动路径；常规更新会删除旧 JS、package.json 和 node_modules。迁移失败时旧文件可恢复，但恢复旧版 npm 服务需把 unit 的 ExecStart 一并改回。
 
 以下示例按当前登录账号 ubuntu 手动创建服务，不随发布包携带 unit。若部署使用其他账号，同时调整 User、Group 和 sudoers。
 
@@ -66,9 +82,7 @@ Group=ubuntu
 WorkingDirectory=/opt/FallenFlowerServer
 EnvironmentFile=/opt/FallenFlowerServer/.env
 Environment=NODE_ENV=production
-Environment=NPM_CONFIG_CACHE=/tmp/fallen-flower-npm
-Environment=NPM_CONFIG_UPDATE_NOTIFIER=false
-ExecStart=/usr/bin/npm --silent start
+ExecStart=/opt/FallenFlowerServer/FallenFlowerServer
 Restart=on-failure
 RestartSec=3
 KillSignal=SIGINT
@@ -106,7 +120,7 @@ sudo systemctl start fallen-flower-room.service
 sudo systemctl restart fallen-flower-room.service
 sudo systemctl status fallen-flower-room.service
 sudo journalctl -u fallen-flower-room.service -n 100 --no-pager
-node /opt/FallenFlowerServer/health.js --env-file /opt/FallenFlowerServer/.env
+/opt/FallenFlowerServer/FallenFlowerServer --check-health --env-file /opt/FallenFlowerServer/.env
 ```
 
 开放云安全组和主机防火墙的房间 TCP 端口。修改 unit 后需重新安装并 daemon-reload；常规代码更新不改 unit 或 .env。

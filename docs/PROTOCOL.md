@@ -72,3 +72,23 @@
 首份已完成原版读档的数据以 expectedRevision=0 初始化日历。之后比较交换版本：版本匹配、日期更晚或同一天时段发生改变才提交；过期或回退日期的提案只返回当前状态。后来加入者日期较晚时推动房间，较早者通过 AddDay 逐日追赶。客户端先对齐一次，再观察原版剧情已经完成的同一天时段变化，因此不会用旧房间值撤销原版 SetTime。个人任务、联系人、背包不属于协议；逐日追赶会执行原版回调，可能推进或使个人限时剧情过期。
 
 普通公开成员不能发送 roomCalendar/calendarReady 冒充权威。旧 worldTime/serverTimeSeed/serverTimeCommit 仍忽略；新方案不运行独立的秒级房间时钟。本地直连沿用同样的数据结构，Peer 0 玩家房主初始化并裁决版本。
+
+## API 文件与中间件
+
+接口注册位于 server/src/api/router.ts，房间接口与管理接口分别位于 api/rooms.ts、api/admin.ts。services/rooms.ts 负责房间业务；server.ts 仅负责监听、连接生命周期与超时。
+
+请求/响应类型集中在 api/contracts.ts；api/request.ts 用 Zod 校验请求信封；api/response.ts 统一成功、错误及旧协议响应；api/errors.ts 定义异常与状态码映射。api/validation.ts 提供共享字段校验。
+
+每个请求按同步链处理：统一错误捕获 → 请求格式解析 → 每连接限流 → 路由 → 路由中间件 → 业务处理。管理鉴权只应用于 admin 路由。中间件通过 ApiContext 共享 requestId、data 和认证连接，并可通过 pipeline 组合复用；不能在房间状态修改链中引入 await。
+
+```json
+{
+  "type": "api.request",
+  "requestId": "room-list-1",
+  "data": { "type": "room.list", "modVersion": "v1.1.13" }
+}
+```
+
+响应统一包含 success、status、code、message、data、requestId。广播事件的 requestId 为 null。room.send 成功仍为单向发送，不新增成功回执；错误通过统一响应返回。裸请求与既有客户端继续兼容，不新增 HTTP 监听端口。
+
+新增接口时，在 api/rooms.ts 或对应接口文件注册处理器，复用 requestFormat、rateLimit、requireAdmin、errorBoundary；业务操作放入服务层，不把 TCP 解析、鉴权和响应拼装复制到各接口。

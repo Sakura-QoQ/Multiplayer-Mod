@@ -22,10 +22,11 @@ cd server
 npm ci
 npm test
 npm run test:release
-npm run build:release
+npm run build:release # Linux x64 / WSL / GitHub Actions
+npm run test:executable
 ```
 
-`npm run build` 编译源码；`npm run build:release` 额外把运行 package.json、锁文件、许可证和生产依赖放进 dist，使它成为可直接上传的完整目录。目标机不需要 TypeScript、.NET 或构建工具。
+`npm run build` 编译开发用 JS；Linux x64 上的 `npm run build:release` 使用 esbuild 和 Node.js SEA 输出 dist/FallenFlowerServer 单文件程序及许可证。两种输出使用同一 dist 目录，发布构建会清理开发用 JS。GitHub Actions 编译、隔离测试后上传，目标机不需要 Node.js、npm、TypeScript 或 .NET。
 
 [运行和部署](../server/README.zh-CN.md)
 

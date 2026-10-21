@@ -10,4 +10,4 @@ TCP 帧上限 64 KiB；请求和显示文本受长度/字符校验，连接、�
 
 客户端桥以普通用户启动，不改注册表、不提权、不安装服务。游戏命令经 Player.log 专用标记传给桥，桥通过轮换 JSON 返回状态。Jint 沙箱限制使当前 Windows 桥仍有必要。
 
-生产服务以 deploy 用户运行，由 systemd 管理。配置位于 /opt/FallenFlowerServer/.env，不随代码覆盖。GitHub 构建完整 dist 并携带锁定的生产依赖；主机不编译、不安装开发依赖、不构建 Docker。SSH 使用固定 known_hosts 校验。成功部署后删除临时旧版，保留当前 dist。
+生产服务以 ubuntu 用户运行，由 systemd 管理。配置位于 /opt/FallenFlowerServer/.env，不随代码覆盖。GitHub 使用 esbuild 和 Node.js SEA 将锁定依赖与运行时封装为 Linux x64 程序；主机无需 Node.js、npm 或 .NET，不编译、不构建 Docker。SSH 使用固定 known_hosts 校验。成功部署后删除临时旧版，保留当前 dist。

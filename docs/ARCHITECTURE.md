@@ -66,3 +66,5 @@ flowchart LR
 UcModLauncher 只加载一个 Jint 脚本，不能解析 TypeScript 模块。`mod/tools/Build-Mod.ps1` 会检查 `mod/src/GameMod/source-order.json` 是否恰好包含每个 `.ts` 文件一次，合并生成 `mod/main.ts`，校验页面/组件边界，并检查六种语言的翻译键完全一致。
 
 Server implementation: TypeScript/Node.js in `server/`, with Zod, Commander and Pino. Client source and tools are isolated in `mod/`. Only the client bridge retains the Windows NativeAOT toolchain.
+
+服务端接口与传输解耦：api/ 管理路由和格式，middleware/ 提供可组合的通用处理，services/ 实现业务。Connection 只拆帧、写帧与限制发送队列；RoomServer 管理连接和超时。请求链保持同步，避免并发提案跨 await 交错。部署与失败恢复包含三个新子目录。

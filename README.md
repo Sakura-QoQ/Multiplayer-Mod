@@ -15,7 +15,7 @@
 - `artifacts/`：生成的客户端桥、打包暂存与安装 ZIP，不是源码。详见[目录说明](docs/DEVELOPMENT.md)。
 - `docs/`：[当前文档索引](docs/README.md)。
 
-服务器需要 Node.js >=22.18：
+本地开发需要 Node.js >=22.18；GitHub 编译的 Linux x64 服务端程序无需安装 Node.js 或 npm：
 
 ```bash
 cd server
