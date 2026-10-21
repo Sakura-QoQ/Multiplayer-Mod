@@ -1,6 +1,6 @@
 # 本机 WSL PostgreSQL 线上存储实验
 
-当前只用于开发验证；未替换 GitHub 上已发布的客户端或公网服务。实验期间数据库是角色的唯一持久来源，不导入本机旧存档。原版单机文件保留。
+客户端仍为开发实验，未替换 GitHub 上已发布的玩家安装包。PostgreSQL 后端已经部署；本次直连 IP 的 TLS 配置尚未上传。实验期间数据库是角色的唯一持久来源，不导入本机旧存档。原版单机文件保留。
 
 ## 数据库与配置
 
@@ -25,7 +25,7 @@ npm run start:storage
 
 代码按职责分为 storage/api.ts（框架与错误边界）、storage/auth.ts（账号接口与可复用 JWT 验证）、storage/saves.ts（本人存档接口）、storage/http.ts（复用响应格式），database.ts/config.ts/password.ts 分别负责数据库、配置和密码摘要。
 
-API 默认仅监听 127.0.0.1:27778。allowInsecureLoopback 仅用于本机实验；远程访问必须使用 HTTPS 反向代理并关闭此选项。客户端不连接 PostgreSQL，也不持有数据库配置。FF_DATABASE_CONFIG 可指定配置文件路径；缺省文件不存在时仅启动既有 TCP 房间服务。
+当前源码配置让账号 API 通过 HTTPS 监听 0.0.0.0:27777，可直接使用 https://13.40.7.1:27777，无需域名或反向代理。config/tls/server.crt 与 server.key 分别是证书和服务端私钥；配置中的相对路径以 database.json 所在目录为基准。客户端仅携带公开证书 account-server.pem，验证证书及 IP，拒绝不可信证书。更换证书时必须同步更新客户端信任文件。allowInsecureLoopback 仅用于本机 HTTP 实验；外部地址必须配置 TLS。房间 TCP 与账号 HTTPS 共用 27777，入口按协议分流，HTTPS 内通过 /auth/register、/auth/login、/me/save 等路径区分接口。共用端口要求 http.host 与 FF_ROOM_LISTEN 一致且配置 TLS；不再需要额外开放 27778。部署后需在服务器安全组和防火墙开放 TCP 27777；PostgreSQL 5432 无需对外开放。客户端不连接 PostgreSQL，也不持有数据库配置。FF_DATABASE_CONFIG 可指定配置文件路径；缺省文件不存在时仅启动既有 TCP 房间服务。
 
 ## UTC 与数据保留
 
@@ -62,7 +62,7 @@ users 长期保存，没有每日清理或登录超时自动删除；player_save
 
 ## 游戏实验
 
-开发工具使用本机 Frida Python SDK；它不进入普通玩家 ZIP。自动往返测试创建随机实验账号，不使用或导入玩家已有存档：
+开发工具使用本机 Frida Python SDK 和 Python cryptography；它们不进入普通玩家 ZIP。账号地址文件采用 AES-GCM 混淆，仅用于封装地址；密码传输的保密性来自 TLS。自动往返测试创建随机实验账号，不使用或导入玩家已有存档：
 
 ```powershell
 python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.exe --frida-path D:/FallenFlower/.tmp/reverse-libs
@@ -73,14 +73,15 @@ python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.ex
 交互实验可运行：
 
 ```powershell
-# 首次注册：启动后在控制台输入用户名与隐藏的密码。
-python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.exe --frida-path D:/FallenFlower/.tmp/reverse-libs --play --register
-# 后续登录：相同命令去掉 --register。
+# 启动游戏后打开联机入口，在游戏内登录，或切换注册页面。
+python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.exe --frida-path D:/FallenFlower/.tmp/reverse-libs --play
+# 自动验证实际游戏内注册、错误密码提示及第二进程重新登录：
+python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.exe --frida-path D:/FallenFlower/.tmp/reverse-libs --ui-test
 ```
 
 交互模式每 30 秒提交快照，并处理原版自动保存/床边保存发出的内存快照请求；控制台只在数据库提交后显示新 revision。冲突或数据库失败会终止实验进程，绝不回退本地存档。最后一次成功提交之后的未提交进度可能丢失。账号凭据仅保留在启动器内存，JWT 到期前重新登录。
 
-当前源码 Mod 的联机入口必须由实验适配器准备角色后使用；没有适配器会提示并拒绝进入。没有打包/安装本次实验 Mod；仓库现有 artifacts 玩家 ZIP 仍是此前发布版。
+游戏内首先显示登录/注册页，登录成功后进入房间选择；密码输入为遮罩，取消或提交后清理输入。密码与 JWT 只留在输入控件和实验启动器会话内存，不经过 Player.log 或桥接日志。启动器通过临时 Mod 加载计划启用当前 Mod，不修改原加载计划。当前源码 Mod 必须与实验适配器配合使用；已在本机安装实验脚本，仓库 artifacts 玩家 ZIP 仍是此前发布版。账号 JWT 当前保护存档 API；旧 TCP 房间协议尚未绑定 JWT。
 
 照片的数据库表已建立，但图片传输/内存纹理恢复尚未实现；交互模式拒绝恢复包含 Photo 数据的角色。新角色和空剧情集合的往返通过不等于全部剧情、照片和双客户端验收通过。房间共享绝对 day 的旧同步协议也还未迁移，当前不要用此实验宣称独立天数多人联机已完成。
 
@@ -94,4 +95,4 @@ npm --prefix mod test
 # npm --prefix server run test:executable:storage
 ```
 
-数据库测试只创建和删除专用随机测试 schema，不清空 public 表。Linux 单文件发布仍用 npm run build:release；SQL 作为 SEA asset 内嵌，GitHub 在构建和测试后把完整 config/database.json 放入发布目录，上传到 /opt/FallenFlowerServer/config/database.json，目录权限 700、文件权限 600。部署失败时程序和 config 一起回退，.env 继续保留。生产数据库表结构仍须手动初始化，部署不自动迁移。
+数据库测试只创建和删除专用随机测试 schema，不清空 public 表。Linux 单文件发布仍用 npm run build:release；SQL 作为 SEA asset 内嵌，GitHub 在构建和测试后把完整 config/（含数据库配置及服务端 TLS 文件）放入发布目录，上传到 /opt/FallenFlowerServer/config/，目录权限 700、文件权限 600。服务端私钥不进入 mod/ 或玩家安装包。部署失败时程序和 config 一起回退，.env 继续保留。生产数据库表结构仍须手动初始化，部署不自动迁移。
