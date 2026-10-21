@@ -11,7 +11,7 @@
 | mod/src/MultiplayerBridge.SmokeTest、mod/tools   | 客户端测试和构建工具                 |
 | artifacts                                        | 可复用的客户端桥接程序和当前安装 ZIP |
 
-`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.2-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
+`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.3-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
 
 ## 服务器
 
