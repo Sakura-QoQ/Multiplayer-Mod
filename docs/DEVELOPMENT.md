@@ -11,7 +11,7 @@
 | mod/src/MultiplayerBridge.SmokeTest、mod/tools   | 客户端测试和构建工具                 |
 | artifacts                                        | 可复用的客户端桥接程序和当前安装 ZIP |
 
-`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.0-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
+`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.1-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
 
 ## 服务器
 
@@ -87,4 +87,4 @@ npm.cmd --prefix mod run test:live -- --bridge D:/FallenFlower/Mods/Multiplayer/
 
 详细测试范围和未验收项目见[验证状态](VERIFICATION.md)。
 
-线上启动器使用 PyInstaller 将 Frida、cryptography 和会话驱动打成 FallenFlowerOnline.exe，默认向上查找 FallenFlower.exe。凭据仍只驻留内存，证书和地址配置随程序内嵌。每次打包都重新构建线上启动器，避免脚本、适配器或证书与二进制不一致。
+线上启动器使用 PyInstaller 将 Frida、cryptography 和会话驱动打成 FallenFlowerOnline.exe，默认向上查找 FallenFlower.exe。用户名和密码按登录页开关保存在当前用户的 Windows 凭据管理器，JWT 仅驻留内存。keyring 明确使用 Windows 后端，不会降级到明文文件；证书、语言包和地址配置随程序内嵌。每次打包都重新构建线上启动器，避免脚本、适配器或证书与二进制不一致。

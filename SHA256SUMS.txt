@@ -1,1 +1,1 @@
-d7598527c58143f8be9b66b8d72033c7f5124cad5d01f3b7c0371a2a84e5947a  Multiplayer-v1.2.0-win-x64.zip
+3b0f41e64f96a3d31ba65a5163965412d5a4be8fd7b7aa404cdc979db34d7e4f  Multiplayer-v1.2.1-win-x64.zip

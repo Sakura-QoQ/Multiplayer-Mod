@@ -1,10 +1,10 @@
 # Fallen Flower Multiplayer
 
-公开房间联机与线上存档实验 Mod。当前客户端 v1.2.0，TypeScript 服务端 v1.2.0。
+公开房间联机与线上存档实验 Mod。当前客户端 v1.2.1，TypeScript 服务端 v1.2.0。
 
 ## 玩家安装
 
-用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.2.0-win-x64.zip`，然后运行游戏目录中的 `Mods/Multiplayer/Start-Online.cmd`。游戏启动后选择“联机”，登录或注册后选择房间。安装包包含自包含 Windows x64 线上启动器和网络桥，无需另装 Python、Frida、Node.js 或 .NET。旧 PlayerHostedMultiplayer 入口应禁用，避免重复加载。
+用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.2.1-win-x64.zip`，然后运行游戏目录中的 `Mods/Multiplayer/Start-Online.cmd`。游戏启动后选择“联机”，登录或注册后选择房间。安装包包含自包含 Windows x64 线上启动器和网络桥，无需另装 Python、Frida、Node.js 或 .NET。旧 PlayerHostedMultiplayer 入口应禁用，避免重复加载。六种界面语言随游戏切换；登录页支持受 Windows 凭据管理器保护的记住账号、自动填充和自动登录，并可随时清除。
 
 角色从服务器数据库加载，不导入本机旧存档；账号和存档通过 HTTPS 访问 `13.40.7.1:27777`，与原房间 TCP 共用端口。必须通过随包线上启动器启动，普通游戏启动器不会启动存档适配器。
 
