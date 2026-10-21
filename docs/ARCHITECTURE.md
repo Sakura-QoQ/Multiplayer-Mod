@@ -37,7 +37,7 @@ flowchart LR
 | 睡眠批准                              | Ubuntu 服务器 Peer `0` | 全部真实玩家提出相同请求后批准；客户端执行原版床事务 |
 | 玩家存档                              | 玩家本机               | 原版默认 `AutoSave`；不会作为文件发送给服务器        |
 
-服务器校验房间信封与认证成员身份，用连接身份覆盖客户端自报 ID/名称。普通玩家只能发送白名单内的自身状态、实时资料、资料分片以及睡眠/场景请求，不能伪造 `welcome`、名单、离开、服务器场景或睡眠批准。旧 `worldTime` 包直接丢弃。服务器不计算详细钟点，也不模拟 Unity 物理、战斗、任务或背包。
+服务器校验房间信封与认证成员身份，用连接身份覆盖客户端自报 ID/名称。普通玩家只能发送白名单内的自身状态、实时资料、完整外观资料以及睡眠/场景/日历请求，不能伪造 `welcome`、名单、离开、服务器场景或睡眠批准。旧 `worldTime` 包直接丢弃。服务器不计算详细钟点，也不模拟 Unity 物理、战斗、任务或背包。
 
 资料传输只包含远端外观、实时状态和聚合进度数量；不会发送完整剧情、联系人或把其他玩家进度应用到本机存档。
 
@@ -50,7 +50,7 @@ flowchart LR
 5. 全部公开房间满员后，服务器建立下一个编号房间；多余空房间会被回收，同时保留一个可加入的空房间。
 6. `room.create`/`room.join` 仍供显式房间和兼容客户端使用；游戏内本地“建立/加入”使用直连 `BridgeNode` TCP。
 7. 本地直连仍由玩家房主权威控制，并可能需要入站网络配置；公开模式不会把权威交给玩家。
-8. 客户端不单独发送心跳，现有公开 TCP 数据帧负责刷新活动时间；连续 5 分钟没有收到完整客户端帧时关闭套接字，并统一通过 `LeaveRoomAsync` 释放成员和可复用 ID。
+8. 客户端不单独发送心跳，现有公开 TCP 数据帧负责刷新活动时间；连续 5 分钟没有收到完整客户端帧时关闭套接字，并统一通过房间退出流程释放成员和可复用 ID。
 9. 独立判断挂机：即使相同坐标的位置包持续到达，连续 5 分钟没有累计至少 0.05 单位的世界坐标位移且没有切换场景，也会断开并释放成员。
 
 每帧由 4 字节大端长度和 UTF-8 JSON 构成，最大 64 KiB。传输是明文 TCP，不是 TLS。AES-GCM 端点混淆只隐藏可编辑配置，不会加密网络数据包。
@@ -65,6 +65,16 @@ flowchart LR
 
 UcModLauncher 只加载一个 Jint 脚本，不能解析 TypeScript 模块。`mod/tools/Build-Mod.ps1` 会检查 `mod/src/GameMod/source-order.json` 是否恰好包含每个 `.ts` 文件一次，合并生成 `mod/main.ts`，校验页面/组件边界，并检查六种语言的翻译键完全一致。
 
-Server implementation: TypeScript/Node.js in `server/`, with Zod, Commander and Pino. Client source and tools are isolated in `mod/`. Only the client bridge retains the Windows NativeAOT toolchain.
+服务端使用 TypeScript、Zod、Commander 和 Pino，GitHub 通过 esbuild 与 Node.js SEA 生成 Linux x64 单文件程序。目标机无需 Node.js、npm 或 .NET；Windows NativeAOT 工具链仅用于构建客户端桥。
 
-服务端接口与传输解耦：api/ 管理路由和格式，middleware/ 提供可组合的通用处理，services/ 实现业务。Connection 只拆帧、写帧与限制发送队列；RoomServer 管理连接和超时。请求链保持同步，避免并发提案跨 await 交错。部署与失败恢复包含三个新子目录。
+服务端接口与传输解耦：api/ 管理路由和格式，middleware/ 提供可组合的通用处理，services/ 实现业务。Connection 只拆帧、写帧与限制发送队列；RoomServer 管理连接和超时。请求链保持同步，避免并发提案跨 await 交错。接口源码在发布时与依赖一起封装到 Linux 可执行程序，不以子目录部署。
+
+## 安全边界
+
+协议使用明文 TCP JSON，不提供 TLS。内置端点混淆不是认证或保密措施，不应复用其他业务密码。
+
+服务器限制帧大小、请求速率、连接数量、发送队列和显示文本；Zod 校验请求及日历提案。管理接口默认关闭，启用时使用独立的 16–256 字符令牌。Pino 仅记录运行元数据，不记录令牌、包体或玩家资料。
+
+客户端桥以普通用户运行，不提权、不安装服务、不使用注册表 IPC，也不访问存档。诊断日志位于 Mod 的 Logs 目录，可能包含玩家名称、房间和网络地址；分享前应检查内容。
+
+生产服务由 systemd 管理，.env 不随代码覆盖；SSH 校验固定 known_hosts。部署前验证新程序，重启或健康检查失败时恢复旧文件，成功后删除临时旧版与上传目录。首次从 npm 版本迁移时，回退到旧版还需手动恢复 unit 的启动命令，详见[部署说明](../server/README.zh-CN.md)。

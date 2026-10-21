@@ -24,6 +24,6 @@ npm run build
 npm start
 ```
 
-GitHub Actions 构建可独立运行的 dist 目录，改名为 FallenFlowerServer 后部署至 `/opt/FallenFlowerServer/`，通过 `systemctl` 管理。主机配置保存在 `/opt/FallenFlowerServer/.env`。[首次安装和部署](server/README.zh-CN.md)。
+GitHub Actions 编译 `dist/FallenFlowerServer` Linux x64 可执行程序，将 dist 目录改名为 FallenFlowerServer 后部署至 `/opt/FallenFlowerServer/`，通过 `systemctl` 管理。主机配置保存在 `/opt/FallenFlowerServer/.env`。[首次安装和部署](server/README.zh-CN.md)。
 
 [测试状态](docs/VERIFICATION.md) · [许可证](docs/LICENSE)
