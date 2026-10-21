@@ -4,14 +4,14 @@ Version 1.1.1 deliberately does **not** synchronize the complete object returned
 
 ## Network profile
 
-| Packet field | Source | Purpose |
-| --- | --- | --- |
-| `cloth[]` | `GetSave().Cloth` | Equipped remote clothing IDs, maximum 128 |
-| `customization{}` | `GetSave().CustomizationData` | Primitive appearance values only; bounded keys and values |
-| `progress.ProfileCounts.quests` | Number of `Quests` entries | Aggregate profile-card display |
-| `progress.ProfileCounts.playFlags` | Number of true `PlayFlag*` values | Aggregate profile-card display |
-| `progress.ProfileCounts.conditions` | Number of `ConditionSave` entries | Aggregate profile-card display |
-| `progress.ProfileCounts.contacts` | Length of `XContactData` | Aggregate profile-card display |
+| Packet field                        | Source                            | Purpose                                                   |
+| ----------------------------------- | --------------------------------- | --------------------------------------------------------- |
+| `cloth[]`                           | `GetSave().Cloth`                 | Equipped remote clothing IDs, maximum 128                 |
+| `customization{}`                   | `GetSave().CustomizationData`     | Primitive appearance values only; bounded keys and values |
+| `progress.ProfileCounts.quests`     | Number of `Quests` entries        | Aggregate profile-card display                            |
+| `progress.ProfileCounts.playFlags`  | Number of true `PlayFlag*` values | Aggregate profile-card display                            |
+| `progress.ProfileCounts.conditions` | Number of `ConditionSave` entries | Aggregate profile-card display                            |
+| `progress.ProfileCounts.contacts`   | Length of `XContactData`          | Aggregate profile-card display                            |
 
 The separate `playerLiveData` packet contains bounded live status, local day/time display and scene for remote UI. It is not written into another player's save. Public-room identity is replaced by the authenticated server connection, so clients cannot choose another member's owner ID or name.
 

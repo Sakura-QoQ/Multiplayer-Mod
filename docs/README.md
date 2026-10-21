@@ -1,16 +1,14 @@
-# Multiplayer documentation
+# 项目文档
 
-PlayerHostedMultiplayer uses a dedicated authority for public rooms and retains local direct play.
-Start with the root [README](../README.md) to install or use it.
+| 文档                                           | 内容                                        |
+| ---------------------------------------------- | ------------------------------------------- |
+| [架构](ARCHITECTURE.md)                        | 客户端/服务端职责、同步与存档边界           |
+| [开发](DEVELOPMENT.md)                         | 目录、artifacts、构建、格式与测试           |
+| [协议](PROTOCOL.md)                            | TCP 帧、请求响应和错误码                    |
+| [安全](SECURITY.md)                            | 输入限制、身份校验和传输边界                |
+| [验证](VERIFICATION.md)                        | 已完成检查与未验收项目                      |
+| [服务器部署](../server/README.zh-CN.md)        | GitHub 构建 dist、SSH 上传和 systemctl 运行 |
+| [玩家资料字段](PLAYER_PROFILE_FIELDS.zh-CN.md) | 允许同步的字段与原始标识符                  |
+| [许可证](LICENSE)                              | 正式许可文本；[中文参考](LICENSE.zh-CN)     |
 
-| Document | Audience | Purpose |
-| --- | --- | --- |
-| [Architecture](ARCHITECTURE.md) | Contributors | Public/direct paths, authority, save transaction and source ownership |
-| [Development](DEVELOPMENT.md) | Contributors | Build, install, validation and release workflow |
-| [API and error-code specification (简体中文)](PROTOCOL.zh-CN.md) | Contributors | TCP envelope, standard statuses and business-code ranges |
-| [Security](SECURITY.md) | Operators/contributors | Trust boundaries, controls, audit fixes and residual risk |
-| [Player profile fields](PLAYER_PROFILE_FIELDS.md) | Contributors | Explicit profile-data network allowlist |
-| [Verification report](VERIFICATION.md) | Testers | Current automated and real-game checks |
-| [Room server](../server/README.md) | Server administrators | Deploy, update, configure and troubleshoot the required Ubuntu relay |
-
-[简体中文文档索引](README.zh-CN.md)
+只保留当前说明，不保留历史审查、临时诊断或重复报告。

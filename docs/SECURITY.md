@@ -1,24 +1,13 @@
-# Security model and 1.0 review
+# 安全边界
 
-## Trust boundaries
+公开房间玩家不可信。服务器是逻辑 Peer 0，普通成员不能伪造房间控制包、名单、场景、日历或睡眠批准。服务器用连接认证的 Peer ID 和显示名覆盖玩家自报身份。
 
-- Public players are untrusted. The room server is logical peer `0` and is the only source of membership, roster, scene decisions and sleep approvals.
-- Save files remain local. Neither the bridge nor room server reads, redirects, uploads or stores them.
-- Public transport is plain TCP JSON, not confidential transport. Endpoint obfuscation is not authentication or TLS.
+TCP 帧上限 64 KiB；请求和显示文本受长度/字符校验，连接、发送队列、请求速率、未入房等待和 AFK 均有限制。Zod 校验协议字段、配置与日历提案；Pino 只记录运行元数据，不记录令牌、包体或玩家资料。管理令牌为空时关闭管理接口，启用时使用独立的 16–256 字符令牌。
 
-## Enforced controls
+协议为明文 TCP JSON，不提供 TLS 或传输保密。客户端内置端点混淆不能当作认证或保密措施。不要复用其他业务密码。
 
-- 64 KiB maximum frame, bounded strings/arrays/object keys, safe display text, bounded profile chunks and strict command/type allowlists.
-- Authenticated connection identity replaces client-claimed peer ID and name. Public clients may target only server authority and cannot forge control packets.
-- Global connection slots, 15-second unauthenticated join deadline, 120 requests/second per connection, five-second send timeout, inactivity/AFK cleanup and bounded client queues.
-- Player profiles expose only appearance and four aggregate counts. Full story, contacts, posts, photos, flags and save JSON are excluded.
-- GitHub Actions are pinned to immutable checkout commit SHAs. The server container runs non-root with a read-only filesystem, no Linux capabilities, `no-new-privileges` and a PID limit.
-- Source-pattern build policy gates have been removed; the source builder checks module and translation completeness.
+玩家存档和完整剧情、联系人、背包保留本地。网络仅发送远端显示需要的数据及汇总数量；共享日期通过原版回调推进，可能使个人限时剧情过期。
 
-## 1.0 audit fixes
+客户端桥以普通用户启动，不改注册表、不提权、不安装服务。游戏命令经 Player.log 专用标记传给桥，桥通过轮换 JSON 返回状态。Jint 沙箱限制使当前 Windows 桥仍有必要。
 
-The formal review removed server-control spoofing, cross-player direct-message bypass, unbounded unauthenticated connections, request flooding, stalled sends, unsafe rich-text/log names, oversized request IDs, complete-save profile disclosure, obsolete save-crypto code and two unsafe one-off reverse-engineering tools. Legacy public `worldTime` packets are ignored.
-
-## Residual limitations
-
-Plain TCP permits network observers or an on-path attacker to read or modify traffic. Use a private network or a TLS tunnel when transport confidentiality/integrity is required. The client contains its public endpoint and must not contain reusable secrets. Report suspected security issues privately to the project owner.
+生产服务以 deploy 用户运行，由 systemd 管理。配置位于 /opt/FallenFlowerServer/.env，不随代码覆盖。GitHub 构建完整 dist 并携带锁定的生产依赖；主机不编译、不安装开发依赖、不构建 Docker。SSH 使用固定 known_hosts 校验。成功部署后删除临时旧版，保留当前 dist。

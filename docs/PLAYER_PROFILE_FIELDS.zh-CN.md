@@ -4,14 +4,14 @@
 
 ## 网络资料白名单
 
-| 包字段 | 来源 | 用途 |
-| --- | --- | --- |
-| `cloth[]` | `GetSave().Cloth` | 远端当前服装 ID，最多 128 项 |
-| `customization{}` | `GetSave().CustomizationData` | 仅限有界的基础外观键值 |
-| `progress.ProfileCounts.quests` | `Quests` 项目数量 | 玩家资料卡聚合显示 |
-| `progress.ProfileCounts.playFlags` | 值为真的 `PlayFlag*` 数量 | 玩家资料卡聚合显示 |
-| `progress.ProfileCounts.conditions` | `ConditionSave` 项目数量 | 玩家资料卡聚合显示 |
-| `progress.ProfileCounts.contacts` | `XContactData` 长度 | 玩家资料卡聚合显示 |
+| 包字段                              | 来源                          | 用途                         |
+| ----------------------------------- | ----------------------------- | ---------------------------- |
+| `cloth[]`                           | `GetSave().Cloth`             | 远端当前服装 ID，最多 128 项 |
+| `customization{}`                   | `GetSave().CustomizationData` | 仅限有界的基础外观键值       |
+| `progress.ProfileCounts.quests`     | `Quests` 项目数量             | 玩家资料卡聚合显示           |
+| `progress.ProfileCounts.playFlags`  | 值为真的 `PlayFlag*` 数量     | 玩家资料卡聚合显示           |
+| `progress.ProfileCounts.conditions` | `ConditionSave` 项目数量      | 玩家资料卡聚合显示           |
+| `progress.ProfileCounts.contacts`   | `XContactData` 长度           | 玩家资料卡聚合显示           |
 
 独立的 `playerLiveData` 包只携带有界实时状态、本机日期/时段显示和场景，用于远端 UI，不写入其他玩家存档。公开房间会用认证连接覆盖玩家自报的 owner ID 和名字，客户端不能冒充其他成员。
 

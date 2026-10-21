@@ -1,37 +1,29 @@
-# Multiplayer 1.1.11
+# Fallen Flower Multiplayer
 
-Dedicated-room multiplayer Mod for **Fallen Flower**, with public rooms, local direct play, synchronized avatars and the game's native save workflow.
+公开房间与本地直连联机 Mod。当前客户端 v1.1.13，TypeScript 服务端 v1.2.0。
 
-[简体中文](docs/PROJECT.zh-CN.md) · [Documentation](docs/README.md) · [Protocol / 错误码](docs/PROTOCOL.zh-CN.md) · [Security](docs/SECURITY.md) · [Verification](docs/VERIFICATION.md) · [License](docs/LICENSE)
+## 玩家安装
 
-## Install
+用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.1.13-win-x64.zip`，启动后选择“联机”。安装包包含 Windows x64 桥，无需另装 Node.js 或 .NET。旧 PlayerHostedMultiplayer 入口应禁用，避免重复加载。
 
-1. Import `artifacts/Multiplayer-v1.1.11-win-x64.zip` with the game's Mod launcher.
-2. Start the game through the launcher and select **Multiplayer**.
-3. Enter a display name, open **Public servers**, and enter a listed room.
+房间统一日期、四个时段、场景和全员睡眠；原版详细时钟流速与个人存档保持本地。更晚的存档会推进房间日期，较早者通过原版接口追赶，可能使个人限时任务过期。版本差异仅提示，不阻止加入；共享日历需要成员统一更新 Mod。
 
-The package includes a self-contained Windows x64 bridge. It does not require Node.js, the .NET runtime, Visual Studio, an installer, elevation, or registry changes. Diagnostics are written to `Mods/Multiplayer/Logs/PlayerHostedMultiplayer.log` with bounded rotation.
+## 开发与部署
 
-## 1.0 behavior
+- `mod/`：客户端源码、Windows 桥和构建工具。
+- `server/`：独立 TypeScript/Node.js 服务端，无 .NET 或 Docker 依赖。
+- `artifacts/`：生成的客户端桥、打包暂存与安装 ZIP，不是源码。详见[目录说明](docs/DEVELOPMENT.md)。
+- `docs/`：[当前文档索引](docs/README.md)。
 
-- `public-1` is permanent. Additional rooms are created only when all joinable rooms are full; redundant empty rooms are reclaimed.
-- The server is logical peer `0`. Players receive positive IDs and cannot impersonate server control packets or other players.
-- The server coordinates membership, scenes and unanimous sleep only. It never owns or writes detailed game time; every client keeps the game's default time speed and native story transactions.
-- A one-player room needs only that real player to approve sleep. The server itself is never counted as a player.
-- Joining initializes the original loader, immediately calls the game's actual `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame before it can render. This bypasses only the hidden confirmation prompt; autosave, bed save, pause-menu save and quit continue to use the original game slot.
-- The bridge never creates, reads, redirects, encrypts or promotes `MPOnline`/`MPActive`. Legacy files are left untouched for manual recovery.
-- Only remote-display data is sent: appearance, live state and aggregate progress counts. Full save/story/contact data is never broadcast or stored by the room server.
-- The phone is bounded to 80% of the screen height and includes Home, Messages and online Contacts pages.
+服务器需要 Node.js >=22.18：
 
-Public transport is length-prefixed JSON over plain TCP, not TLS. The embedded endpoint is obfuscated only to prevent casual editing and is not a security boundary.
-
-## Build
-
-```powershell
-./tools/Build-Mod.ps1 -Install
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
+```bash
+cd server
+npm ci
+npm run build
+npm start
 ```
 
-Server deployment is documented in [server/README.md](server/README.md); no server ZIP is produced. Development details are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+GitHub Actions 构建可独立运行的 dist 目录，改名为 FallenFlowerServer 后部署至 `/opt/FallenFlowerServer/`，通过 `systemctl` 管理。主机配置保存在 `/opt/FallenFlowerServer/.env`。[首次安装和部署](server/README.zh-CN.md)。
 
-Version differences only show an advisory; they do not disable rooms or block entry. If public rooms cannot load, the room page displays the connection error. When upgrading from PlayerHostedMultiplayer, remove/disable the old entry and import the Multiplayer package once.
+[测试状态](docs/VERIFICATION.md) · [许可证](docs/LICENSE)

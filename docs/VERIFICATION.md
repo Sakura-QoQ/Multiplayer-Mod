@@ -1,50 +1,18 @@
-# Verification — 1.1.11
+# 验证状态
 
-## Earlier automated results
+当前为 TypeScript 服务端 v1.2.0、客户端 Mod v1.1.13。服务端位于 server/，客户端位于 mod/。
 
-The following records predate this menu refactor (2026-09-28); the server/network suite was not rerun for this UI-only change.
+## 已验证
 
-| Check | Result |
-| --- | --- |
-| `tools/Build-Mod.ps1 -Install` | PASS; NativeAOT player bridge packaged and installed |
-| Room server Release build | PASS; 0 warnings, 0 errors |
-| Multiplayer bridge Release build | PASS; 0 warnings, 0 errors |
-| Bridge host Release build | PASS; 0 warnings, 0 errors |
-| Direct TCP `MultiplayerBridge.SmokeTest` | PASS |
-| Dedicated room relay end-to-end test | PASS |
-| Runtime log self-test | PASS |
-| `git diff --check` and source/translation completeness checks | PASS |
+- 服务端 11 项真实 TCP 集成测试：握手、分片粘包、房间扩容回收、身份校验、场景/日历 CAS、全员睡眠、管理鉴权、输入限制、限流和超时。
+- npm 启动与 ping/pong；独立 dist 发布目录包含编译 JS、版本信息、生产 npm 依赖和运行 package.json。
+- 部署脚本的 systemctl 替身测试覆盖 dist 切换、重启/健康检查失败恢复、首次安装失败、上传不完整时保留现有程序、临时文件清理与 .env 保留。
+- 客户端菜单、会话退出与切图、共享日历、房间列表回归测试通过。
+- Windows NativeAOT 桥与 TypeScript 服务端中继兼容测试通过。
+- 客户端构建和打包通过；玩家 ZIP 排除源码、工具、node_modules 和服务端文件。
 
-The room-relay test covers the shared server/Mod version handshake and advisory mismatched-version acceptance, permanent rooms, peer-ID reuse, bidirectional relay, solo and unanimous sleep, client/AFK timeouts, request throttling, server-authority spoof rejection, public profile-chunk rejection, and the absence of server `worldTime` broadcasts.
+## 尚未验收
 
-The bed integration now preserves both native `ButtonClickedEvent` instances. The original buttons keep their layout and interactable state while independent consensus events temporarily handle clicks; approval invokes the preserved native callback so the current game build owns day rollover, quest flags, interaction refresh and window cleanup. Relay draining is capped at 80 requests/second, below the server's 120 requests/second limit.
+此次修改未推送或部署到线上。Linux 部署控制流程使用隔离临时目录和模拟 systemctl；不证明真实 SSH 权限、systemd unit 或公网端口已经配置成功。
 
-## Current build checks
-
-Only source-manifest completeness and translation keys are checked; source-pattern policy gates were removed.
-
-## Save behavior inspected
-
-The runtime initializes the original loader, invokes `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame without waiting for the hidden confirmation prompt. It does not create a new-game state, enumerate save files or expose bridge save commands. Automatic, bed and quit saving stay in the game's native workflow. Legacy `MPOnline`/`MPActive` files are not touched.
-
-## Security regression
-
-Malicious ordinary clients cannot target another public peer directly, forge server-only packet types, forge identity in a profile chunk, inject control/rich-text characters into display fields, exceed the connection request budget indefinitely, or hold unauthenticated/send operations open without a deadline. Network profiles contain an explicit appearance/aggregate-count allowlist instead of complete save JSON.
-
-## Real-game acceptance checklist
-
-The generated package is installed at `D:\FallenFlower\Mods\Multiplayer`. Before distributing broadly, test one current game build for: join without a visible save picker; clothing/tasks/interactions retained after load; bed and automatic saves; solo and two-player sleep; class completion without control lock; clean exit to menu/desktop; bounded phone layout and Contacts. These Unity/IL2CPP behaviors cannot be proven by the headless .NET suite alone.
-
-## Menu lifecycle fix
-
-Main-menu buttons are created on the next frame. Pause buttons are resolved within the current window. The UI loop uses the persistent canvas runner. `node tools/Test-MenuLifecycle.mjs` covers window recreation, reopen reuse, layout and loop ownership. Real-game visual acceptance is still required for first launch, ESC after loading, and returning to the menu then re-entering.
-
-Current change passed: offline build/install, menu lifecycle mock tests, generated-script syntax, and `git diff --check`.
-
-## Cold-start missing menu: confirmed cause
-
-Real-game logs showed session cleanup in `MainMenu.Awake` reading an absent `Bridge/state.<channel>.<slot>.json`. The host FileNotFoundException escaped JavaScript catch and aborted UI creation. Snapshot reads now use the game-provided `ModFileExists` and return not-ready for absent files. Real-game verification showed the entry and version label, and an open multiplayer panel. Cold-start missing-file regression passed. The public endpoint refused connections during verification; online room listing was not verified.
-
-## 1.1.11 rooms and advisory versions
-
-Client regressions passed: mismatched versions show rooms, allow clicks, submit entry and load the save while warning once. TCP relay tests accepted both older and newer versions. The production probe returned ECONNREFUSED before protocol negotiation; production recovery must still be verified after deployment. Deployment now builds before replacing the running container.
+未完成加载真实存档后的双实例日期、个人剧情和远端模型渲染验收。共享日期通过原版 AddDay/SetTime 推进，可能使个人限时任务过期；服务器不合并个人剧情或存档。

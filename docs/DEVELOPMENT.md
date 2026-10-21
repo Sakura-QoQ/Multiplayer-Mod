@@ -1,74 +1,63 @@
-# Development guide
+# 开发与构建
 
-This repository produces a self-contained Windows player Mod and a separately deployed Linux room server. Player computers need only the generated ZIP and the game Mod launcher.
+## 项目目录
 
-## Prerequisites
+| 目录                                             | 用途                                                 |
+| ------------------------------------------------ | ---------------------------------------------------- |
+| server/src                                       | TypeScript 房间服务器                                |
+| server/tests、server/tools                       | 服务端测试、构建及部署工具                           |
+| mod/src/GameMod                                  | 游戏 Jint 脚本源码                                   |
+| mod/src/MultiplayerBridge、MultiplayerBridgeHost | 客户端网络桥与 Windows 进程宿主                      |
+| mod/src/MultiplayerBridge.SmokeTest、mod/tools   | 客户端测试和构建工具                                 |
+| artifacts                                        | 本地生成的客户端桥接程序、打包暂存目录和当前安装 ZIP |
 
-| Task | Required software |
-| --- | --- |
-| Build the Windows bridge | .NET 8 SDK and Visual Studio x64 C++ tools for NativeAOT |
-| Install into a development game | A local Fallen Flower installation at the repository's expected parent layout |
-| Build the room server | Docker Engine with the Compose plugin, or .NET 8 SDK |
-| Use the player package | No developer software; only the game and Mod launcher |
+`artifacts/bridge/win-x64/` 供构建脚本复用；`artifacts/package/` 是打包暂存；`artifacts/Multiplayer-v1.1.13-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
 
-Node.js and `tsc` are not used. UcModLauncher executes TypeScript-style Jint source, and `tools/Build-Mod.ps1` concatenates it as text.
+## 服务器
 
-Neither the game script nor the bridge uses the Windows registry or Unity's registry-backed preference API. Commands travel through marked Unity `Player.log` lines; responses, events and current session identity use rotating JSON state files under the installed Mod's `Bridge` directory. The runtime does not elevate, install a service, run a package manager or download dependencies.
-
-The bridge filters ordinary `[PlayerHostedMultiplayer]` entries into `Logs/PlayerHostedMultiplayer.log` under the installed Mod. File output stays outside the Unity game thread; IPC marker lines are excluded. The current log rotates at 4 MiB and keeps one previous file.
-
-## Build the player Mod
-
-```powershell
-./tools/Build-Mod.ps1 -Install
-```
-
-The script reads the version from `mod/info.json`, generates `mod/main.ts`, copies the six runtime language packs, publishes a self-contained NativeAOT bridge, creates `artifacts/Multiplayer-v<version>-win-x64.zip`, and optionally installs the same payload into `Mods/Multiplayer`.
-
-After dependencies have been restored once, an offline build can use:
-
-```powershell
-./tools/Build-Mod.ps1 -Install -NoRestore
-```
-
-Edit `src/GameMod/`, not generated `mod/main.ts` or `mod/i18n`. Add every new module to `src/GameMod/source-order.json` after its dependencies. The source builder checks module completeness and translation keys. Source-pattern policy gates have been removed. Run `node tools/Test-MenuLifecycle.mjs` for menu lifecycle regressions.
-
-## Verify behavior
-
-Build and run the runtime-log self-test:
-
-```powershell
-./tools/Build-Mod.ps1 -SkipPackage -NoRestore
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe --self-test-runtime-log
-```
-
-To test the dedicated-room adapter, run a room server on a test port and then execute:
-
-```powershell
-./artifacts/bridge/win-x64/MultiplayerBridgeHost.exe `
-  --self-test-room-relay --address 127.0.0.1 --port 28783
-```
-
-This first verifies that the server never emits detailed `worldTime` and approves one-player “sleep until tomorrow”, then creates a second ordinary client and verifies coordinator peer `0`, bidirectional relay and unanimous sleep approval. Game-level evidence and limits are listed in [VERIFICATION.md](VERIFICATION.md).
-
-When changing save code, verify that room entry initializes the native loader, invokes `LoadSaveWindow.ExecuteLoad("AutoSave")`, and hides the picker in the same frame. Do not call `Load("AutoSave")`: in the current game it only opens a confirmation prompt. The Mod must not call `StartGame`/`GameManager.LoadGame`; bed saving must preserve `GameManager.SaveName`, and bridge save commands or disk redirection must not return.
-
-## Build the server
+需要 Node.js >=22.18、npm。
 
 ```bash
 cd server
-cp .env.example .env
-sudo docker compose up -d --build
-sudo docker compose ps
-sudo docker compose logs --tail=100 room-server
+npm ci
+npm test
+npm run test:release
+npm run build:release
 ```
 
-The Docker build context is the repository root because the image copies `src/MultiplayerRoomServer/` and the license files. See [server/README.md](../server/README.md) for updates, firewall configuration and troubleshooting.
+`npm run build` 编译源码；`npm run build:release` 额外把运行 package.json、锁文件、许可证和生产依赖放进 dist，使它成为可直接上传的完整目录。目标机不需要 TypeScript、.NET 或构建工具。
 
-`src/MultiplayerBridgeHost/PublicServerEndpoint.cs` contains an encrypted production endpoint. Changing it requires a new AES-GCM nonce, tag and ciphertext. Never put the plaintext endpoint in `mod/config.json`, GameMod source, UI strings or player documentation. Remember that endpoint obfuscation is not TLS.
+[运行和部署](../server/README.zh-CN.md)
 
-## Release contents
+## 客户端
 
-The player ZIP contains generated Mod files, six language packs, English/Chinese player instructions and licenses, English/Chinese profile maps, and one self-contained Windows executable. It excludes source, tests, SDKs, build tools and the Linux server.
+Windows 完整构建需要 .NET 8 SDK 和 Visual Studio x64 C++ NativeAOT 工具。玩家只需要安装包与游戏 Mod 启动器，无需安装 Node 或 .NET。
 
-The server deployment requires `server/`, `src/MultiplayerRoomServer/`, `docs/LICENSE` and `docs/LICENSE.zh-CN`. It does not require the game, player saves, Mod script or Windows toolchain.
+```powershell
+./mod/tools/Build-Mod.ps1 -Install
+```
+
+仅修改游戏脚本且已有当前桥接产物时，可跳过编译。构建脚本核对桥接源码指纹，源码变化或缺少构建记录时会拒绝复用，必须先执行完整构建：
+
+```powershell
+./mod/tools/Build-Mod.ps1 -Install -SkipBridgeBuild
+```
+
+编辑 mod/src/GameMod，新增脚本需加入 source-order.json。构建脚本合并生成 mod/main.ts，并复制语言包和素材；不要手改生成文件。Jint 不解析 Node import，客户端游戏脚本不能直接使用 npm 网络库。
+
+## 格式与测试
+
+两端有独立 package.json 和锁文件，npm 仅用于开发。EditorConfig/Git 属性统一 UTF-8、LF 与空格；Prettier 跳过生成文件。
+
+```bash
+npm --prefix server ci
+npm --prefix server run format:check
+npm --prefix server test
+npm --prefix mod ci
+npm --prefix mod run format:check
+npm --prefix mod test
+```
+
+把 format:check 改为 format 可写入格式。C# 使用 `dotnet format whitespace PROJECT.csproj --no-restore`，加 `--verify-no-changes` 仅检查。
+
+存档必须沿用游戏原版 AutoSave。进入房间调用 LoadSaveWindow.ExecuteLoad；不要重新引入 MPOnline/MPActive 磁盘重定向、全存档广播或拦截原版 AddDay/SetTime 事务。
