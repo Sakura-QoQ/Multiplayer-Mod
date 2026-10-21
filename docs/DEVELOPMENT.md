@@ -54,7 +54,7 @@ Windows 完整构建需要 .NET 8 SDK 和 Visual Studio x64 C++ NativeAOT 工具
 | network                         | 传输、日期、场景与睡眠同步           |
 | player/avatar、state            | 模型、外观、骨骼、位置与动作         |
 | player/profile、info            | 有界资料传输与展示                   |
-| save                            | 原版 AutoSave 读写生命周期与床边保存 |
+| save                            | 线上角色恢复屏障与床边快照请求       |
 | ui/components、pages、i18n      | UI 组件、页面与六种语言包            |
 | hooks、diagnostics              | 原版 Hook 与显式测试通道诊断         |
 
@@ -75,7 +75,7 @@ npm --prefix mod test
 
 把 format:check 改为 format 可写入格式。C# 使用 `dotnet format whitespace PROJECT.csproj --no-restore`，加 `--verify-no-changes` 仅检查。
 
-存档必须沿用游戏原版 AutoSave。进入房间调用 LoadSaveWindow.ExecuteLoad；不要重新引入 MPOnline/MPActive 磁盘重定向、全存档广播或拦截原版 AddDay/SetTime 事务。
+当前源码的联机存档使用 PostgreSQL 实验适配器，不读取本地槽位；无适配器拒绝进入。禁止把凭据和完整快照写入日志命令、广播给房间或回退本地存档。运行步骤与未完成边界见 ONLINE_STORAGE.md。
 
 公网双客户端测试使用已安装的 Windows 桥，只在空公开房间执行；通过实际日志 IPC 和状态文件连接，不访问存档。它独立于离线测试，不加入默认 npm test：
 

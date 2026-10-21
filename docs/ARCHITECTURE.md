@@ -1,6 +1,6 @@
 # 架构说明
 
-项目包含两条网络路径：生产使用 Ubuntu 权威/中继的公开房间，同时保留本地直连“建立/加入”。两者都使用随包 Windows 桥接程序，不向游戏注入 DLL。
+项目包含两条网络路径：生产使用 Ubuntu 权威/中继的公开房间，同时保留本地直连“建立/加入”。公开网络使用随包 Windows 桥接程序。当前源码增加了 PostgreSQL 无盘存储实验，需开发用 Frida 进程内适配器；已发布玩家 ZIP 仍为先前版本。
 
 ## 运行组件
 
@@ -12,8 +12,9 @@ flowchart LR
     BridgeB -->|轮换状态 JSON| GameB
     BridgeA <-->|明文分帧 TCP| Server[Ubuntu 房间权威服务]
     BridgeB <-->|明文分帧 TCP| Server
-    GameA --> SaveA[原版默认 AutoSave]
-    GameB --> SaveB[原版默认 AutoSave]
+    GameA <-->|实验内存适配| Adapter[开发存档适配器]
+    Adapter <-->|JWT HTTP API| Storage[Fastify 存档 API]
+    Storage --> DB[(PostgreSQL)]
 ```
 
 - `mod/src/GameMod/`：Unity UI、Hook、存档生命周期、线上时间显示和玩家/资料同步。
@@ -57,9 +58,9 @@ flowchart LR
 
 ## 存档行为
 
-进入房间后，Mod 在同一帧调用原版读取初始化器、通过 Unity 消息调用游戏真正执行读档的 `LoadSaveWindow.ExecuteLoad("AutoSave")`，然后在 Canvas 渲染前立即隐藏选择框。新版游戏的 `Load` 只会打开确认框；等待已经隐藏的确认框会导致读档永远不开始。完整事务仍由原版读取器独占，Mod 不自行调用 `StartGame` 或 `GameManager.LoadGame`；回调稳定前不开放同步或保存。自动保存、床边保存、暂停菜单和退出均沿用原版设置的 `GameManager.SaveName`。桥接程序只负责网络。
+当前源码删除联机 AutoSave/LoadSaveWindow 读取入口。线上角色由经过认证的 PostgreSQL 存档恢复；适配器未准备时拒绝进入，不能沿用已加载的本地槽位。原版内存收集与组件恢复顺序仍由游戏完成；开发适配器拦截 LoadGame/SaveGame 的磁盘边界。床边保存只提示排队，数据库提交由实验启动器确认。
 
-旧版本创建的 `MPOnline`/`MPActive` 不会自动删除，便于人工恢复，但当前版本不会列出、读取或写入。联机与单机对原版默认槽位的修改会彼此可见，这是采用原版存档的预期行为。
+这条路径目前属于开发实验，不在已发布玩家 ZIP 内。照片字节恢复、复杂剧情与双客户端验收尚未完成。原版单机存档保留，工具不导入、覆盖或删除玩家文件。具体限制和运行命令见 [线上存储实验](ONLINE_STORAGE.md)。
 
 ## 源码合并
 
@@ -67,7 +68,9 @@ UcModLauncher 只加载一个 Jint 脚本，不能解析 TypeScript 模块。`mo
 
 服务端使用 TypeScript、Zod、Commander 和 Pino，GitHub 通过 esbuild 与 Node.js SEA 生成 Linux x64 单文件程序。目标机无需 Node.js、npm 或 .NET；Windows NativeAOT 工具链仅用于构建客户端桥。
 
-服务端接口与传输解耦：api/ 管理路由和格式，middleware/ 提供可组合的通用处理，services/ 实现业务。Connection 只拆帧、写帧与限制发送队列；RoomServer 管理连接和超时。请求链保持同步，避免并发提案跨 await 交错。接口源码在发布时与依赖一起封装到 Linux 可执行程序，不以子目录部署。
+持久化 HTTP API 独立使用 Fastify 异步错误边界、@fastify/jwt、Zod 和 Drizzle/pg。用户名/密码注册，UUID 用户标识和唯一用户名，JWT 及账号版本验证；无持久会话/房间成员表。
+
+原有实时 TCP 服务端接口与传输解耦：api/ 管理路由和格式，middleware/ 提供可组合的通用处理，services/ 实现业务。Connection 只拆帧、写帧与限制发送队列；RoomServer 管理连接和超时。请求链保持同步，避免并发提案跨 await 交错。接口源码在发布时与依赖一起封装到 Linux 可执行程序，不以子目录部署。
 
 ## 安全边界
 

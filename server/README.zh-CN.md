@@ -137,6 +137,12 @@ sudo journalctl -u fallen-flower-room.service -n 100 --no-pager
 | FF_ROOM_AFK_TIMEOUT_SECONDS    | 300     | 3–3600                         |
 | FF_ROOM_ADMIN_TOKEN            | 空      | 空值关闭管理，否则 16–256 字符 |
 
-.env 使用环境变量赋值，不写 shell 命令或 export。配置不随部署覆盖。版本由 version.json 管理，当前 server v1.2.0 对应 Mod v1.1.13。
+.env 使用环境变量赋值，不写 shell 命令或 export。只有 .env 不随部署覆盖；config/database.json 随每次部署更新并参与失败回退。版本由 version.json 管理，当前 server v1.2.0 对应 Mod v1.1.13。
 
 所有房间和日历只在内存中，重启会断开玩家并清空房间状态。共享日期通过原版 AddDay/SetTime 推进，可能使个人限时任务过期；详细钟点流速与个人剧情保留本地。传输仍是明文 TCP。
+
+## PostgreSQL storage experiment
+
+[Local WSL setup, JWT API and diskless client experiment](../docs/ONLINE_STORAGE.md). The complete config/database.json is tracked and automatically deployed with the executable; no database configuration Secrets are used. The managed config directory is replaced and rolled back with the runtime (directory 700, file 600), while .env is preserved. Database initialization requires an explicit --migrate; ordinary startup/build/deployment never migrates tables.
+
+数据库配置直接修改 server/config/database.json。GitHub 构建后验证并复制到发布目录，部署目标为 /opt/FallenFlowerServer/config/database.json。不要在 .env 中把 FF_DATABASE_CONFIG 指向其他路径，否则进程会使用另一份配置。仓库可读者能够看到该文件的连接凭据；客户端包和公开文档同步清单不包含此文件。

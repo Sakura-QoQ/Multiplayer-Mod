@@ -16,3 +16,9 @@ GitHub Actions builds/tests this directory on Ubuntu, checks real TCP ping/pong,
 The systemd service is `fallen-flower-room.service`. Create it manually using the deployment account (the setup example uses ubuntu). First-time uploads are made visible at the application root before the missing configuration/unit is reported; existing deployments are preserved when prerequisites are missing. [Initial setup, SSH configuration and commands](README.zh-CN.md).
 
 Rooms and calendars are in memory and reset on restart. Native calendar catch-up can expire personal timed quests; saves stay local. Transport remains plaintext framed TCP.
+
+## PostgreSQL storage experiment
+
+[Local WSL setup, JWT API and diskless client experiment](../docs/ONLINE_STORAGE.md). The complete config/database.json is tracked and automatically deployed with the executable; no database configuration Secrets are used. The managed config directory is replaced and rolled back with the runtime (directory 700, file 600), while .env is preserved. Database initialization requires an explicit --migrate; ordinary startup/build/deployment never migrates tables.
+
+数据库配置直接修改 server/config/database.json。GitHub 构建后验证并复制到发布目录，部署目标为 /opt/FallenFlowerServer/config/database.json。不要在 .env 中把 FF_DATABASE_CONFIG 指向其他路径，否则进程会使用另一份配置。仓库可读者能够看到该文件的连接凭据；客户端包和公开文档同步清单不包含此文件。
