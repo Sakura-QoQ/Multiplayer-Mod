@@ -11,7 +11,7 @@
 | mod/src/MultiplayerBridge.SmokeTest、mod/tools   | 客户端测试和构建工具                 |
 | artifacts                                        | 可复用的客户端桥接程序和当前安装 ZIP |
 
-`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.3-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
+`artifacts/bridge/win-x64/` 供构建脚本复用；打包时临时创建 `artifacts/package/`，结束后自动删除；`artifacts/Multiplayer-v1.2.4-win-x64.zip` 供玩家安装。均可重新构建。删除 bridge 后需要完整 Windows 工具链才能重建，不能再使用 SkipBridgeBuild。服务器发布物位于 `server/dist/`，不使用 artifacts 部署。
 
 ## 服务器
 
@@ -39,10 +39,18 @@ python -m venv artifacts/online-launcher-build/env
 ./mod/tools/Build-Mod.ps1 -Install
 ```
 
-仅修改游戏脚本且已有当前桥接产物时，可跳过编译。构建脚本核对桥接源码指纹，源码变化或缺少构建记录时会拒绝复用，必须先执行完整构建：
+完整构建先清理桥接中间文件，再重新发布。仅修改游戏脚本且已有当前桥接产物时，可跳过编译。构建脚本同时核对桥接源码指纹和 EXE 的 SHA256；源码、二进制变化或缺少任一构建记录时会拒绝复用，必须先执行完整构建：
 
 ```powershell
 ./mod/tools/Build-Mod.ps1 -Install -SkipBridgeBuild
+```
+
+启动器在桥接构建完成后生成，内嵌本包桥接文件的 SHA256，启动前校验实际文件，拒绝缺失或被替换的桥接程序。该校验用于包内一致性，不等同于发布者签名。
+
+发布前在启用 Defender 实时防护及行为监控的 Windows 开发机运行下列检查。`Server` 必须指向本机隔离实验库；测试注册随机账号并启动实际游戏，不使用线上存档。任何扫描、包校验、实际游戏测试失败或新增检测均应停止发布，不允许通过关闭防护或增加排除项绕过：
+
+```powershell
+./mod/tools/Test-DefenderRelease.ps1 -Game D:/FallenFlower/FallenFlower.exe -Server http://127.0.0.1:27779
 ```
 
 编辑 mod/src/GameMod，新增脚本需加入 source-order.json。构建脚本合并生成 mod/main.ts，并复制语言包和素材；不要手改生成文件。Jint 不解析 Node import，客户端游戏脚本不能直接使用 npm 网络库。
