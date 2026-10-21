@@ -1,12 +1,14 @@
 # Fallen Flower Multiplayer
 
-公开房间与本地直连联机 Mod。当前客户端 v1.1.13，TypeScript 服务端 v1.2.0。
+公开房间联机与线上存档实验 Mod。当前客户端 v1.2.0，TypeScript 服务端 v1.2.0。
 
 ## 玩家安装
 
-用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.1.13-win-x64.zip`，启动后选择“联机”。安装包包含 Windows x64 桥，无需另装 Node.js 或 .NET。旧 PlayerHostedMultiplayer 入口应禁用，避免重复加载。
+用游戏 Mod 启动器导入 `artifacts/Multiplayer-v1.2.0-win-x64.zip`，然后运行游戏目录中的 `Mods/Multiplayer/Start-Online.cmd`。游戏启动后选择“联机”，登录或注册后选择房间。安装包包含自包含 Windows x64 线上启动器和网络桥，无需另装 Python、Frida、Node.js 或 .NET。旧 PlayerHostedMultiplayer 入口应禁用，避免重复加载。
 
-房间统一日期、四个时段、场景和全员睡眠；原版详细时钟流速与个人存档保持本地。更晚的存档会推进房间日期，较早者通过原版接口追赶，可能使个人限时任务过期。版本差异仅提示，不阻止加入；共享日历需要成员统一更新 Mod。
+角色从服务器数据库加载，不导入本机旧存档；账号和存档通过 HTTPS 访问 `13.40.7.1:27777`，与原房间 TCP 共用端口。必须通过随包线上启动器启动，普通游戏启动器不会启动存档适配器。
+
+当前为实验玩家包：照片恢复、复杂剧情与双游戏实例可玩性尚未完整验收。房间仍采用旧的共享绝对日期/时段规则，尚未完成“共享时段、个人天数独立”；日历追赶可能影响限时剧情。详见[实验说明](docs/ONLINE_STORAGE.md)。
 
 ## 开发与部署
 

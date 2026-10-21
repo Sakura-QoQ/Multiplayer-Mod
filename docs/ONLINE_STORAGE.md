@@ -1,6 +1,6 @@
 # 本机 WSL PostgreSQL 线上存储实验
 
-客户端仍为开发实验，未替换 GitHub 上已发布的玩家安装包。PostgreSQL 后端已经部署；直连 IP 的 TLS 与房间 TCP 已共用公网 27777，并通过线上健康与证书验证。实验期间数据库是角色的唯一持久来源，不导入本机旧存档。原版单机文件保留。
+客户端 v1.2.0 为线上存档实验玩家包，随本次提交提供自包含 Windows x64 安装 ZIP；公开发布结果以 GitHub Actions 为准。PostgreSQL 后端已经部署；直连 IP 的 TLS 与房间 TCP 已共用公网 27777，并通过线上健康与证书验证。实验期间数据库是角色的唯一持久来源，不导入本机旧存档。原版单机文件保留。
 
 ## 数据库与配置
 
@@ -62,7 +62,7 @@ users 长期保存，没有每日清理或登录超时自动删除；player_save
 
 ## 游戏实验
 
-开发工具使用本机 Frida Python SDK 和 Python cryptography；它们不进入普通玩家 ZIP。账号地址文件采用 AES-GCM 混淆，仅用于封装地址；密码传输的保密性来自 TLS。自动往返测试创建随机实验账号，不使用或导入玩家已有存档：
+开发工具使用本机 Frida Python SDK 和 Python cryptography；自包含实验玩家包已内嵌这些运行时，玩家无需单独安装。账号地址文件采用 AES-GCM 混淆，仅用于封装地址；密码传输的保密性来自 TLS。自动往返测试创建随机实验账号，不使用或导入玩家已有存档：
 
 ```powershell
 python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.exe --frida-path D:/FallenFlower/.tmp/reverse-libs
@@ -81,7 +81,7 @@ python mod/tools/Experiment-OnlineSave.py --game D:/FallenFlower/FallenFlower.ex
 
 交互模式每 30 秒提交快照，并处理原版自动保存/床边保存发出的内存快照请求；控制台只在数据库提交后显示新 revision。冲突或数据库失败会终止实验进程，绝不回退本地存档。最后一次成功提交之后的未提交进度可能丢失。账号凭据仅保留在启动器内存，JWT 到期前重新登录。
 
-游戏内首先显示登录/注册页，登录成功后进入房间选择；密码输入为遮罩，取消或提交后清理输入。密码与 JWT 只留在输入控件和实验启动器会话内存，不经过 Player.log 或桥接日志。启动器通过临时 Mod 加载计划启用当前 Mod，不修改原加载计划。当前源码 Mod 必须与实验适配器配合使用；已在本机安装实验脚本，仓库 artifacts 玩家 ZIP 仍是此前发布版。账号 JWT 当前保护存档 API；旧 TCP 房间协议尚未绑定 JWT。
+游戏内首先显示登录/注册页，登录成功后进入房间选择；密码输入为遮罩，取消或提交后清理输入。密码与 JWT 只留在输入控件和实验启动器会话内存，不经过 Player.log 或桥接日志。启动器通过临时 Mod 加载计划启用当前 Mod，不修改原加载计划。当前源码 Mod 必须与实验适配器配合使用；已在本机安装实验脚本，artifacts/Multiplayer-v1.2.0-win-x64.zip 包含自包含适配器启动器，安装后通过 Mods/Multiplayer/Start-Online.cmd 进入；普通游戏启动器不会自动启动该适配器。账号 JWT 当前保护存档 API；旧 TCP 房间协议尚未绑定 JWT。
 
 照片的数据库表已建立，但图片传输/内存纹理恢复尚未实现；交互模式拒绝恢复包含 Photo 数据的角色。新角色和空剧情集合的往返通过不等于全部剧情、照片和双客户端验收通过。房间共享绝对 day 的旧同步协议也还未迁移，当前不要用此实验宣称独立天数多人联机已完成。
 

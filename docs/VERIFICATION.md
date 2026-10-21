@@ -1,6 +1,6 @@
 # 验证状态
 
-当前客户端 v1.1.13，TypeScript 服务端 v1.2.0。以下结果截至 2026-10-21；网络通信通过不等于完整游戏体验已验收。
+当前客户端 v1.2.0，TypeScript 服务端 v1.2.0。以下结果截至 2026-10-21；网络通信通过不等于完整游戏体验已验收。
 
 ## 已验证
 
@@ -34,7 +34,7 @@
 
 本机 WSL PostgreSQL 18 通过真实数据库测试：六表 UUID 主键、用户名唯一、最小用户名/密码注册、错误密码、过期/无效 JWT、登录/注销使旧令牌失效、本人存档隔离、并发 CAS 冲突与重新连接后持久化。测试数据在独立随机 schema 内完成并清理。
 
-两个独立无图形游戏进程通过新角色创建、HTTP 保存到 PostgreSQL、第二进程恢复；将服务器快照个人天数改为 17 后检查恢复值，比较外观/场景/剧情集合。监控没有 .save 打开，原存档目录内容哈希未改变。只证明此新角色实验链路；不能作为复杂剧情、照片或双客户端可玩性验收。当前源码禁止没有实验适配器的联机本地槽位回退。PostgreSQL 后端已部署；登录 UI 源码已上传，直连 IP 的 TLS 后端已部署；普通玩家 ZIP 尚未更新。
+两个独立无图形游戏进程通过新角色创建、HTTP 保存到 PostgreSQL、第二进程恢复；将服务器快照个人天数改为 17 后检查恢复值，比较外观/场景/剧情集合。监控没有 .save 打开，原存档目录内容哈希未改变。只证明此新角色实验链路；不能作为复杂剧情、照片或双客户端可玩性验收。当前源码禁止没有实验适配器的联机本地槽位回退。PostgreSQL 后端已部署；登录 UI 源码已上传，直连 IP 的 TLS 后端已部署；v1.2.0 玩家 ZIP 已生成并随本次提交提供。
 
 聊天保留测试：连接默认 UTC；将会话时区改为 Pacific/Honolulu 后，仍只删除 UTC 零点之前的消息，保留零点边界与当天消息；重复清理幂等，旧 users、player_saves、会话成员与 next_sequence 保持不变。
 
@@ -44,4 +44,12 @@
 
 此端到端测试使用本机 TLS 代理、真实账号/存档 API 和 WSL PostgreSQL；其后已完成公网 27777 的证书验证、PostgreSQL 健康、未登录存档请求返回 401 及原始 TCP ping/pong 验证。另有 Fastify HTTPS 与原始 TCP 共用一个监听端口的测试，覆盖同时发起 HTTPS 请求与分片 TCP ping、存档接口未登录返回 401、IP 证书验证、错误私钥拒绝和无可信证书时连接失败；此传输测试的数据库为替身，不作为数据库验收。UI 自动化在无图形模式执行，尚无可视布局截图验收。
 
-线上部署：[GitHub Actions](https://github.com/Sakura-QoQ/Multiplayer-Mod-Dev/actions/runs/39655902990) 成功，服务端提交 6cabb42。账号 UI 仍需要实验启动器；公开玩家包维持 v1.1.13。
+线上部署：[GitHub Actions](https://github.com/Sakura-QoQ/Multiplayer-Mod-Dev/actions/runs/39655902990) 成功，服务端提交 6cabb42。账号 UI 需要线上启动器，v1.2.0 玩家 ZIP 已包含该自包含程序。
+
+## v1.2.0 实验玩家包
+
+已在本机生成 artifacts/Multiplayer-v1.2.0-win-x64.zip，包含自包含 FallenFlowerOnline.exe、原网络桥、登录 UI、证书及依赖许可证。无需玩家安装 Python、Frida、Node 或 .NET；安装后执行 Mods/Multiplayer/Start-Online.cmd。本次提交提供此 ZIP，公开发布状态以 GitHub Actions 为准。
+
+实际运行打包的 Windows 启动器，使用 WSL 实验库完成两进程注册、错误密码重试、重新登录与角色恢复；验证原生密码遮罩、游戏日志无密码/JWT、零本地 .save 打开、原存档目录哈希不变。原网络桥源码未变，构建指纹校验后复用。ZIP 与当前脚本、语言、证书和二进制逐一比对；解出启动器后清空 Python/Conda 环境、仅保留 Windows 系统 PATH，独立运行时检查通过。
+
+这些结果仍不代表照片、复杂剧情及独立个人天数多人规则已经验收。
