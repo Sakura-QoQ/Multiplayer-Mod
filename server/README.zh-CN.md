@@ -24,7 +24,7 @@ main 的服务端或工作流变化触发 `.github/workflows/deploy-server.yml`�
 2. 执行 `npm run build:release`，生成完整的 dist 目录，包含编译 JS、version.json、运行 package.json、锁文件、许可证和生产 node_modules。源码与开发依赖不上传。
 3. 启动 dist 中的服务进行真实 TCP ping/pong 检查。
 4. 将 dist 改名为 FallenFlowerServer，再 SCP 上传到 `/opt/FallenFlowerServer/.incoming-提交号/` 暂存。
-5. `tools/deploy.sh` 验证上传后，通过 systemctl 停止现有服务，将运行文件直接更新到 `/opt/FallenFlowerServer/`，重启并检查健康；不会生成 dist 子目录。
+5. 首次上传会先将文件放到主目录；若缺少 .env 或服务配置，日志提示手动配置并以失败状态结束，不会误报服务已运行。正常更新由 tools/deploy.sh 停服、更新主目录文件、重启并检查健康。
 6. 重启或健康检查失败则恢复上一 dist；成功后删除临时旧版和上传暂存，只保留当前版本。
 
 服务器不运行编译、npm install、Docker 或 Git 拉取。SSH 中断或磁盘错误若遗留 `.previous-runtime`，脚本会拒绝覆盖它；管理员需先核实并恢复该目录，再重新部署。
@@ -46,32 +46,55 @@ main 的服务端或工作流变化触发 `.github/workflows/deploy-server.yml`�
 
 ## 首次配置服务器
 
-先在主机安装 Node.js >=22.18、npm、systemd，确认 `/usr/bin/npm` 及 PATH 中的 node 可用。部署根目录由管理员手动创建并授予部署账号写入权限；Actions 只进入已存在的目录，在其中建立上传暂存目录。将本目录的 fallen-flower-room.service 和 .env.example 上传到主机当前目录，由管理员执行：
+先安装 Node.js >=22.18、npm、systemd，确认 `/usr/bin/npm` 可用。手动创建 `/opt/FallenFlowerServer/` 并授予部署账号写权限，工作流不会创建根目录。触发部署后，首次上传的 index.js、package.json 和 node_modules 会放到该目录；首次缺少配置时 Actions 会提示尚未完成启动。
+
+以下示例按当前登录账号 ubuntu 手动创建服务，不随发布包携带 unit。若部署使用其他账号，同时调整 User、Group 和 sudoers。
 
 ```bash
-id deploy >/dev/null 2>&1 || sudo adduser --disabled-password --gecos '' deploy
-sudo install -d -o deploy -g deploy /opt/FallenFlowerServer
-if ! sudo test -f /opt/FallenFlowerServer/.env; then
-  sudo install -m 600 -o deploy -g deploy .env.example /opt/FallenFlowerServer/.env
-fi
-sudo install -m 644 fallen-flower-room.service /etc/systemd/system/fallen-flower-room.service
+cd /opt/FallenFlowerServer
+touch .env
+chmod 600 .env
+sudo tee /etc/systemd/system/fallen-flower-room.service >/dev/null <<'EOF'
+[Unit]
+Description=Fallen Flower room server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/FallenFlowerServer
+EnvironmentFile=/opt/FallenFlowerServer/.env
+Environment=NODE_ENV=production
+Environment=NPM_CONFIG_CACHE=/tmp/fallen-flower-npm
+Environment=NPM_CONFIG_UPDATE_NOTIFIER=false
+ExecStart=/usr/bin/npm --silent start
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGINT
+
+[Install]
+WantedBy=multi-user.target
+EOF
 sudo systemctl daemon-reload
-sudo systemctl enable fallen-flower-room.service
-sudo visudo -f /etc/sudoers.d/fallen-flower-room-deploy
+sudo systemctl enable --now fallen-flower-room.service
+sudo systemctl status fallen-flower-room.service
 ```
 
-在 sudoers 添加以下精确命令（先确认 systemctl 路径）：
+空 .env 使用默认 TCP 27777 和其他默认配置；已有 .env 不会被 touch 覆盖。配置变量见下表。若启动失败，用 `sudo journalctl -u fallen-flower-room.service -n 80 --no-pager` 查看原因。
+
+Actions 账号必须能非交互执行所需 systemctl 命令。已有合适 sudo 权限时无需新增规则；否则管理员通过 `sudo visudo -f /etc/sudoers.d/fallen-flower-room-deploy` 添加精确授权，例如：
 
 ```sudoers
-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl cat fallen-flower-room.service, /usr/bin/systemctl restart fallen-flower-room.service, /usr/bin/systemctl stop fallen-flower-room.service, /usr/bin/systemctl is-active --quiet fallen-flower-room.service
+ubuntu ALL=(root) NOPASSWD: /usr/bin/systemctl cat fallen-flower-room.service, /usr/bin/systemctl restart fallen-flower-room.service, /usr/bin/systemctl stop fallen-flower-room.service, /usr/bin/systemctl is-active --quiet fallen-flower-room.service
 ```
 
-为 deploy 配置 Actions 登录公钥。GitHub production Environment 设置：
+为部署账号配置 Actions 登录公钥。GitHub production Environment 设置：
 
 | 名称                   | 类型     | 用途                     |
 | ---------------------- | -------- | ------------------------ |
 | DEPLOY_SSH_HOST        | Secret   | 主机地址                 |
-| DEPLOY_SSH_USER        | Secret   | deploy                   |
+| DEPLOY_SSH_USER        | Secret   | 实际部署账号，如 ubuntu  |
 | DEPLOY_SSH_PRIVATE_KEY | Secret   | 登录私钥                 |
 | DEPLOY_SSH_KNOWN_HOSTS | Secret   | 已核验的 SSH host-key 行 |
 | DEPLOY_SSH_PORT        | Variable | SSH 端口，默认 22        |
