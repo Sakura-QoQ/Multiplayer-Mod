@@ -46,7 +46,7 @@ main 的服务端或工作流变化触发 `.github/workflows/deploy-server.yml`�
 
 ## 首次配置服务器
 
-先在主机安装 Node.js >=22.18、npm、systemd，确认 `/usr/bin/npm` 及 PATH 中的 node 可用。将本目录的 fallen-flower-room.service 和 .env.example 上传到主机当前目录，由管理员执行：
+先在主机安装 Node.js >=22.18、npm、systemd，确认 `/usr/bin/npm` 及 PATH 中的 node 可用。部署根目录由管理员手动创建并授予部署账号写入权限；Actions 只进入已存在的目录，在其中建立上传暂存目录。将本目录的 fallen-flower-room.service 和 .env.example 上传到主机当前目录，由管理员执行：
 
 ```bash
 id deploy >/dev/null 2>&1 || sudo adduser --disabled-password --gecos '' deploy
